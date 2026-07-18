@@ -8,6 +8,12 @@ vi.mock("../maplibre/MapLibreLoader", () => {
     handlers = new Map<string, Array<() => void>>();
     addControl = vi.fn();
     setStyle = vi.fn();
+    setProjection = vi.fn();
+    getSource = vi.fn();
+    addSource = vi.fn();
+    addLayer = vi.fn();
+    removeLayer = vi.fn();
+    removeSource = vi.fn();
     constructor(public options: unknown) {}
     on(event: string, handler: () => void): void {
       const arr = this.handlers.get(event) ?? [];

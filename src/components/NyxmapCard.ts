@@ -82,9 +82,12 @@ export class NyxmapCard extends LitElement {
     // Fires on first load AND after every subsequent setStyle() (theme
     // swap). Sources/layers (history trails) get wiped by setStyle() and are
     // replayed here via _reattach; markers are unaffected and just get their
-    // positions refreshed.
+    // positions refreshed. Each style's own JSON may carry a "projection" of
+    // its own (defaulting to mercator when unset), so re-apply ours here too
+    // rather than only at construction.
     this._map.on("style.load", () => {
       this._ready = true;
+      if (this._config) this._map!.setProjection({ type: this._config.projection });
       this._reattach.replayAll(this._map!);
       if (this._config && this.hass) {
         this._entities?.update(this._config.entities, this.hass);

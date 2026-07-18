@@ -15,7 +15,12 @@ describe("MapConfig", () => {
     expect(cfg.focusFollow).toBe("none");
     expect(cfg.styleLight).toBe(DEFAULT_STYLE_LIGHT);
     expect(cfg.styleDark).toBe(DEFAULT_STYLE_DARK);
+    expect(cfg.projection).toBe("globe");
     expect(cfg.entities).toEqual([]);
+  });
+
+  it("respects an explicit projection override", () => {
+    expect(new MapConfig({ projection: "mercator" }).projection).toBe("mercator");
   });
 
   it("parses entities as a mix of strings and objects", () => {

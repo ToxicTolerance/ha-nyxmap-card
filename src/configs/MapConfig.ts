@@ -2,6 +2,7 @@ import { EntityConfig, type EntityConfigRaw } from "./EntityConfig";
 
 export type ThemeMode = "auto" | "light" | "dark";
 export type FocusFollow = "none" | "refocus" | "contains";
+export type MapProjection = "mercator" | "globe";
 
 // Free, keyless vector styles so a zero-config card renders on first run
 // (see CLAUDE.md §5 "Open risk to flag").
@@ -21,6 +22,7 @@ export interface MapConfigRaw {
   focus_follow?: FocusFollow;
   map_style?: string;
   map_style_dark?: string;
+  projection?: MapProjection;
   history_start?: string;
   history_end?: string;
   entities?: Array<string | EntityConfigRaw>;
@@ -40,6 +42,9 @@ export class MapConfig {
   readonly focusFollow: FocusFollow;
   readonly styleLight: string;
   readonly styleDark: string;
+  /** Not an upstream ha-map-card key (Leaflet has no globe projection) —
+   * MapLibre-native, defaults to "globe" per CLAUDE.md's globe decision. */
+  readonly projection: MapProjection;
   /** Card-level history_start/history_end fallback — inherited by entities
    * that don't define their own (see EntityConfig.historyStart). */
   readonly historyStart?: string;
@@ -60,6 +65,7 @@ export class MapConfig {
     this.focusFollow = raw.focus_follow ?? "none";
     this.styleLight = raw.map_style ?? DEFAULT_STYLE_LIGHT;
     this.styleDark = raw.map_style_dark ?? DEFAULT_STYLE_DARK;
+    this.projection = raw.projection ?? "globe";
     this.historyStart = raw.history_start;
     this.historyEnd = raw.history_end;
     this.entities = (raw.entities ?? []).map(EntityConfig.from);
