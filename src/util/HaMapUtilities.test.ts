@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MapConfig } from "../configs/MapConfig";
-import { resolveStyle, resolveThemeMode } from "./HaMapUtilities";
+import { resolveStyle, resolveThemeMode, resolveTime } from "./HaMapUtilities";
 
 describe("resolveThemeMode", () => {
   it("follows the system preference when auto", () => {
@@ -23,5 +23,32 @@ describe("resolveStyle", () => {
     });
     expect(resolveStyle(cfg, true)).toBe("https://example.com/dark.json");
     expect(resolveStyle(cfg, false)).toBe("https://example.com/light.json");
+  });
+});
+
+describe("resolveTime", () => {
+  const now = new Date("2026-07-18T12:00:00.000Z");
+
+  it("resolves relative time phrases against `now`", () => {
+    expect(resolveTime("5 hours ago", now)).toEqual(new Date("2026-07-18T07:00:00.000Z"));
+    expect(resolveTime("1 day ago", now)).toEqual(new Date("2026-07-17T12:00:00.000Z"));
+    expect(resolveTime("2 weeks ago", now)).toEqual(new Date("2026-07-04T12:00:00.000Z"));
+    expect(resolveTime("30 minutes ago", now)).toEqual(new Date("2026-07-18T11:30:00.000Z"));
+  });
+
+  it("is case-insensitive and tolerates singular units", () => {
+    expect(resolveTime("1 HOUR AGO", now)).toEqual(new Date("2026-07-18T11:00:00.000Z"));
+  });
+
+  it("resolves an absolute ISO date regardless of `now`", () => {
+    expect(resolveTime("2022-03-01T12:00:00Z", now)).toEqual(new Date("2022-03-01T12:00:00Z"));
+  });
+
+  it("returns null for an entity-id reference (deferred to Phase 9)", () => {
+    expect(resolveTime("input_number.history_hours", now)).toBeNull();
+  });
+
+  it("returns null for unparseable garbage instead of an Invalid Date", () => {
+    expect(resolveTime("not a date", now)).toBeNull();
   });
 });

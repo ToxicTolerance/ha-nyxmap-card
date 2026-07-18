@@ -12,14 +12,16 @@ export interface EntityConfigRaw {
   fixed_y?: number;
   z_index_offset?: number;
   history_start?: string;
+  history_end?: string;
   history_line_color?: string;
   [key: string]: unknown;
 }
 
 /** Per-entity config. Mirrors upstream ha-map-card's entity-level YAML surface
  * (see CLAUDE.md §5 for keys that don't carry over 1:1). Only display/marker
- * fields are wired to rendering in Phase 1 — history_start/history_line_color
- * are parsed now so Phase 2 doesn't need to touch this class again. */
+ * fields are wired to rendering in Phase 1; history_start/history_end fall
+ * back to MapConfig's card-level values when unset (see
+ * EntityHistoryManager). */
 export class EntityConfig {
   readonly id: string;
   readonly display: EntityDisplay;
@@ -32,6 +34,7 @@ export class EntityConfig {
   readonly fixedY?: number;
   readonly zIndexOffset: number;
   readonly historyStart?: string;
+  readonly historyEnd?: string;
   readonly historyLineColor?: string;
   readonly raw: EntityConfigRaw;
 
@@ -54,6 +57,7 @@ export class EntityConfig {
     this.fixedY = raw.fixed_y;
     this.zIndexOffset = raw.z_index_offset ?? 1;
     this.historyStart = raw.history_start;
+    this.historyEnd = raw.history_end;
     this.historyLineColor = raw.history_line_color ?? raw.color;
   }
 }

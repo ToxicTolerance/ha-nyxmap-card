@@ -26,3 +26,12 @@ export interface LovelaceCardConfig {
   type: string;
   [key: string]: unknown;
 }
+
+/** One row of a `history/history_during_period` (minimal_response) result. */
+export interface HistoryDuringPeriodRow {
+  a?: { latitude?: number; longitude?: number; [key: string]: unknown };
+  s?: string;
+  lu?: number;
+}
+
+export type HistoryDuringPeriodResult = Record<string, HistoryDuringPeriodRow[]>;

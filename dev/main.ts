@@ -8,7 +8,10 @@ card.setConfig({
   x: 13.4,
   y: 52.52,
   zoom: 11,
-  entities: ["device_tracker.demo_phone", "person.demo_alice"],
+  entities: [
+    { entity: "device_tracker.demo_phone", history_start: "5 hours ago", history_line_color: "#4287f5" },
+    "person.demo_alice",
+  ],
 });
 card.hass = createMockHass();
 

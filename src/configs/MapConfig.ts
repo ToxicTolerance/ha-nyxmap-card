@@ -21,6 +21,8 @@ export interface MapConfigRaw {
   focus_follow?: FocusFollow;
   map_style?: string;
   map_style_dark?: string;
+  history_start?: string;
+  history_end?: string;
   entities?: Array<string | EntityConfigRaw>;
   [key: string]: unknown;
 }
@@ -38,6 +40,10 @@ export class MapConfig {
   readonly focusFollow: FocusFollow;
   readonly styleLight: string;
   readonly styleDark: string;
+  /** Card-level history_start/history_end fallback — inherited by entities
+   * that don't define their own (see EntityConfig.historyStart). */
+  readonly historyStart?: string;
+  readonly historyEnd?: string;
   readonly entities: EntityConfig[];
 
   constructor(raw: MapConfigRaw) {
@@ -54,6 +60,8 @@ export class MapConfig {
     this.focusFollow = raw.focus_follow ?? "none";
     this.styleLight = raw.map_style ?? DEFAULT_STYLE_LIGHT;
     this.styleDark = raw.map_style_dark ?? DEFAULT_STYLE_DARK;
+    this.historyStart = raw.history_start;
+    this.historyEnd = raw.history_end;
     this.entities = (raw.entities ?? []).map(EntityConfig.from);
   }
 
