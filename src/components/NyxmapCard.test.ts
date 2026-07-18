@@ -14,6 +14,9 @@ vi.mock("../maplibre/MapLibreLoader", () => {
     addLayer = vi.fn();
     removeLayer = vi.fn();
     removeSource = vi.fn();
+    jumpTo = vi.fn();
+    fitBounds = vi.fn();
+    getBounds = vi.fn(() => ({ west: -180, east: 180, south: -85, north: 85 }));
     constructor(public options: unknown) {}
     on(event: string, handler: () => void): void {
       const arr = this.handlers.get(event) ?? [];

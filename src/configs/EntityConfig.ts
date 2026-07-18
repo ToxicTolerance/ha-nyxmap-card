@@ -11,6 +11,7 @@ export interface EntityConfigRaw {
   fixed_x?: number;
   fixed_y?: number;
   z_index_offset?: number;
+  focus_on_fit?: boolean;
   history_start?: string;
   history_end?: string;
   history_line_color?: string;
@@ -33,6 +34,7 @@ export class EntityConfig {
   readonly fixedX?: number;
   readonly fixedY?: number;
   readonly zIndexOffset: number;
+  readonly focusOnFit: boolean;
   readonly historyStart?: string;
   readonly historyEnd?: string;
   readonly historyLineColor?: string;
@@ -56,6 +58,7 @@ export class EntityConfig {
     this.fixedX = raw.fixed_x;
     this.fixedY = raw.fixed_y;
     this.zIndexOffset = raw.z_index_offset ?? 1;
+    this.focusOnFit = raw.focus_on_fit ?? true;
     this.historyStart = raw.history_start;
     this.historyEnd = raw.history_end;
     this.historyLineColor = raw.history_line_color ?? raw.color;

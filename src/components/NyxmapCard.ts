@@ -7,6 +7,7 @@ import { StyleReattach } from "../maplibre/StyleReattach";
 import { HaHistoryService } from "../services/HaHistoryService";
 import { EntitiesRenderService, type MapLibreGlLike } from "../services/render/EntitiesRenderService";
 import { HistoryRenderService, type MapSourceLike } from "../services/render/HistoryRenderService";
+import { InitialViewRenderService, type MapViewLike } from "../services/render/InitialViewRenderService";
 import type { HomeAssistant } from "../types/home-assistant";
 import { resolveStyle } from "../util/HaMapUtilities";
 import { nyxmapCardStyles } from "./NyxmapCard.styles";
@@ -23,8 +24,10 @@ export class NyxmapCard extends LitElement {
   private _ready = false;
   private _entities?: EntitiesRenderService;
   private _history?: HistoryRenderService;
+  private _initialViewApplied = false;
   private readonly _reattach = new StyleReattach();
   private readonly _historyManager = new EntityHistoryManager();
+  private readonly _initialView = new InitialViewRenderService();
 
   setConfig(config: MapConfigRaw): void {
     this._config = new MapConfig(config);
@@ -43,6 +46,13 @@ export class NyxmapCard extends LitElement {
     }
     if (changed.has("hass") && this._ready && this._config && this.hass) {
       this._entities?.update(this._config.entities, this.hass);
+      this._applyInitialViewIfNeeded();
+      this._initialView.updateFit(
+        this._map as unknown as MapViewLike,
+        this._config.entities,
+        this.hass,
+        this._config.focusFollow,
+      );
     }
   }
 
@@ -65,10 +75,11 @@ export class NyxmapCard extends LitElement {
     if (!config || !container) return;
     this._built = true;
 
+    const initialCenter = this._initialView.getInitialCenter(config, this.hass) ?? [config.x ?? 0, config.y ?? 0];
     this._map = new maplibregl.Map({
       container,
       style: resolveStyle(config, this._prefersDark()),
-      center: [config.x ?? 0, config.y ?? 0],
+      center: initialCenter,
       zoom: config.zoom,
       attributionControl: { compact: true },
     });
@@ -92,8 +103,24 @@ export class NyxmapCard extends LitElement {
       if (this._config && this.hass) {
         this._entities?.update(this._config.entities, this.hass);
         this._refreshHistory();
+        this._applyInitialViewIfNeeded();
       }
     });
+  }
+
+  /** Runs once, the first time hass+config are both available after the map
+   * is ready. Corrects the map to the right explicit/focus_entity center —
+   * or fits all entities — even if hass wasn't available yet when _buildMap()
+   * picked the constructor's initial (possibly [0,0]-fallback) center. */
+  private _applyInitialViewIfNeeded(): void {
+    if (this._initialViewApplied || !this._config || !this.hass || !this._map) return;
+    this._initialViewApplied = true;
+    const center = this._initialView.getInitialCenter(this._config, this.hass);
+    if (center) {
+      this._map.jumpTo({ center, zoom: this._config.zoom });
+    } else {
+      this._initialView.fitAllEntities(this._map as unknown as MapViewLike, this._config.entities, this.hass);
+    }
   }
 
   private _refreshHistory(): void {
