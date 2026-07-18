@@ -21,6 +21,19 @@ npm run typecheck    # tsc --noEmit
 
 ## Installing in Home Assistant
 
+### Via HACS (once a release exists)
+
+1. HACS → Frontend → ⋮ menu → Custom repositories
+2. Add `https://github.com/ToxicTolerance/ha-nyxmap-card`, category "Plugin"
+3. Install "NyxMap Card", then add it as a Lovelace resource (HACS does this automatically for plugins)
+4. Add a card with `type: custom:nyxmap-card`
+
+Releases are cut by pushing a `v*` tag — `.github/workflows/release.yml` builds
+`dist/nyxmap-card.js` and attaches it to a GitHub Release, which is what HACS
+downloads (`filename` in `hacs.json` points at that asset).
+
+### Manual
+
 1. `npm run build`
 2. Copy `dist/nyxmap-card.js` to `/config/www/nyxmap-card.js`
 3. Add it as a Lovelace dashboard resource of type "JavaScript Module"
