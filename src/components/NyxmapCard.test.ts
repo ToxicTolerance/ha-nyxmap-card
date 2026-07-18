@@ -14,6 +14,7 @@ vi.mock("../maplibre/MapLibreLoader", () => {
     addLayer = vi.fn();
     removeLayer = vi.fn();
     removeSource = vi.fn();
+    setLayoutProperty = vi.fn();
     jumpTo = vi.fn();
     fitBounds = vi.fn();
     getBounds = vi.fn(() => ({ west: -180, east: 180, south: -85, north: 85 }));
@@ -75,7 +76,11 @@ interface TestableNyxmapCard extends HTMLElement {
   setConfig(config: unknown): void;
   readonly updateComplete: Promise<boolean>;
   hass?: HomeAssistant;
-  _map?: { fire(event: string): void; setStyle: ReturnType<typeof vi.fn> };
+  _map?: {
+    fire(event: string): void;
+    setStyle: ReturnType<typeof vi.fn>;
+    setLayoutProperty: ReturnType<typeof vi.fn>;
+  };
   _entities?: EntitiesRenderService;
 }
 
@@ -85,6 +90,13 @@ function asTestable(el: InstanceType<typeof NyxmapCard>): TestableNyxmapCard {
 
 function hassWith(states: HomeAssistant["states"]): HomeAssistant {
   return { states, callWS: vi.fn(), language: "en" };
+}
+
+// Flushes pending microtasks *and* any promise chains queued behind a
+// setTimeout/real async boundary (queueMicrotask alone isn't enough once a
+// chain spans multiple ticks, e.g. an awaited fetch followed by a .then()).
+function flushMicrotasks(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 describe("NyxmapCard", () => {
@@ -172,6 +184,78 @@ describe("NyxmapCard", () => {
     expect(moreInfo).toHaveBeenCalledTimes(1);
     expect((moreInfo.mock.calls[0]![0] as CustomEvent).detail).toEqual({
       entityId: "device_tracker.phone",
+    });
+  });
+
+  describe("layer switcher", () => {
+    it("does not render the switcher when layer_switcher is unset (default false)", async () => {
+      el.setConfig({});
+      await el.updateComplete;
+
+      expect(el.shadowRoot!.querySelector("nyxmap-layer-switcher")).toBeNull();
+    });
+
+    it("renders the switcher with Light/Dark base-style options when layer_switcher is true", async () => {
+      el.setConfig({ layer_switcher: true });
+      await el.updateComplete;
+      await flushMicrotasks();
+      await el.updateComplete;
+
+      const switcher = el.shadowRoot!.querySelector("nyxmap-layer-switcher") as unknown as {
+        baseStyles: Array<{ id: string; label: string; active: boolean }>;
+      };
+      expect(switcher).not.toBeNull();
+      expect(switcher.baseStyles.map((s) => s.id).sort()).toEqual(["dark", "light"]);
+    });
+
+    it("selecting a base style pins map.setStyle to that style's URL", async () => {
+      el.setConfig({
+        layer_switcher: true,
+        map_style: "https://example.com/light.json",
+        map_style_dark: "https://example.com/dark.json",
+      });
+      await el.updateComplete;
+      await flushMicrotasks();
+      await el.updateComplete;
+
+      const switcher = el.shadowRoot!.querySelector("nyxmap-layer-switcher") as unknown as {
+        onSelectBaseStyle: (id: string) => void;
+      };
+      switcher.onSelectBaseStyle("dark");
+      await el.updateComplete;
+
+      expect(el._map!.setStyle).toHaveBeenCalledWith("https://example.com/dark.json");
+    });
+
+    it("toggling a history overlay calls setLayoutProperty via LayerRegistry", async () => {
+      el.setConfig({
+        layer_switcher: true,
+        entities: [{ entity: "device_tracker.phone", fixed_x: 1, fixed_y: 2, history_start: "1 hour ago" }],
+      });
+      await el.updateComplete;
+      el._map!.fire("style.load");
+      el.hass = {
+        states: {},
+        language: "en",
+        callWS: vi.fn().mockResolvedValue({
+          "device_tracker.phone": [{ a: { latitude: 1, longitude: 2 } }, { a: { latitude: 3, longitude: 4 } }],
+        }),
+      };
+      await el.updateComplete;
+      await flushMicrotasks();
+      await flushMicrotasks();
+      await el.updateComplete;
+
+      const switcher = el.shadowRoot!.querySelector("nyxmap-layer-switcher") as unknown as {
+        overlays: Array<{ id: string }>;
+        onToggleOverlay: (id: string) => void;
+      };
+      expect(switcher.overlays).toHaveLength(1);
+      const overlayId = switcher.overlays[0]!.id;
+
+      switcher.onToggleOverlay(overlayId);
+
+      expect(el._map!.setLayoutProperty).toHaveBeenCalledWith(overlayId, "visibility", "none");
     });
   });
 });

@@ -1,5 +1,6 @@
 import type { EntityHistory } from "../../models/EntityHistory";
 import type { StyleReattach } from "../../maplibre/StyleReattach";
+import type { LayerRegistry } from "./LayerRegistry";
 
 /** The subset of maplibregl.Map HistoryRenderService needs. */
 export interface MapSourceLike {
@@ -8,6 +9,7 @@ export interface MapSourceLike {
   getSource(id: string): { setData(data: unknown): void } | undefined;
   removeLayer(id: string): unknown;
   removeSource(id: string): unknown;
+  setLayoutProperty(layerId: string, name: string, value: unknown): unknown;
 }
 
 function sourceId(entityId: string): string {
@@ -22,13 +24,17 @@ function toGeoJson(coordinates: Array<[number, number]>) {
   };
 }
 
-function toLayer(id: string, lineColor: string) {
+function toLayer(id: string, lineColor: string, visible: boolean) {
   return {
     id,
     type: "line" as const,
     source: id,
     paint: { "line-color": lineColor, "line-width": 3, "line-opacity": 0.8 },
-    layout: { "line-cap": "round" as const, "line-join": "round" as const },
+    layout: {
+      "line-cap": "round" as const,
+      "line-join": "round" as const,
+      visibility: visible ? ("visible" as const) : ("none" as const),
+    },
   };
 }
 
@@ -37,13 +43,20 @@ function toLayer(id: string, lineColor: string) {
  * Unlike markers, sources/layers are wiped by every map.setStyle() (theme
  * swap) — each entity's most recent trail is registered with StyleReattach
  * so it gets replayed on "style.load" instead of silently disappearing.
+ *
+ * Each trail is also registered with LayerRegistry as a toggleable overlay
+ * (the layer switcher). Visibility is tracked here rather than just left to
+ * MapLibre's layer state, so a StyleReattach replay after a theme swap
+ * recreates a hidden trail still hidden instead of it silently reappearing.
  */
 export class HistoryRenderService {
   private readonly active = new Set<string>();
+  private readonly visibility = new Map<string, boolean>();
 
   constructor(
     private readonly map: MapSourceLike,
     private readonly reattach: StyleReattach,
+    private readonly layerRegistry: LayerRegistry,
   ) {}
 
   update(histories: Map<string, EntityHistory>): void {
@@ -69,13 +82,14 @@ export class HistoryRenderService {
   private _upsert(history: EntityHistory): void {
     const id = sourceId(history.entityId);
     const geojson = toGeoJson(history.coordinates);
+    const isVisible = () => this.visibility.get(id) ?? true;
 
     const existingSource = this.map.getSource(id);
     if (existingSource) {
       existingSource.setData(geojson);
     } else {
       this.map.addSource(id, { type: "geojson", data: geojson });
-      this.map.addLayer(toLayer(id, history.lineColor));
+      this.map.addLayer(toLayer(id, history.lineColor, isVisible()));
       this.active.add(history.entityId);
     }
 
@@ -85,13 +99,24 @@ export class HistoryRenderService {
       const m = map as unknown as MapSourceLike;
       if (m.getSource(id)) return;
       m.addSource(id, { type: "geojson", data: geojson });
-      m.addLayer(toLayer(id, history.lineColor));
+      m.addLayer(toLayer(id, history.lineColor, isVisible()));
+    });
+
+    this.layerRegistry.registerOverlay(id, {
+      label: `History: ${history.entityId}`,
+      group: "history",
+      setVisible: (map, visible) => {
+        this.visibility.set(id, visible);
+        (map as MapSourceLike).setLayoutProperty(id, "visibility", visible ? "visible" : "none");
+      },
     });
   }
 
   private _remove(entityId: string): void {
     const id = sourceId(entityId);
     this.reattach.unregister(id);
+    this.layerRegistry.unregister(id);
+    this.visibility.delete(id);
     this.active.delete(entityId);
     if (this.map.getSource(id)) {
       this.map.removeLayer(id);

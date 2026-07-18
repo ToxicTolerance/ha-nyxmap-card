@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MapConfig } from "../configs/MapConfig";
-import { resolveStyle, resolveThemeMode, resolveTime } from "./HaMapUtilities";
+import { resolveStyle, resolveStylePair, resolveThemeMode, resolveTime } from "./HaMapUtilities";
 
 describe("resolveThemeMode", () => {
   it("follows the system preference when auto", () => {
@@ -23,6 +23,21 @@ describe("resolveStyle", () => {
     });
     expect(resolveStyle(cfg, true)).toBe("https://example.com/dark.json");
     expect(resolveStyle(cfg, false)).toBe("https://example.com/light.json");
+  });
+});
+
+describe("resolveStylePair", () => {
+  it("resolves an arbitrary light/dark pair the same way resolveStyle does", () => {
+    const pair = { styleLight: "a", styleDark: "b" };
+    expect(resolveStylePair(pair, "auto", true)).toBe("b");
+    expect(resolveStylePair(pair, "auto", false)).toBe("a");
+    expect(resolveStylePair(pair, "dark", false)).toBe("b");
+  });
+
+  it("pins to one URL when both fields match (the switcher's Light/Dark entries)", () => {
+    const pinned = { styleLight: "pinned", styleDark: "pinned" };
+    expect(resolveStylePair(pinned, "auto", true)).toBe("pinned");
+    expect(resolveStylePair(pinned, "auto", false)).toBe("pinned");
   });
 });
 

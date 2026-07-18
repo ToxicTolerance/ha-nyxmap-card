@@ -16,11 +16,40 @@ describe("MapConfig", () => {
     expect(cfg.styleLight).toBe(DEFAULT_STYLE_LIGHT);
     expect(cfg.styleDark).toBe(DEFAULT_STYLE_DARK);
     expect(cfg.projection).toBe("globe");
+    expect(cfg.layerSwitcher).toBe(false);
+    expect(cfg.mapStyles).toEqual([]);
     expect(cfg.entities).toEqual([]);
   });
 
   it("respects an explicit projection override", () => {
     expect(new MapConfig({ projection: "mercator" }).projection).toBe("mercator");
+  });
+
+  it("parses map_styles, defaulting styleDark to the light style when unset", () => {
+    const cfg = new MapConfig({
+      layer_switcher: true,
+      map_styles: [
+        { name: "Streets", map_style: "https://example.com/streets.json" },
+        {
+          name: "Satellite",
+          map_style: "https://example.com/sat-day.json",
+          map_style_dark: "https://example.com/sat-night.json",
+        },
+      ],
+    });
+    expect(cfg.layerSwitcher).toBe(true);
+    expect(cfg.mapStyles).toEqual([
+      {
+        name: "Streets",
+        styleLight: "https://example.com/streets.json",
+        styleDark: "https://example.com/streets.json",
+      },
+      {
+        name: "Satellite",
+        styleLight: "https://example.com/sat-day.json",
+        styleDark: "https://example.com/sat-night.json",
+      },
+    ]);
   });
 
   it("parses entities as a mix of strings and objects", () => {

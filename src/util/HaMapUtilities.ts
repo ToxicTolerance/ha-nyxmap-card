@@ -6,11 +6,21 @@ export function resolveThemeMode(themeMode: ThemeMode, prefersDark: boolean): "l
   return themeMode;
 }
 
+/** Picks a style URL from a light/dark pair for the current theme — shared by
+ * resolveStyle() (the card's primary map_style/map_style_dark) and the layer
+ * switcher, which resolves the same way for whichever base-style entry is
+ * currently selected (see LayerRegistry.BaseStyleEntry). */
+export function resolveStylePair(
+  pair: { styleLight: string; styleDark: string },
+  themeMode: ThemeMode,
+  prefersDark: boolean,
+): string {
+  return resolveThemeMode(themeMode, prefersDark) === "dark" ? pair.styleDark : pair.styleLight;
+}
+
 /** Picks the MapLibre style URL for the current theme. */
 export function resolveStyle(config: MapConfig, prefersDark: boolean): string {
-  return resolveThemeMode(config.themeMode, prefersDark) === "dark"
-    ? config.styleDark
-    : config.styleLight;
+  return resolveStylePair(config, config.themeMode, prefersDark);
 }
 
 const RELATIVE_TIME_RE = /^(\d+)\s+(minute|hour|day|week)s?\s+ago$/i;

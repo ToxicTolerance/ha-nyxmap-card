@@ -3,25 +3,29 @@ import { EntityHistory } from "../../models/EntityHistory";
 import { StyleReattach } from "../../maplibre/StyleReattach";
 import { createFakeMaplibreMap } from "../../../test/fakes/FakeMaplibreMap";
 import { HistoryRenderService } from "./HistoryRenderService";
+import { LayerRegistry } from "./LayerRegistry";
 
 function historiesOf(...entries: EntityHistory[]): Map<string, EntityHistory> {
   return new Map(entries.map((h) => [h.entityId, h]));
 }
 
+function twoPointHistory(entityId: string, color = "#ff0000"): EntityHistory {
+  return new EntityHistory(
+    entityId,
+    [
+      [1, 2],
+      [3, 4],
+    ],
+    color,
+  );
+}
+
 describe("HistoryRenderService", () => {
   it("adds a source and line layer for an entity with a resolvable path", () => {
     const map = createFakeMaplibreMap();
-    const service = new HistoryRenderService(map as never, new StyleReattach());
-    const history = new EntityHistory(
-      "device_tracker.phone",
-      [
-        [1, 2],
-        [3, 4],
-      ],
-      "#ff0000",
-    );
+    const service = new HistoryRenderService(map as never, new StyleReattach(), new LayerRegistry());
 
-    service.update(historiesOf(history));
+    service.update(historiesOf(twoPointHistory("device_tracker.phone")));
 
     expect(map.addSource).toHaveBeenCalledWith(
       "history-device_tracker.phone",
@@ -35,7 +39,7 @@ describe("HistoryRenderService", () => {
 
   it("skips a history with fewer than two points", () => {
     const map = createFakeMaplibreMap();
-    const service = new HistoryRenderService(map as never, new StyleReattach());
+    const service = new HistoryRenderService(map as never, new StyleReattach(), new LayerRegistry());
 
     service.update(historiesOf(new EntityHistory("device_tracker.phone", [[1, 2]], "#ff0000")));
 
@@ -47,62 +51,37 @@ describe("HistoryRenderService", () => {
     const map = createFakeMaplibreMap();
     const setData = vi.fn();
     map.getSource.mockReturnValue({ setData });
-    const service = new HistoryRenderService(map as never, new StyleReattach());
+    const service = new HistoryRenderService(map as never, new StyleReattach(), new LayerRegistry());
 
-    service.update(
-      historiesOf(
-        new EntityHistory(
-          "device_tracker.phone",
-          [
-            [1, 2],
-            [3, 4],
-          ],
-          "#ff0000",
-        ),
-      ),
-    );
+    service.update(historiesOf(twoPointHistory("device_tracker.phone")));
 
     expect(setData).toHaveBeenCalledTimes(1);
     expect(map.addSource).not.toHaveBeenCalled();
   });
 
-  it("removes the source/layer and unregisters reattach when an entity drops out", () => {
+  it("removes the source/layer and unregisters reattach + the layer switcher when an entity drops out", () => {
     const map = createFakeMaplibreMap();
     const reattach = new StyleReattach();
-    const service = new HistoryRenderService(map as never, reattach);
-    const history = new EntityHistory(
-      "device_tracker.phone",
-      [
-        [1, 2],
-        [3, 4],
-      ],
-      "#ff0000",
-    );
+    const layerRegistry = new LayerRegistry();
+    const service = new HistoryRenderService(map as never, reattach, layerRegistry);
 
-    service.update(historiesOf(history));
+    service.update(historiesOf(twoPointHistory("device_tracker.phone")));
     map.getSource.mockReturnValue({ setData: vi.fn() }); // simulate the source now existing
     service.update(new Map());
 
     expect(map.removeLayer).toHaveBeenCalledWith("history-device_tracker.phone");
     expect(map.removeSource).toHaveBeenCalledWith("history-device_tracker.phone");
     expect(reattach.has("history-device_tracker.phone")).toBe(false);
+    expect(layerRegistry.getOverlays().has("history-device_tracker.phone")).toBe(false);
     expect(service.has("device_tracker.phone")).toBe(false);
   });
 
   it("registers a StyleReattach factory that replays the most recent data after a style reload", () => {
     const map = createFakeMaplibreMap();
     const reattach = new StyleReattach();
-    const service = new HistoryRenderService(map as never, reattach);
-    const history = new EntityHistory(
-      "device_tracker.phone",
-      [
-        [1, 2],
-        [3, 4],
-      ],
-      "#ff0000",
-    );
+    const service = new HistoryRenderService(map as never, reattach, new LayerRegistry());
 
-    service.update(historiesOf(history));
+    service.update(historiesOf(twoPointHistory("device_tracker.phone")));
 
     // Simulate setStyle() wiping sources/layers: a fresh map with no source.
     const freshMap = createFakeMaplibreMap();
@@ -117,31 +96,60 @@ describe("HistoryRenderService", () => {
 
   it("removeAll() clears every tracked trail", () => {
     const map = createFakeMaplibreMap();
-    const service = new HistoryRenderService(map as never, new StyleReattach());
-    service.update(
-      historiesOf(
-        new EntityHistory(
-          "a",
-          [
-            [1, 2],
-            [3, 4],
-          ],
-          "#fff",
-        ),
-        new EntityHistory(
-          "b",
-          [
-            [5, 6],
-            [7, 8],
-          ],
-          "#000",
-        ),
-      ),
-    );
+    const service = new HistoryRenderService(map as never, new StyleReattach(), new LayerRegistry());
+    service.update(historiesOf(twoPointHistory("a", "#fff"), twoPointHistory("b", "#000")));
 
     service.removeAll();
 
     expect(service.has("a")).toBe(false);
     expect(service.has("b")).toBe(false);
+  });
+
+  describe("layer switcher integration", () => {
+    it("registers an overlay entry for each trail it creates", () => {
+      const map = createFakeMaplibreMap();
+      const layerRegistry = new LayerRegistry();
+      const service = new HistoryRenderService(map as never, new StyleReattach(), layerRegistry);
+
+      service.update(historiesOf(twoPointHistory("device_tracker.phone")));
+
+      const overlay = layerRegistry.getOverlays().get("history-device_tracker.phone");
+      expect(overlay?.label).toContain("device_tracker.phone");
+      expect(overlay?.group).toBe("history");
+    });
+
+    it("setVisible(map, false) hides the layer via setLayoutProperty", () => {
+      const map = createFakeMaplibreMap();
+      const layerRegistry = new LayerRegistry();
+      const service = new HistoryRenderService(map as never, new StyleReattach(), layerRegistry);
+      service.update(historiesOf(twoPointHistory("device_tracker.phone")));
+
+      const overlay = layerRegistry.getOverlays().get("history-device_tracker.phone")!;
+      overlay.setVisible(map, false);
+
+      expect(map.setLayoutProperty).toHaveBeenCalledWith(
+        "history-device_tracker.phone",
+        "visibility",
+        "none",
+      );
+    });
+
+    it("a StyleReattach replay after hiding a trail recreates it still hidden", () => {
+      const map = createFakeMaplibreMap();
+      const reattach = new StyleReattach();
+      const layerRegistry = new LayerRegistry();
+      const service = new HistoryRenderService(map as never, reattach, layerRegistry);
+      service.update(historiesOf(twoPointHistory("device_tracker.phone")));
+
+      const overlay = layerRegistry.getOverlays().get("history-device_tracker.phone")!;
+      overlay.setVisible(map, false);
+
+      const freshMap = createFakeMaplibreMap();
+      reattach.replayAll(freshMap as never);
+
+      expect(freshMap.addLayer).toHaveBeenCalledWith(
+        expect.objectContaining({ layout: expect.objectContaining({ visibility: "none" }) }),
+      );
+    });
   });
 });

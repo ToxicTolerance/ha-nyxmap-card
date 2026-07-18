@@ -8,8 +8,13 @@ export const nyxmapCardStyles = css`
     overflow: hidden;
     height: 100%;
   }
+  .nyxmap-viewport {
+    position: relative;
+    width: 100%;
+  }
   .nyxmap-container {
     width: 100%;
+    height: 100%;
   }
   .nyxmap-marker {
     background-size: cover;

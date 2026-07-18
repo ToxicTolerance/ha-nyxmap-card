@@ -8,8 +8,11 @@ import { HaHistoryService } from "../services/HaHistoryService";
 import { EntitiesRenderService, type MapLibreGlLike } from "../services/render/EntitiesRenderService";
 import { HistoryRenderService, type MapSourceLike } from "../services/render/HistoryRenderService";
 import { InitialViewRenderService, type MapViewLike } from "../services/render/InitialViewRenderService";
+import { LayerRegistry } from "../services/render/LayerRegistry";
 import type { HomeAssistant } from "../types/home-assistant";
-import { resolveStyle } from "../util/HaMapUtilities";
+import { resolveStyle, resolveStylePair, resolveThemeMode } from "../util/HaMapUtilities";
+import "./LayerSwitcherControl";
+import type { SwitcherBaseStyleItem, SwitcherOverlayItem } from "./LayerSwitcherControl";
 import { nyxmapCardStyles } from "./NyxmapCard.styles";
 
 @customElement("nyxmap-card")
@@ -18,6 +21,9 @@ export class NyxmapCard extends LitElement {
 
   @property({ attribute: false }) hass?: HomeAssistant;
   @state() private _config?: MapConfig;
+  /** Layer switcher's base-style radio selection; undefined means "no
+   * manual override, follow theme_mode" (the original Phase 1 behavior). */
+  @state() private _manualStyleId?: string;
 
   private _map?: maplibregl.Map;
   private _built = false;
@@ -25,14 +31,17 @@ export class NyxmapCard extends LitElement {
   private _entities?: EntitiesRenderService;
   private _history?: HistoryRenderService;
   private _initialViewApplied = false;
+  private _historyCatchUpDone = false;
   private readonly _reattach = new StyleReattach();
   private readonly _historyManager = new EntityHistoryManager();
   private readonly _initialView = new InitialViewRenderService();
+  private readonly _layerRegistry = new LayerRegistry();
+  private readonly _overlayVisibility = new Map<string, boolean>();
 
   setConfig(config: MapConfigRaw): void {
     this._config = new MapConfig(config);
     if (this._built && this._map) {
-      this._map.setStyle(resolveStyle(this._config, this._prefersDark()));
+      this._map.setStyle(this._resolveActiveStyleUrl());
     }
   }
 
@@ -53,6 +62,10 @@ export class NyxmapCard extends LitElement {
         this.hass,
         this._config.focusFollow,
       );
+      // Catch-up for the (uncommon but possible) case where hass wasn't set
+      // yet when "style.load" first fired, so the refresh below never ran.
+      // Guarded so it only ever fires once — see _refreshHistory().
+      if (!this._historyCatchUpDone) this._refreshHistory();
     }
   }
 
@@ -60,7 +73,17 @@ export class NyxmapCard extends LitElement {
     const height = this._config?.mapHeight ?? 250;
     return html`
       <ha-card .header=${this._config?.title}>
-        <div class="nyxmap-container" style="height: ${height}px"></div>
+        <div class="nyxmap-viewport" style="height: ${height}px">
+          <div class="nyxmap-container"></div>
+          ${this._config?.layerSwitcher
+            ? html`<nyxmap-layer-switcher
+                .baseStyles=${this._baseStyleItems()}
+                .overlays=${this._overlayItems()}
+                .onSelectBaseStyle=${(id: string) => this._onSelectBaseStyle(id)}
+                .onToggleOverlay=${(id: string) => this._onToggleOverlay(id)}
+              ></nyxmap-layer-switcher>`
+            : null}
+        </div>
       </ha-card>
     `;
   }
@@ -69,16 +92,85 @@ export class NyxmapCard extends LitElement {
     return matchMedia("(prefers-color-scheme: dark)").matches;
   }
 
+  /** Manual switcher selection (if any) takes precedence over the automatic
+   * theme_mode resolution — see LayerRegistry.BaseStyleEntry: each entry is
+   * still a light/dark pair, so a genuinely dual-variant custom style keeps
+   * responding to the system theme even while "selected". */
+  private _resolveActiveStyleUrl(): string {
+    if (this._manualStyleId && this._config) {
+      const entry = this._layerRegistry.getBaseStyles().get(this._manualStyleId);
+      if (entry) return resolveStylePair(entry, this._config.themeMode, this._prefersDark());
+    }
+    return resolveStyle(this._config!, this._prefersDark());
+  }
+
+  private _defaultBaseStyleId(): "light" | "dark" {
+    if (!this._config) return "light";
+    return resolveThemeMode(this._config.themeMode, this._prefersDark()) === "dark" ? "dark" : "light";
+  }
+
+  private _baseStyleItems(): SwitcherBaseStyleItem[] {
+    const activeId = this._manualStyleId ?? this._defaultBaseStyleId();
+    return [...this._layerRegistry.getBaseStyles().entries()].map(([id, entry]) => ({
+      id,
+      label: entry.label,
+      active: id === activeId,
+    }));
+  }
+
+  private _overlayItems(): SwitcherOverlayItem[] {
+    return [...this._layerRegistry.getOverlays().entries()].map(([id, entry]) => ({
+      id,
+      label: entry.label,
+      group: entry.group,
+      active: this._overlayVisibility.get(id) ?? true,
+    }));
+  }
+
+  private _onSelectBaseStyle(id: string): void {
+    this._manualStyleId = id;
+    if (this._map) this._map.setStyle(this._resolveActiveStyleUrl());
+  }
+
+  private _onToggleOverlay(id: string): void {
+    const next = !(this._overlayVisibility.get(id) ?? true);
+    this._overlayVisibility.set(id, next);
+    const entry = this._layerRegistry.getOverlays().get(id);
+    if (entry && this._map) entry.setVisible(this._map, next);
+    this.requestUpdate();
+  }
+
   private _buildMap(): void {
     const config = this._config;
     const container = this.renderRoot.querySelector<HTMLDivElement>(".nyxmap-container");
     if (!config || !container) return;
     this._built = true;
 
+    // Seeds the layer switcher's base-style radio group. Registered once at
+    // build time — changing map_styles on a later setConfig() won't add new
+    // options until the card is reloaded, an accepted MVP simplification.
+    this._layerRegistry.registerBaseStyle("light", {
+      label: "Light",
+      styleLight: config.styleLight,
+      styleDark: config.styleLight,
+    });
+    this._layerRegistry.registerBaseStyle("dark", {
+      label: "Dark",
+      styleLight: config.styleDark,
+      styleDark: config.styleDark,
+    });
+    for (const s of config.mapStyles) {
+      this._layerRegistry.registerBaseStyle(`custom:${s.name}`, {
+        label: s.name,
+        styleLight: s.styleLight,
+        styleDark: s.styleDark,
+      });
+    }
+
     const initialCenter = this._initialView.getInitialCenter(config, this.hass) ?? [config.x ?? 0, config.y ?? 0];
     this._map = new maplibregl.Map({
       container,
-      style: resolveStyle(config, this._prefersDark()),
+      style: this._resolveActiveStyleUrl(),
       center: initialCenter,
       zoom: config.zoom,
       attributionControl: { compact: true },
@@ -88,7 +180,18 @@ export class NyxmapCard extends LitElement {
     this._entities = new EntitiesRenderService(this._map, maplibregl as unknown as MapLibreGlLike, (entityId) =>
       this._fireMoreInfo(entityId),
     );
-    this._history = new HistoryRenderService(this._map as unknown as MapSourceLike, this._reattach);
+    this._history = new HistoryRenderService(
+      this._map as unknown as MapSourceLike,
+      this._reattach,
+      this._layerRegistry,
+    );
+
+    // Base styles are now registered — re-render so the switcher (if
+    // enabled) reflects them instead of showing an empty radio group.
+    // Deferred to a microtask: _buildMap() runs synchronously inside
+    // updated(), and requesting another update from there triggers Lit's
+    // "scheduled an update after an update completed" dev-mode warning.
+    queueMicrotask(() => this.requestUpdate());
 
     // Fires on first load AND after every subsequent setStyle() (theme
     // swap). Sources/layers (history trails) get wiped by setStyle() and are
@@ -123,14 +226,24 @@ export class NyxmapCard extends LitElement {
     }
   }
 
+  /** Called from style.load (every reload, e.g. a theme swap) and, once, as
+   * a startup catch-up from updated()'s hass branch if hass wasn't set yet
+   * when the first style.load fired — see _historyCatchUpDone above. */
   private _refreshHistory(): void {
     if (!this._config || !this.hass || !this._history) return;
+    this._historyCatchUpDone = true;
     const historyService = new HaHistoryService(this.hass);
     void this._historyManager
       .refresh(this._config.entities, this._config, (entityId, start, end) =>
         historyService.fetchPath(entityId, start, end),
       )
-      .then((histories) => this._history?.update(histories));
+      .then((histories) => {
+        this._history?.update(histories);
+        // History overlays are registered as a side effect of update() —
+        // re-render so the switcher (if enabled) picks up any new/removed
+        // per-entity checkboxes.
+        this.requestUpdate();
+      });
   }
 
   private _fireMoreInfo(entityId: string): void {
