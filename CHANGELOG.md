@@ -5,6 +5,20 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-07-19
+
+### Added
+
+- A visual card editor: opening "Edit card" now shows a form instead of raw
+  YAML, covering every card-level option (title, position/zoom, height,
+  theme, map styles, projection, layer switcher, history range) plus a full
+  entities list — add/remove/reorder entities, and edit each one's display,
+  picture, icon, label, color, size, fixed position, z-index, focus-on-fit,
+  and history fields. Built on Home Assistant's own `ha-form`/selector
+  elements, so it looks and behaves like any other core card's editor.
+  `circle`, `geojson`, `tile_layers`, and `wms` aren't in the visual editor
+  yet — use the "Edit in YAML" toggle in the same dialog for those.
+
 ## [0.4.2] - 2026-07-19
 
 ### Fixed
