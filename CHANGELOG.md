@@ -5,6 +5,18 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-07-19
+
+### Fixed
+
+- Layer switcher overlapping the title: 0.4.1 made the title part of the
+  same flex column as the map, but the switcher's `position:absolute;
+  top:8px; left:8px` was still scoped to that whole column, landing on top
+  of the title bar instead of the map's own top-left corner. The map area
+  now has its own positioning context, separate from the title, so the
+  switcher is always anchored to the map regardless of whether a title is
+  configured.
+
 ## [0.4.1] - 2026-07-19
 
 ### Fixed
@@ -141,7 +153,8 @@ Initial HACS-installable release.
 - HACS packaging (`hacs.json`, release workflow publishing `nyxmap-card.js`
   as a GitHub Release asset).
 
-[Unreleased]: https://github.com/ToxicTolerance/ha-nyxmap-card/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/ToxicTolerance/ha-nyxmap-card/compare/v0.4.2...HEAD
+[0.4.2]: https://github.com/ToxicTolerance/ha-nyxmap-card/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/ToxicTolerance/ha-nyxmap-card/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/ToxicTolerance/ha-nyxmap-card/compare/v0.3.3...v0.4.0
 [0.3.3]: https://github.com/ToxicTolerance/ha-nyxmap-card/compare/v0.3.2...v0.3.3

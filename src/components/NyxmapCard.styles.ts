@@ -25,12 +25,11 @@ export const nyxmapCardStyles = css`
   }
   .nyxmap-viewport {
     /* A flex column so an optional title takes only the height it needs
-     * and .nyxmap-container gets exactly what's left — see .nyxmap-title's
+     * and .nyxmap-map-area gets exactly what's left — see .nyxmap-title's
      * comment for why this exists instead of ha-card's own built-in
      * header. */
     display: flex;
     flex-direction: column;
-    position: relative;
     width: 100%;
   }
   .nyxmap-title {
@@ -51,7 +50,13 @@ export const nyxmapCardStyles = css`
     letter-spacing: -0.012em;
     line-height: 1.2;
   }
-  .nyxmap-container {
+  .nyxmap-map-area {
+    /* Its own positioning context, separate from .nyxmap-viewport (which
+     * also contains the title): nyxmap-layer-switcher is position:absolute,
+     * top:8px/left:8px — if it were positioned against the whole viewport
+     * instead of just the map area, that offset would land on top of the
+     * title bar rather than the map's own top-left corner. */
+    position: relative;
     flex: 1 1 auto;
     /* Flex items default to min-height:auto (their content size) which
      * would otherwise prevent this from ever shrinking below the map's
@@ -59,6 +64,10 @@ export const nyxmapCardStyles = css`
      * flex layout exists for. */
     min-height: 0;
     width: 100%;
+  }
+  .nyxmap-container {
+    width: 100%;
+    height: 100%;
   }
   .nyxmap-marker {
     background-size: cover;

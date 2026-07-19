@@ -253,6 +253,19 @@ describe("NyxmapCard", () => {
       expect(el.shadowRoot!.querySelector("nyxmap-layer-switcher")).toBeNull();
     });
 
+    it("nests the switcher under .nyxmap-map-area, not the title, so it never overlaps a configured title", async () => {
+      // nyxmap-layer-switcher is position:absolute, top:8px/left:8px — if it
+      // were a sibling of .nyxmap-title instead of scoped to the map area,
+      // that offset would land on top of the title bar instead of the
+      // map's own top-left corner.
+      el.setConfig({ layer_switcher: true, title: "My Map" });
+      await el.updateComplete;
+      await flushMicrotasks();
+      await el.updateComplete;
+
+      expect(el.shadowRoot!.querySelector(".nyxmap-map-area > nyxmap-layer-switcher")).not.toBeNull();
+    });
+
     it("renders the switcher with Light/Dark base-style options when layer_switcher is true", async () => {
       el.setConfig({ layer_switcher: true });
       await el.updateComplete;

@@ -108,15 +108,17 @@ export class NyxmapCard extends LitElement {
       <ha-card>
         <div class="nyxmap-viewport" style="height: ${height}">
           ${this._config?.title ? html`<div class="nyxmap-title">${this._config.title}</div>` : null}
-          <div class="nyxmap-container"></div>
-          ${this._config?.layerSwitcher
-            ? html`<nyxmap-layer-switcher
-                .baseStyles=${this._baseStyleItems()}
-                .overlays=${this._overlayItems()}
-                .onSelectBaseStyle=${(id: string) => this._onSelectBaseStyle(id)}
-                .onToggleOverlay=${(id: string) => this._onToggleOverlay(id)}
-              ></nyxmap-layer-switcher>`
-            : null}
+          <div class="nyxmap-map-area">
+            <div class="nyxmap-container"></div>
+            ${this._config?.layerSwitcher
+              ? html`<nyxmap-layer-switcher
+                  .baseStyles=${this._baseStyleItems()}
+                  .overlays=${this._overlayItems()}
+                  .onSelectBaseStyle=${(id: string) => this._onSelectBaseStyle(id)}
+                  .onToggleOverlay=${(id: string) => this._onToggleOverlay(id)}
+                ></nyxmap-layer-switcher>`
+              : null}
+          </div>
         </div>
       </ha-card>
     `;
