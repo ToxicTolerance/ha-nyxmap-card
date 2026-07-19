@@ -5,6 +5,20 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-07-19
+
+### Fixed
+
+- The attribution ("i") icon disappearing from the bottom-right corner: the
+  0.3.2 fix made `:host { height: 100% }` unconditional so a percentage
+  `height:` (e.g. Panel views) would cascade correctly, but that also let
+  dashboard layouts that stretch card hosts to their own row height via CSS
+  Grid (e.g. Home Assistant's Sections view) shrink `ha-card` to that
+  external height instead of sizing to its content — clipping the bottom of
+  the map, and whatever control lived there, even when no percentage height
+  was configured at all. `height: 100%` on the host is now opt-in, applied
+  only when a percentage/CSS-length height is actually configured.
+
 ## [0.3.2] - 2026-07-19
 
 ### Added
@@ -87,7 +101,8 @@ Initial HACS-installable release.
 - HACS packaging (`hacs.json`, release workflow publishing `nyxmap-card.js`
   as a GitHub Release asset).
 
-[Unreleased]: https://github.com/ToxicTolerance/ha-nyxmap-card/compare/v0.3.2...HEAD
+[Unreleased]: https://github.com/ToxicTolerance/ha-nyxmap-card/compare/v0.3.3...HEAD
+[0.3.3]: https://github.com/ToxicTolerance/ha-nyxmap-card/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/ToxicTolerance/ha-nyxmap-card/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/ToxicTolerance/ha-nyxmap-card/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/ToxicTolerance/ha-nyxmap-card/compare/v0.2.0...v0.3.0

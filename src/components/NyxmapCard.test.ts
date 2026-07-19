@@ -125,6 +125,20 @@ describe("NyxmapCard", () => {
     expect(el.getCardSize()).toBe(12); // 600 / 50
   });
 
+  it("only opts the host into height:100% when a percentage/CSS-length height is configured", async () => {
+    el.setConfig({});
+    await el.updateComplete;
+    expect(el.style.height).toBe("");
+
+    el.setConfig({ height: 600 });
+    await el.updateComplete;
+    expect(el.style.height).toBe(""); // numeric height: content sizes itself, host must not be externally constrained
+
+    el.setConfig({ height: "100%" });
+    await el.updateComplete;
+    expect(el.style.height).toBe("100%");
+  });
+
   it("throws from setConfig on a missing config", () => {
     expect(() => el.setConfig(undefined)).toThrow();
   });

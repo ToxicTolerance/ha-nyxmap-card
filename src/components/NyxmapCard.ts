@@ -68,6 +68,16 @@ export class NyxmapCard extends LitElement {
   }
 
   protected override updated(changed: PropertyValues): void {
+    // Opt the host into height:100% only when the user configured a
+    // percentage/CSS-length height (e.g. "100%" for a Home Assistant Panel
+    // view). This used to be an unconditional CSS rule, but that collided
+    // with dashboard layouts that stretch card hosts to their own row
+    // height via CSS Grid (e.g. HA's Sections view): ha-card would then
+    // shrink to that external height instead of sizing to its content,
+    // clipping the bottom of the map (and whatever control lived there)
+    // even though nothing was actually configured to fill 100% of anything.
+    this.style.height = typeof this._config?.height === "string" ? "100%" : "";
+
     if (!this._built && this._config) {
       this._buildMap();
     }

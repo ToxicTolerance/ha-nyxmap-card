@@ -3,13 +3,12 @@ import { css } from "lit";
 export const nyxmapCardStyles = css`
   :host {
     display: block;
-    /* Lets a percentage \`height:\` config (e.g. "100%" to fill a Home
-     * Assistant Panel view) cascade all the way down through ha-card and
-     * .nyxmap-viewport. Harmless when nothing above us defines a height
-     * (the normal masonry/grid case): a percentage height against an
-     * undefined containing-block height just computes as auto, so this is a
-     * no-op there. */
-    height: 100%;
+    /* No default height here — the host sizes to its content (.nyxmap-
+     * viewport's own explicit pixel height) same as always. A percentage
+     * height:100% is opted into via an inline style set in NyxmapCard,
+     * only when the user actually configures a percentage height — see
+     * that inline style's comment for why this can't just be unconditional
+     * CSS here. */
   }
   ha-card {
     /* Clips everything to ha-card's own rounded corners: the map canvas
