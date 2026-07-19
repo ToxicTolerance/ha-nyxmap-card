@@ -105,8 +105,9 @@ export class NyxmapCard extends LitElement {
   protected override render() {
     const height = this._config?.cssHeight ?? "250px";
     return html`
-      <ha-card .header=${this._config?.title}>
+      <ha-card>
         <div class="nyxmap-viewport" style="height: ${height}">
+          ${this._config?.title ? html`<div class="nyxmap-title">${this._config.title}</div>` : null}
           <div class="nyxmap-container"></div>
           ${this._config?.layerSwitcher
             ? html`<nyxmap-layer-switcher

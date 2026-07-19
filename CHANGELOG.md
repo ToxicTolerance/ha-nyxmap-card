@@ -5,6 +5,21 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-07-19
+
+### Fixed
+
+- The real cause of the missing bottom-right attribution icon (the previous
+  two fixes were real but incomplete): with a card `title:` configured,
+  `ha-card`'s own built-in header added its height *on top of*
+  `.nyxmap-viewport`'s already-explicit height instead of the two sharing
+  it. The combined content could exceed `ha-card`'s box, and since `ha-card`
+  clips to its own rounded corners, the excess got silently cut off the
+  bottom — taking the attribution control (and anything else that lived
+  there) with it. The title now renders as part of our own flex-column
+  layout instead of `ha-card`'s built-in header, so the map area always
+  gets exactly "whatever height is left" and can never overflow.
+
 ## [0.4.0] - 2026-07-19
 
 ### Added
@@ -126,7 +141,8 @@ Initial HACS-installable release.
 - HACS packaging (`hacs.json`, release workflow publishing `nyxmap-card.js`
   as a GitHub Release asset).
 
-[Unreleased]: https://github.com/ToxicTolerance/ha-nyxmap-card/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/ToxicTolerance/ha-nyxmap-card/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/ToxicTolerance/ha-nyxmap-card/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/ToxicTolerance/ha-nyxmap-card/compare/v0.3.3...v0.4.0
 [0.3.3]: https://github.com/ToxicTolerance/ha-nyxmap-card/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/ToxicTolerance/ha-nyxmap-card/compare/v0.3.1...v0.3.2

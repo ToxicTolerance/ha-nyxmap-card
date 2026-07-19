@@ -125,6 +125,28 @@ describe("NyxmapCard", () => {
     expect(el.getCardSize()).toBe(12); // 600 / 50
   });
 
+  it("renders the title as its own flex item rather than ha-card's built-in header", async () => {
+    // ha-card's own header adds its own height *on top of* .nyxmap-viewport's
+    // already-explicit height rather than sharing it, which could make the
+    // combined content taller than ha-card's box and get clipped by its
+    // overflow:hidden — taking whatever sat at the bottom (e.g. the
+    // attribution control) with it. Rendering our own title inside the flex
+    // column avoids that entirely.
+    el.setConfig({ title: "My Map" });
+    await el.updateComplete;
+
+    const title = el.shadowRoot!.querySelector(".nyxmap-title");
+    expect(title?.textContent).toBe("My Map");
+    expect(el.shadowRoot!.querySelector("ha-card")!.hasAttribute("header")).toBe(false);
+  });
+
+  it("renders no title element when title is unset", async () => {
+    el.setConfig({});
+    await el.updateComplete;
+
+    expect(el.shadowRoot!.querySelector(".nyxmap-title")).toBeNull();
+  });
+
   it("only opts the host into height:100% when a percentage/CSS-length height is configured", async () => {
     el.setConfig({});
     await el.updateComplete;
