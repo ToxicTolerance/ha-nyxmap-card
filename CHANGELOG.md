@@ -5,6 +5,24 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-07-19
+
+### Fixed
+
+- Base map styles (`map_styles:` entries) with real tile coverage narrower
+  than the camera's allowed zoom could go blank/error past their own limit,
+  even with `max_zoom` set at the card level: MapLibre does not
+  automatically stop the *camera* at a raster source's declared `maxzoom` —
+  it keeps requesting tiles at whatever zoom the camera reaches, and a
+  strict tile provider (e.g. Bavaria's WMTS aerial imagery) then rejects
+  those out-of-range requests with a 400 instead of serving a scaled
+  fallback. `max_zoom`/`min_zoom` are now also accepted per-`map_styles`
+  entry; the layer switcher applies that style's own limit to the camera the
+  moment it's selected (falling back to the card-level `max_zoom`/`min_zoom`,
+  then MapLibre's 0–22 default), so switching between styles with different
+  real coverage — e.g. a capped regional aerial layer alongside an
+  uncapped general vector style — always matches the active one.
+
 ## [0.5.1] - 2026-07-19
 
 ### Changed
@@ -191,7 +209,8 @@ Initial HACS-installable release.
 - HACS packaging (`hacs.json`, release workflow publishing `nyxmap-card.js`
   as a GitHub Release asset).
 
-[Unreleased]: https://github.com/ToxicTolerance/ha-nyxmap-card/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/ToxicTolerance/ha-nyxmap-card/compare/v0.5.2...HEAD
+[0.5.2]: https://github.com/ToxicTolerance/ha-nyxmap-card/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/ToxicTolerance/ha-nyxmap-card/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/ToxicTolerance/ha-nyxmap-card/compare/v0.4.2...v0.5.0
 [0.4.2]: https://github.com/ToxicTolerance/ha-nyxmap-card/compare/v0.4.1...v0.4.2

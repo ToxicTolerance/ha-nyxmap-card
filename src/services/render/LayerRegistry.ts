@@ -2,6 +2,11 @@ export interface BaseStyleEntry {
   label: string;
   styleLight: string;
   styleDark: string;
+  /** Per-style zoom cap — see MapConfig.NamedMapStyle. Unset falls back to
+   * the card-level max_zoom/min_zoom (and ultimately MapLibre's own 0–22
+   * defaults) when this style becomes active. */
+  maxZoom?: number;
+  minZoom?: number;
 }
 
 export interface OverlayEntry {

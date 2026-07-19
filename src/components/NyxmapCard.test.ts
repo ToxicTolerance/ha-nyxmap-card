@@ -9,6 +9,8 @@ vi.mock("../maplibre/MapLibreLoader", () => {
     handlers = new Map<string, Array<() => void>>();
     addControl = vi.fn();
     setStyle = vi.fn();
+    setMaxZoom = vi.fn();
+    setMinZoom = vi.fn();
     setProjection = vi.fn();
     getSource = vi.fn();
     addSource = vi.fn();
@@ -77,6 +79,8 @@ interface TestableNyxmapCard extends HTMLElement {
   _map?: {
     fire(event: string): void;
     setStyle: ReturnType<typeof vi.fn>;
+    setMaxZoom: ReturnType<typeof vi.fn>;
+    setMinZoom: ReturnType<typeof vi.fn>;
     setLayoutProperty: ReturnType<typeof vi.fn>;
     resize: ReturnType<typeof vi.fn>;
   };
@@ -316,6 +320,57 @@ describe("NyxmapCard", () => {
       await el.updateComplete;
 
       expect(el._map!.setStyle).toHaveBeenCalledWith("https://example.com/dark.json");
+    });
+
+    it("applies a map_styles entry's own max_zoom/min_zoom when it becomes active", async () => {
+      // Bayern DOP20-style regression: a named base style whose real tile
+      // coverage stops well short of the card's other styles must cap the
+      // camera to its own limit when selected, not whatever was active
+      // before (or MapLibre's 0-22 default) — otherwise the camera can
+      // zoom past real coverage into blank/400 tiles.
+      el.setConfig({
+        layer_switcher: true,
+        map_styles: [
+          { name: "Aerial", map_style: "https://example.com/aerial.json", max_zoom: 19, min_zoom: 3 },
+          { name: "Streets", map_style: "https://example.com/streets.json" },
+        ],
+      });
+      await el.updateComplete;
+      await flushMicrotasks();
+      await el.updateComplete;
+
+      const switcher = el.shadowRoot!.querySelector("nyxmap-layer-switcher") as unknown as {
+        onSelectBaseStyle: (id: string) => void;
+      };
+
+      switcher.onSelectBaseStyle("custom:Aerial");
+      expect(el._map!.setMaxZoom).toHaveBeenLastCalledWith(19);
+      expect(el._map!.setMinZoom).toHaveBeenLastCalledWith(3);
+
+      switcher.onSelectBaseStyle("custom:Streets");
+      expect(el._map!.setMaxZoom).toHaveBeenLastCalledWith(22);
+      expect(el._map!.setMinZoom).toHaveBeenLastCalledWith(0);
+    });
+
+    it("falls back to the card-level max_zoom/min_zoom for a style with no zoom of its own", async () => {
+      el.setConfig({
+        layer_switcher: true,
+        max_zoom: 17,
+        min_zoom: 2,
+        map_style: "https://example.com/light.json",
+        map_style_dark: "https://example.com/dark.json",
+      });
+      await el.updateComplete;
+      await flushMicrotasks();
+      await el.updateComplete;
+
+      const switcher = el.shadowRoot!.querySelector("nyxmap-layer-switcher") as unknown as {
+        onSelectBaseStyle: (id: string) => void;
+      };
+      switcher.onSelectBaseStyle("dark");
+
+      expect(el._map!.setMaxZoom).toHaveBeenLastCalledWith(17);
+      expect(el._map!.setMinZoom).toHaveBeenLastCalledWith(2);
     });
 
     it("toggling a history overlay calls setLayoutProperty via LayerRegistry", async () => {

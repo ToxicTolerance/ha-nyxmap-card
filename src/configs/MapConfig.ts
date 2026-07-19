@@ -17,6 +17,12 @@ export interface MapStyleRaw {
   name: string;
   map_style: string;
   map_style_dark?: string;
+  /** Per-style zoom cap, independent of the card-level max_zoom/min_zoom —
+   * different base styles can have genuinely different real coverage (e.g. a
+   * regional aerial-imagery style topping out well below a general-purpose
+   * vector style), so a single global cap can't fit all of them at once. */
+  max_zoom?: number;
+  min_zoom?: number;
 }
 
 /** A single named base-style option for the layer switcher (see
@@ -26,6 +32,8 @@ export interface NamedMapStyle {
   name: string;
   styleLight: string;
   styleDark: string;
+  maxZoom?: number;
+  minZoom?: number;
 }
 
 export interface MapConfigRaw {
@@ -119,6 +127,8 @@ export class MapConfig {
       name: s.name,
       styleLight: s.map_style,
       styleDark: s.map_style_dark ?? s.map_style,
+      maxZoom: s.max_zoom,
+      minZoom: s.min_zoom,
     }));
     this.projection = raw.projection ?? "globe";
     this.layerSwitcher = raw.layer_switcher ?? false;

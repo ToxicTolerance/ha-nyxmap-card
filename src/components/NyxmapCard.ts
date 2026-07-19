@@ -183,7 +183,18 @@ export class NyxmapCard extends LitElement {
 
   private _onSelectBaseStyle(id: string): void {
     this._manualStyleId = id;
-    if (this._map) this._map.setStyle(this._resolveActiveStyleUrl());
+    if (!this._map || !this._config) return;
+    this._map.setStyle(this._resolveActiveStyleUrl());
+    // Each base style can have its own real coverage limit (see
+    // MapConfig.NamedMapStyle.maxZoom/minZoom) — e.g. a regional aerial
+    // overlay topping out at z19 while a general vector style goes to z22.
+    // Without re-applying the camera's zoom range on every switch, a style
+    // with no limits of its own would stay stuck at whatever the *previous*
+    // style capped it to, or a capped style wouldn't be capped at all,
+    // letting the camera zoom past real tile coverage into 400s/blank tiles.
+    const entry = this._layerRegistry.getBaseStyles().get(id);
+    this._map.setMaxZoom(entry?.maxZoom ?? this._config.maxZoom ?? 22);
+    this._map.setMinZoom(entry?.minZoom ?? this._config.minZoom ?? 0);
   }
 
   private _onToggleOverlay(id: string): void {
@@ -228,6 +239,8 @@ export class NyxmapCard extends LitElement {
         label: s.name,
         styleLight: s.styleLight,
         styleDark: s.styleDark,
+        maxZoom: s.maxZoom,
+        minZoom: s.minZoom,
       });
     }
 

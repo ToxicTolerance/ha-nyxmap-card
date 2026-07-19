@@ -15,6 +15,8 @@ export function createFakeMaplibreMap() {
     removeSource: vi.fn(),
     getStyle: vi.fn(() => ({})),
     setStyle: vi.fn(),
+    setMaxZoom: vi.fn(),
+    setMinZoom: vi.fn(),
     on: vi.fn(),
     off: vi.fn(),
     once: vi.fn(),

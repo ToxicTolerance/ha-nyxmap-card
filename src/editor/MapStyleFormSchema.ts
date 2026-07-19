@@ -8,5 +8,7 @@ export function buildMapStyleSchema(): HaFormSchema[] {
     { name: "name", required: true, selector: { text: {} } },
     { name: "map_style", required: true, selector: { text: { type: "url" } } },
     { name: "map_style_dark", selector: { text: { type: "url" } } },
+    { name: "max_zoom", selector: { number: { min: 0, max: 22 } } },
+    { name: "min_zoom", selector: { number: { min: 0, max: 22 } } },
   ];
 }

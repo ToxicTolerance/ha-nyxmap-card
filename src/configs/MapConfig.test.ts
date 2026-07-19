@@ -70,13 +70,25 @@ describe("MapConfig", () => {
         name: "Streets",
         styleLight: "https://example.com/streets.json",
         styleDark: "https://example.com/streets.json",
+        maxZoom: undefined,
+        minZoom: undefined,
       },
       {
         name: "Satellite",
         styleLight: "https://example.com/sat-day.json",
         styleDark: "https://example.com/sat-night.json",
+        maxZoom: undefined,
+        minZoom: undefined,
       },
     ]);
+  });
+
+  it("parses a per-style max_zoom/min_zoom on a map_styles entry", () => {
+    const cfg = new MapConfig({
+      map_styles: [{ name: "Aerial", map_style: "https://example.com/aerial.json", max_zoom: 19, min_zoom: 3 }],
+    });
+    expect(cfg.mapStyles[0]?.maxZoom).toBe(19);
+    expect(cfg.mapStyles[0]?.minZoom).toBe(3);
   });
 
   it("parses entities as a mix of strings and objects", () => {
