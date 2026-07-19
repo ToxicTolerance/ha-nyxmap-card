@@ -4,8 +4,13 @@ export const layerSwitcherStyles = css`
   :host {
     position: absolute;
     top: 8px;
-    right: 8px;
-    z-index: 1;
+    /* top-left: MapLibre's own NavigationControl occupies top-right (its
+     * .maplibregl-ctrl-top-right container is z-index: 2 in maplibre-gl.css)
+     * — sharing that corner put this control underneath it, effectively
+     * invisible/unclickable. z-index is still bumped past that defensively
+     * in case a future control lands in this corner too. */
+    left: 8px;
+    z-index: 3;
     font: 13px/1.4 var(--paper-font-body1_-_font-family, sans-serif);
   }
   .toggle {
@@ -22,7 +27,7 @@ export const layerSwitcherStyles = css`
   .panel {
     position: absolute;
     top: 38px;
-    right: 0;
+    left: 0;
     min-width: 180px;
     padding: 8px 10px;
     border-radius: 6px;

@@ -5,6 +5,23 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-07-19
+
+### Fixed
+
+- Layer switcher toggle button was invisible/unclickable: it shared the
+  top-right corner with MapLibre's own `NavigationControl`, whose
+  `.maplibregl-ctrl-top-right` container is `z-index: 2` in maplibre-gl's own
+  CSS — higher than our control's `z-index: 1`, so it rendered underneath.
+  Moved the switcher to the top-left corner and raised its z-index
+  defensively.
+- Dashboard scrollbar, take two: 0.3.0 fixed one cause (`getCardSize()`) but
+  introduced another — un-clipping the layer switcher's dropdown panel (to
+  stop it being cut off) also let it spill past `ha-card`'s box into the
+  surrounding dashboard when opened, which is exactly what produces a
+  page-level scrollbar. Reverted that clip change now that the switcher no
+  longer needs to escape `ha-card`'s bounds to be usable (see above).
+
 ## [0.3.0] - 2026-07-19
 
 ### Added
@@ -59,7 +76,8 @@ Initial HACS-installable release.
 - HACS packaging (`hacs.json`, release workflow publishing `nyxmap-card.js`
   as a GitHub Release asset).
 
-[Unreleased]: https://github.com/ToxicTolerance/ha-nyxmap-card/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/ToxicTolerance/ha-nyxmap-card/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/ToxicTolerance/ha-nyxmap-card/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/ToxicTolerance/ha-nyxmap-card/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/ToxicTolerance/ha-nyxmap-card/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/ToxicTolerance/ha-nyxmap-card/releases/tag/v0.1.0

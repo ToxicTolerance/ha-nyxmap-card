@@ -1,6 +1,6 @@
 {
   "name": "ha-nyxmap-card",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "MapLibre GL vector-tile map card for Home Assistant Lovelace dashboards",
   "type": "module",
   "license": "MIT",

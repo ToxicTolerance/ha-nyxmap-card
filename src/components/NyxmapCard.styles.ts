@@ -5,6 +5,16 @@ export const nyxmapCardStyles = css`
     display: block;
   }
   ha-card {
+    /* Clips everything to ha-card's own rounded corners: the map canvas
+     * (square by default) and, just as importantly, the layer switcher's
+     * floating dropdown panel — without this, an open panel (or anything
+     * else position:absolute in here) can spill past the card's box and
+     * into the surrounding dashboard, which shows up as a page-level
+     * scrollbar rather than a contained, scrollable card. The switcher no
+     * longer collides with MapLibre's own top-right NavigationControl (see
+     * LayerSwitcherControl.styles.ts), so this clip no longer needs to be
+     * relaxed to keep it usable. */
+    overflow: hidden;
     height: 100%;
   }
   .nyxmap-viewport {
@@ -14,14 +24,6 @@ export const nyxmapCardStyles = css`
   .nyxmap-container {
     width: 100%;
     height: 100%;
-    /* Clip the map canvas (square corners) to ha-card's own rounded corners.
-     * This used to live on ha-card itself, but that also clipped the layer
-     * switcher's floating dropdown panel (nyxmap-layer-switcher is
-     * position:absolute and can extend past the map's box) — scoping the
-     * clip to just the canvas container keeps the rounded-corner look
-     * without cutting off UI that's meant to float outside it. */
-    overflow: hidden;
-    border-radius: var(--ha-card-border-radius, 12px);
   }
   .nyxmap-marker {
     background-size: cover;
