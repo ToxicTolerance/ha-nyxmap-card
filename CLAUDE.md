@@ -61,6 +61,26 @@ Any new overlay type (circles, clustering, raster tile layers, etc.) that uses M
 sources/layers rather than HTML markers needs to plug into this same re-attach path, or it will
 silently vanish on the next theme change.
 
+### Visual config editor
+
+`NyxmapCard.getConfigElement()`/`getStubConfig()` hand off to
+`NyxmapCardEditor` (`nyxmap-card-editor`), which renders Home Assistant's own
+globally-registered `<ha-form>` element against a declarative schema rather
+than any bundled form library — `ha-form`/`ha-selector` are provided by the
+surrounding HA frontend at runtime, never a project dependency. `src/editor/`
+holds the schema/data-mapping logic as pure, DOM-free functions
+(`build*Schema`, `*ToFormData`/`formDataTo*`) so they're unit-testable under
+vitest's default `"node"` environment instead of needing jsdom.
+`src/types/ha-form.d.ts` duck-types just the slice of `ha-form`'s contract
+this repo binds to, mirroring the existing `home-assistant.d.ts` precedent.
+`NyxmapFormListEditor` (`nyxmap-form-list-editor`) is a generic, schema-driven
+array editor reused for both the entities list and `map_styles`, emitting a
+bubbling `items-changed` event; `NyxmapCardEditor` merges those back into the
+full config and re-dispatches a single `config-changed` event, always
+preserving `type` and any out-of-scope keys (`circle`, `geojson`,
+`tile_layers`, `wms` — not covered by the visual editor; users drop to HA's
+"Edit in YAML" toggle for those).
+
 ### Not yet ported (tracked against upstream `ha-map-card` feature parity)
 
 Listed at the bottom of `maplibre-map-card.js` as the porting backlog — check there before

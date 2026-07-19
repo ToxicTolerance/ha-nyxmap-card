@@ -81,6 +81,14 @@ entities:
 That's every option most dashboards need: pick who to show, where to start
 framed, and optionally trail their recent history.
 
+### Visual editor
+
+Open **Edit card** on a NyxMap card and you'll get a visual form instead of
+raw YAML: every [card option](#card-options) above, plus a full entities list
+(add/remove/reorder, and every field in [Entity options](#entity-options)).
+`circle`, `geojson`, `tile_layers`, and `wms` aren't in the visual editor yet —
+switch to **Edit in YAML** (the toggle in the same dialog) to set those.
+
 ## Configuration reference
 
 ### Card options

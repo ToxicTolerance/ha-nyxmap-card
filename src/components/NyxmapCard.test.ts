@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { MapConfig } from "../configs/MapConfig";
 import type { EntitiesRenderService } from "../services/render/EntitiesRenderService";
 import type { HomeAssistant } from "../types/home-assistant";
 
@@ -62,11 +63,7 @@ vi.mock("../maplibre/MapLibreLoader", () => {
   };
 });
 
-// Imported after the mock so NyxmapCard picks up the fake maplibregl. The
-// binding is only referenced via `typeof` below (for InstanceType<>), which
-// no-unused-vars doesn't count as a use even though it needs the real import
-// for its custom-element-registration side effect.
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
+// Imported after the mock so NyxmapCard picks up the fake maplibregl.
 const { NyxmapCard } = await import("./NyxmapCard");
 
 // A structural (non-intersected) view of the internals this test pokes at —
@@ -327,6 +324,16 @@ describe("NyxmapCard", () => {
       switcher.onToggleOverlay(overlayId);
 
       expect(el._map!.setLayoutProperty).toHaveBeenCalledWith(overlayId, "visibility", "none");
+    });
+  });
+
+  describe("visual config editor", () => {
+    it("getConfigElement returns a nyxmap-card-editor element", () => {
+      expect(NyxmapCard.getConfigElement().tagName).toBe("NYXMAP-CARD-EDITOR");
+    });
+
+    it("getStubConfig returns a config that MapConfig can parse without throwing", () => {
+      expect(() => new MapConfig(NyxmapCard.getStubConfig())).not.toThrow();
     });
   });
 });
