@@ -1,9 +1,11 @@
 import { LitElement, html, unsafeCSS, type PropertyValues } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { MapConfig, type MapConfigRaw } from "../configs/MapConfig";
+import { buildStubConfig } from "../editor/CardFormSchema";
 import { EntityHistoryManager } from "../models/EntityHistoryManager";
 import { maplibreCss, maplibregl } from "../maplibre/MapLibreLoader";
 import { StyleReattach } from "../maplibre/StyleReattach";
+import "./NyxmapCardEditor";
 import { HaHistoryService } from "../services/HaHistoryService";
 import { CircleRenderService } from "../services/render/CircleRenderService";
 import { EntitiesRenderService, type MapLibreGlLike } from "../services/render/EntitiesRenderService";
@@ -51,6 +53,14 @@ export class NyxmapCard extends LitElement {
     if (this._built && this._map) {
       this._map.setStyle(this._resolveActiveStyleUrl());
     }
+  }
+
+  static getConfigElement(): HTMLElement {
+    return document.createElement("nyxmap-card-editor");
+  }
+
+  static getStubConfig(hass?: HomeAssistant): MapConfigRaw {
+    return buildStubConfig(hass);
   }
 
   /** HA's masonry/grid layout uses this (in ~50px units) to pre-allocate
