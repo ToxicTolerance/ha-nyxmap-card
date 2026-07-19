@@ -88,7 +88,7 @@ framed, and optionally trail their recent history.
 | `zoom` | number | `12` | Initial zoom level. |
 | `title` | string | — | Card header text. |
 | `card_size` | number | `5` | Used by Home Assistant's masonry layout when `height` isn't set (1 unit ≈ 50px). |
-| `height` | number | auto from `card_size` | Explicit map height in pixels. |
+| `height` | number or CSS length string | auto from `card_size` | A number is pixels. A string (e.g. `"100%"`, `"50vh"`) is used verbatim — mainly for a [Panel view](https://www.home-assistant.io/dashboards/panel/), where `"100%"` fills the whole viewport exactly instead of leaving a gap or causing page scroll. |
 | `theme_mode` | `auto` \| `light` \| `dark` | `auto` | `auto` follows the browser's `prefers-color-scheme`. |
 | `map_style` | string (style JSON URL) | a free [OpenFreeMap](https://openfreemap.org/) style | Light-mode base style. |
 | `map_style_dark` | string (style JSON URL) | a free [CARTO](https://carto.com/basemaps) dark style | Dark-mode base style. |
@@ -215,6 +215,23 @@ entities:
 type: custom:nyxmap-card
 projection: mercator
 height: 400
+entities:
+  - person.alice
+```
+
+</details>
+
+<details>
+<summary><strong>Full-screen Panel view</strong></summary>
+
+For a [Panel view](https://www.home-assistant.io/dashboards/panel/) (a
+dashboard tab with a single card filling the whole screen), use a percentage
+height so the map fills the viewport exactly instead of leaving a gap or
+causing the page to scroll:
+
+```yaml
+type: custom:nyxmap-card
+height: 100%
 entities:
   - person.alice
 ```

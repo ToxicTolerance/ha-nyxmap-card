@@ -5,6 +5,17 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-07-19
+
+### Added
+
+- `height:` now accepts a CSS length string (e.g. `"100%"`, `"50vh"`), not
+  just a pixel number — mainly for a Home Assistant Panel view, where the
+  card fills the whole viewport and a fixed pixel height can never match it
+  exactly. A mismatched fixed height was the remaining cause of a page-level
+  scrollbar (and the zoom control scrolling out of view with it) after the
+  0.3.1 fixes: `height: 100%` now fills the panel exactly.
+
 ## [0.3.1] - 2026-07-19
 
 ### Fixed
@@ -76,7 +87,8 @@ Initial HACS-installable release.
 - HACS packaging (`hacs.json`, release workflow publishing `nyxmap-card.js`
   as a GitHub Release asset).
 
-[Unreleased]: https://github.com/ToxicTolerance/ha-nyxmap-card/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/ToxicTolerance/ha-nyxmap-card/compare/v0.3.2...HEAD
+[0.3.2]: https://github.com/ToxicTolerance/ha-nyxmap-card/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/ToxicTolerance/ha-nyxmap-card/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/ToxicTolerance/ha-nyxmap-card/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/ToxicTolerance/ha-nyxmap-card/compare/v0.1.0...v0.2.0

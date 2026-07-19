@@ -31,7 +31,11 @@ export interface MapConfigRaw {
   zoom?: number;
   title?: string;
   card_size?: number;
-  height?: number;
+  /** Pixels (number) or any CSS length (string, e.g. "100%"/"50vh") — the
+   * latter is mainly for a Home Assistant Panel view, where the card fills
+   * the whole viewport and a fixed pixel height can never match it exactly,
+   * causing page scroll. */
+  height?: number | string;
   theme_mode?: ThemeMode;
   focus_entity?: string;
   focus_follow?: FocusFollow;
@@ -53,7 +57,7 @@ export class MapConfig {
   readonly zoom: number;
   readonly title?: string;
   readonly cardSize: number;
-  readonly height?: number;
+  readonly height?: number | string;
   readonly themeMode: ThemeMode;
   readonly focusEntity?: string;
   readonly focusFollow: FocusFollow;
@@ -101,8 +105,19 @@ export class MapConfig {
     this.entities = (raw.entities ?? []).map(EntityConfig.from);
   }
 
+  /** Numeric pixel estimate of the map's height, used for HA's masonry
+   * layout math (getCardSize()) — a percentage/CSS-length `height` can't be
+   * resolved to real pixels here, so it falls back to the card_size-based
+   * estimate (percentage heights are mainly for Panel views, where this
+   * estimate isn't consulted anyway). */
   get mapHeight(): number {
-    if (this.height) return this.height;
+    if (typeof this.height === "number") return this.height;
     return Math.max(200, this.cardSize * 50);
+  }
+
+  /** The actual CSS height to render with. */
+  get cssHeight(): string {
+    if (typeof this.height === "string") return this.height;
+    return `${this.mapHeight}px`;
   }
 }

@@ -70,5 +70,24 @@ describe("MapConfig", () => {
       expect(new MapConfig({ card_size: 8 }).mapHeight).toBe(400);
       expect(new MapConfig({ card_size: 1 }).mapHeight).toBe(200);
     });
+
+    it("falls back to the card_size estimate for a percentage/CSS-length height", () => {
+      expect(new MapConfig({ height: "100%", card_size: 8 }).mapHeight).toBe(400);
+    });
+  });
+
+  describe("cssHeight", () => {
+    it("renders a numeric height in pixels", () => {
+      expect(new MapConfig({ height: 350 }).cssHeight).toBe("350px");
+    });
+
+    it("passes a string height through verbatim (e.g. a Panel view filling 100%)", () => {
+      expect(new MapConfig({ height: "100%" }).cssHeight).toBe("100%");
+      expect(new MapConfig({ height: "50vh" }).cssHeight).toBe("50vh");
+    });
+
+    it("falls back to the card_size-derived pixel height when unset", () => {
+      expect(new MapConfig({ card_size: 8 }).cssHeight).toBe("400px");
+    });
   });
 });
