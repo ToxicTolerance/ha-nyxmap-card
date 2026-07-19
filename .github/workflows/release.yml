@@ -18,7 +18,18 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+      - name: Extract this version's changelog section
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v marker="## [$version]" '
+            /^## \[/ {
+              if (found) exit
+              if (index($0, marker) == 1) { found=1; next }
+            }
+            found { print }
+          ' CHANGELOG.md > release-notes.md
       - uses: ncipollo/release-action@v1
         with:
           artifacts: "dist/nyxmap-card.js"
+          bodyFile: "release-notes.md"
           generateReleaseNotes: true

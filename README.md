@@ -1,40 +1,252 @@
-# ha-nyxmap-card
+# NyxMap Card
 
-A Home Assistant Lovelace custom card that renders a map using **MapLibre GL**
-(vector tiles) instead of Leaflet. Forked in spirit from
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![HACS Custom Repository](https://img.shields.io/badge/HACS-custom--repository-41BDF5.svg)](https://hacs.xyz/docs/faq/custom_repositories/)
+[![Release](https://img.shields.io/github/v/release/ToxicTolerance/ha-nyxmap-card)](https://github.com/ToxicTolerance/ha-nyxmap-card/releases)
+
+A Home Assistant Lovelace map card rendered with **[MapLibre GL](https://maplibre.org/)**
+(vector tiles, GPU-accelerated) instead of Leaflet. Forked in spirit from
 [nathan-gs/ha-map-card](https://github.com/nathan-gs/ha-map-card) — the YAML
-config surface stays close to upstream so dashboards migrate with minimal
-changes, while the entire draw layer is swapped from Leaflet to MapLibre GL.
+config surface stays close to upstream so existing dashboards migrate with
+minimal changes, while the entire draw layer is swapped from Leaflet to
+MapLibre GL: smooth vector styles, a 3D globe projection, and native
+GeoJSON/geometry rendering.
 
-Status: early development, see `CLAUDE.md` for the phased implementation plan.
+## Contents
 
-## Development
+- [Features](#features)
+- [Installation](#installation)
+- [Quick start](#quick-start)
+- [Configuration reference](#configuration-reference)
+  - [Card options](#card-options)
+  - [Entity options](#entity-options)
+  - [Circle options](#circle-options-per-entity-circle)
+  - [GeoJSON options](#geojson-options-per-entity-geojson)
+- [Examples](#examples)
+- [Development](#development)
+- [Roadmap](#roadmap)
 
-```
-npm install
-npm run dev        # Vite dev server against dev/harness.html with a mocked hass object
-npm run build       # bundles dist/nyxmap-card.js (single ES module)
-npm test            # vitest
-npm run lint         # eslint
-npm run typecheck    # tsc --noEmit
-```
+## Features
 
-## Installing in Home Assistant
+- 🗺️ Vector map styles (any [MapLibre style JSON](https://maplibre.org/maplibre-style-spec/)),
+  with separate light/dark styles that follow Home Assistant's theme automatically
+- 🌐 3D globe projection (default) or classic flat mercator
+- 📍 Entity markers with a picture → icon → initials fallback chain, tap to open more-info
+- 📈 Per-entity history trails, rendered as a live GeoJSON line and kept correct across theme
+  swaps
+- 🎯 Initial camera framing via `focus_entity`/`focus_follow`, or auto-fit to every entity
+- 🧭 An optional layer switcher panel — toggle between base map styles and show/hide overlays
+  (history trails, circles, GeoJSON shapes) independently
+- ⭕ Per-entity circles sized from `gps_accuracy`, a state attribute, or a fixed radius
+- 🧩 Native GeoJSON rendering from any entity attribute (points, lines, polygons)
 
-### Via HACS (once a release exists)
+See [Roadmap](#roadmap) for what's not built yet.
 
-1. HACS → Frontend → ⋮ menu → Custom repositories
-2. Add `https://github.com/ToxicTolerance/ha-nyxmap-card`, category "Plugin"
-3. Install "NyxMap Card", then add it as a Lovelace resource (HACS does this automatically for plugins)
+## Installation
+
+### HACS (recommended)
+
+1. HACS → Frontend → ⋮ menu → **Custom repositories**
+2. Add `https://github.com/ToxicTolerance/ha-nyxmap-card`, category **Plugin**
+3. Install **NyxMap Card** — HACS registers the Lovelace resource for you
 4. Add a card with `type: custom:nyxmap-card`
-
-Releases are cut by pushing a `v*` tag — `.github/workflows/release.yml` builds
-`dist/nyxmap-card.js` and attaches it to a GitHub Release, which is what HACS
-downloads (`filename` in `hacs.json` points at that asset).
 
 ### Manual
 
-1. `npm run build`
-2. Copy `dist/nyxmap-card.js` to `/config/www/nyxmap-card.js`
-3. Add it as a Lovelace dashboard resource of type "JavaScript Module"
+1. Download `nyxmap-card.js` from the [latest release](https://github.com/ToxicTolerance/ha-nyxmap-card/releases/latest)
+2. Copy it to `/config/www/nyxmap-card.js`
+3. Add it as a Lovelace resource: **Settings → Dashboards → ⋮ → Resources**, URL
+   `/local/nyxmap-card.js`, type **JavaScript Module**
 4. Add a card with `type: custom:nyxmap-card`
+
+## Quick start
+
+```yaml
+type: custom:nyxmap-card
+title: Family Map
+zoom: 12
+focus_entity: person.alice
+focus_follow: contains
+entities:
+  - person.alice
+  - person.bob
+  - entity: device_tracker.alice_phone
+    history_start: 6 hours ago
+    history_line_color: '#4287f5'
+```
+
+That's every option most dashboards need: pick who to show, where to start
+framed, and optionally trail their recent history.
+
+## Configuration reference
+
+### Card options
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `x` / `y` | number | — | Explicit initial center as `x` (longitude) / `y` (latitude). Takes priority over `focus_entity`. |
+| `zoom` | number | `12` | Initial zoom level. |
+| `title` | string | — | Card header text. |
+| `card_size` | number | `5` | Used by Home Assistant's masonry layout when `height` isn't set (1 unit ≈ 50px). |
+| `height` | number | auto from `card_size` | Explicit map height in pixels. |
+| `theme_mode` | `auto` \| `light` \| `dark` | `auto` | `auto` follows the browser's `prefers-color-scheme`. |
+| `map_style` | string (style JSON URL) | a free [OpenFreeMap](https://openfreemap.org/) style | Light-mode base style. |
+| `map_style_dark` | string (style JSON URL) | a free [CARTO](https://carto.com/basemaps) dark style | Dark-mode base style. |
+| `map_styles` | list of `{name, map_style, map_style_dark}` | — | Extra named base styles offered in the [layer switcher](#layer_switcher), beyond the primary light/dark pair. |
+| `projection` | `globe` \| `mercator` | `globe` | MapLibre's 3D globe view, or the classic flat projection. |
+| `focus_entity` | entity id | — | Initial center, used when `x`/`y` aren't set. |
+| `focus_follow` | `none` \| `refocus` \| `contains` | `none` | `refocus` re-centers on every update; `contains` only re-fits when `focus_entity` leaves the current view. |
+| `layer_switcher` | boolean | `false` | Show a panel (top-right) for switching base styles and toggling overlays (history, circles, GeoJSON) on/off. |
+| `history_start` / `history_end` | string (relative or ISO) | — | Card-level default history window, inherited by entities that don't set their own. |
+| `entities` | list of entity ids or [entity objects](#entity-options) | `[]` | Entities to render. |
+
+### Entity options
+
+Each item in `entities:` is either a bare entity id string, or an object:
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `entity` | entity id | *required* | |
+| `display` | `marker` \| `icon` | `marker` | `icon` skips the entity picture even if one is set. |
+| `picture` | string (URL) | entity's `entity_picture` attribute | |
+| `icon` | string (mdi icon) | entity's `icon` attribute | Used when there's no picture. |
+| `label` | string | entity name initials | Used when there's neither picture nor icon. |
+| `color` | string (CSS color) | derived from the entity id | Marker color, and the default color for that entity's circle/history trail/geojson shape. |
+| `size` | number | `48` | Marker size in pixels. |
+| `fixed_x` / `fixed_y` | number | — | Pin the marker to a fixed longitude/latitude instead of reading `latitude`/`longitude` attributes. |
+| `focus_on_fit` | boolean | `true` | Whether this entity counts toward auto-fit-all-entities framing. |
+| `history_start` / `history_end` | string | card-level default | Per-entity history window. Set `history_start` to enable a trail. |
+| `history_line_color` | string | this entity's `color` | |
+| `circle` | `"auto"` or [object](#circle-options-per-entity-circle) | — | |
+| `geojson` | string (attribute name) or [object](#geojson-options-per-entity-geojson) | — | |
+
+### Circle options (per-entity `circle:`)
+
+Draws a circle around the entity — handy for showing GPS accuracy or a
+geofence radius.
+
+```yaml
+entities:
+  - entity: device_tracker.alice_phone
+    circle: auto   # shorthand — same as { source: auto }
+```
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `source` | `auto` \| `config` \| `attribute` \| `gps_accuracy` \| `radius` | `auto` (or `attribute` if `attribute` is set) | Where the radius comes from. `auto` prefers the `gps_accuracy` attribute, then a `radius` attribute, then falls back to `radius` below. |
+| `attribute` | string | — | State attribute holding the radius (meters), used when `source: attribute`. |
+| `radius` | number (meters) | `0` | Fixed radius, used when `source: config`, or as `auto`'s last resort. |
+| `color` | string (CSS color) | entity's `color` | |
+| `fill_opacity` | number | `0.1` | |
+
+### GeoJSON options (per-entity `geojson:`)
+
+Renders a GeoJSON geometry straight from an entity attribute — points, lines,
+and polygons are all dispatched to the right layer type automatically.
+
+```yaml
+entities:
+  - entity: geo_location.storm_cell
+    geojson: geo_shape   # shorthand — same as { attribute: geo_shape }
+```
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `attribute` | string | `geo_location` | State attribute holding the geometry — either a GeoJSON object or a JSON string. |
+| `color` | string (CSS color) | entity's `color` | |
+| `weight` | number | `3` | Line/outline width in pixels. |
+| `opacity` | number | `1.0` | Line/outline opacity. |
+| `fill_opacity` | number | `0.2` | Polygon fill opacity. |
+| `hide_marker` | boolean | `false` | Hide this entity's own marker so only the shape shows. |
+
+## Examples
+
+<details>
+<summary><strong>Custom map styles + layer switcher</strong></summary>
+
+```yaml
+type: custom:nyxmap-card
+layer_switcher: true
+map_style: https://tiles.openfreemap.org/styles/positron
+map_style_dark: https://tiles.basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json
+map_styles:
+  - name: Satellite
+    map_style: https://tiles.openfreemap.org/styles/liberty
+entities:
+  - person.alice
+```
+
+</details>
+
+<details>
+<summary><strong>GPS accuracy circle + history trail</strong></summary>
+
+```yaml
+type: custom:nyxmap-card
+entities:
+  - entity: device_tracker.alice_phone
+    circle: auto
+    history_start: 12 hours ago
+    history_line_color: '#4287f5'
+```
+
+</details>
+
+<details>
+<summary><strong>GeoJSON zone, marker hidden</strong></summary>
+
+```yaml
+type: custom:nyxmap-card
+entities:
+  - entity: geo_location.storm_cell
+    geojson:
+      attribute: geo_shape
+      color: '#e91e63'
+      fill_opacity: 0.35
+      hide_marker: true
+```
+
+</details>
+
+<details>
+<summary><strong>Flat mercator projection, fixed height</strong></summary>
+
+```yaml
+type: custom:nyxmap-card
+projection: mercator
+height: 400
+entities:
+  - person.alice
+```
+
+</details>
+
+## Development
+
+No Home Assistant instance required for day-to-day iteration — `npm run dev`
+serves a local harness with a mocked `hass` object.
+
+```
+npm install
+npm run dev          # Vite dev server against dev/harness.html
+npm run build         # bundles dist/nyxmap-card.js (single ES module)
+npm test               # vitest
+npm run lint            # eslint
+npm run typecheck       # tsc --noEmit
+```
+
+Releases are cut by pushing a `v*` tag — `.github/workflows/release.yml`
+builds `dist/nyxmap-card.js`, attaches it to a GitHub Release, and pulls that
+version's notes from [`CHANGELOG.md`](CHANGELOG.md); `filename` in
+`hacs.json` points HACS at that release asset.
+
+## Roadmap
+
+Not yet built, tracked as upstream `ha-map-card` feature parity:
+
+- `tile_layers` / WMS raster overlays
+- Native marker clustering
+- A plugin system
+- Energy-dashboard date-range linking (`history_date_selection`)
+
+See [`CLAUDE.md`](CLAUDE.md) for the full architecture notes and phased plan.

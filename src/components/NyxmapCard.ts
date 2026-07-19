@@ -7,6 +7,7 @@ import { StyleReattach } from "../maplibre/StyleReattach";
 import { HaHistoryService } from "../services/HaHistoryService";
 import { CircleRenderService } from "../services/render/CircleRenderService";
 import { EntitiesRenderService, type MapLibreGlLike } from "../services/render/EntitiesRenderService";
+import { GeoJsonRenderService, type GeoJsonMapLike } from "../services/render/GeoJsonRenderService";
 import { HistoryRenderService, type MapSourceLike } from "../services/render/HistoryRenderService";
 import { InitialViewRenderService, type MapViewLike } from "../services/render/InitialViewRenderService";
 import { LayerRegistry } from "../services/render/LayerRegistry";
@@ -32,8 +33,11 @@ export class NyxmapCard extends LitElement {
   private _entities?: EntitiesRenderService;
   private _history?: HistoryRenderService;
   private _circles?: CircleRenderService;
+  private _geojson?: GeoJsonRenderService;
   private _initialViewApplied = false;
   private _historyCatchUpDone = false;
+  private _resizeObserver?: ResizeObserver;
+  private _resizeRaf?: number;
   private readonly _reattach = new StyleReattach();
   private readonly _historyManager = new EntityHistoryManager();
   private readonly _initialView = new InitialViewRenderService();
@@ -47,8 +51,20 @@ export class NyxmapCard extends LitElement {
     }
   }
 
+  /** HA's masonry/grid layout uses this (in ~50px units) to pre-allocate
+   * space for the card before it renders. Deriving it from mapHeight rather
+   * than returning the raw card_size config keeps it in sync when an
+   * explicit `height:` is set without a matching `card_size` — otherwise
+   * masonry underestimates the card's real height, throwing off the whole
+   * dashboard's layout (surfacing as an unexpected page-level scrollbar). */
   getCardSize(): number {
-    return this._config?.cardSize ?? 5;
+    return Math.max(1, Math.ceil((this._config?.mapHeight ?? 250) / 50));
+  }
+
+  override disconnectedCallback(): void {
+    super.disconnectedCallback();
+    this._resizeObserver?.disconnect();
+    if (this._resizeRaf !== undefined) cancelAnimationFrame(this._resizeRaf);
   }
 
   protected override updated(changed: PropertyValues): void {
@@ -58,6 +74,7 @@ export class NyxmapCard extends LitElement {
     if (changed.has("hass") && this._ready && this._config && this.hass) {
       this._entities?.update(this._config.entities, this.hass);
       this._circles?.update(this._config.entities, this.hass);
+      this._geojson?.update(this._config.entities, this.hass);
       this._applyInitialViewIfNeeded();
       this._initialView.updateFit(
         this._map as unknown as MapViewLike,
@@ -89,6 +106,14 @@ export class NyxmapCard extends LitElement {
         </div>
       </ha-card>
     `;
+  }
+
+  private _scheduleResize(): void {
+    if (this._resizeRaf !== undefined) cancelAnimationFrame(this._resizeRaf);
+    this._resizeRaf = requestAnimationFrame(() => {
+      this._resizeRaf = undefined;
+      this._map?.resize();
+    });
   }
 
   private _prefersDark(): boolean {
@@ -180,6 +205,24 @@ export class NyxmapCard extends LitElement {
     });
     this._map.addControl(new maplibregl.NavigationControl({ showCompass: true }), "top-right");
 
+    // MapLibre installs its own ResizeObserver on the container, but its
+    // very first notification after `.observe()` is deliberately ignored
+    // (it assumes the container is already correctly sized at construction
+    // time). Home Assistant's masonry/grid layout computes each card's real
+    // column width asynchronously, shortly after the card mounts — if that
+    // resize lands within the same first notification batch, MapLibre
+    // silently drops it and the canvas stays locked at whatever (possibly
+    // too-small) size it read at construction, until something else forces
+    // a fresh layout pass (e.g. switching dashboard tabs and back). Our own
+    // observer has no such skip, so it catches that corrective resize (and
+    // any later one — sidebar toggle, window resize, editing the dashboard).
+    this._resizeObserver = new ResizeObserver(() => this._scheduleResize());
+    this._resizeObserver.observe(container);
+    // Also nudge once after layout has settled post-construction, for
+    // engines/timings where even a second ResizeObserver tick doesn't land
+    // before first paint.
+    requestAnimationFrame(() => requestAnimationFrame(() => this._map?.resize()));
+
     this._entities = new EntitiesRenderService(this._map, maplibregl as unknown as MapLibreGlLike, (entityId) =>
       this._fireMoreInfo(entityId),
     );
@@ -192,6 +235,12 @@ export class NyxmapCard extends LitElement {
       this._map as unknown as MapSourceLike,
       this._reattach,
       this._layerRegistry,
+    );
+    this._geojson = new GeoJsonRenderService(
+      this._map as unknown as GeoJsonMapLike,
+      this._reattach,
+      this._layerRegistry,
+      (entityId) => this._fireMoreInfo(entityId),
     );
 
     // Base styles are now registered — re-render so the switcher (if
@@ -214,6 +263,7 @@ export class NyxmapCard extends LitElement {
       if (this._config && this.hass) {
         this._entities?.update(this._config.entities, this.hass);
         this._circles?.update(this._config.entities, this.hass);
+        this._geojson?.update(this._config.entities, this.hass);
         this._refreshHistory();
         this._applyInitialViewIfNeeded();
       }

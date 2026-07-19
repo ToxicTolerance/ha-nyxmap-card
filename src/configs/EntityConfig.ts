@@ -1,4 +1,5 @@
 import { CircleConfig, type CircleConfigRaw } from "./CircleConfig";
+import { GeoJsonConfig, type GeoJsonConfigRaw } from "./GeoJsonConfig";
 
 export type EntityDisplay = "marker" | "icon" | "state";
 
@@ -18,6 +19,7 @@ export interface EntityConfigRaw {
   history_end?: string;
   history_line_color?: string;
   circle?: "auto" | CircleConfigRaw;
+  geojson?: string | GeoJsonConfigRaw | false;
   [key: string]: unknown;
 }
 
@@ -42,6 +44,7 @@ export class EntityConfig {
   readonly historyEnd?: string;
   readonly historyLineColor?: string;
   readonly circle?: CircleConfig;
+  readonly geojson?: GeoJsonConfig;
   readonly raw: EntityConfigRaw;
 
   static from(e: string | EntityConfigRaw): EntityConfig {
@@ -67,5 +70,6 @@ export class EntityConfig {
     this.historyEnd = raw.history_end;
     this.historyLineColor = raw.history_line_color ?? raw.color;
     this.circle = CircleConfig.from(raw.circle, this.color);
+    this.geojson = GeoJsonConfig.from(raw.geojson, this.color);
   }
 }

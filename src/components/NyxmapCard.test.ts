@@ -15,6 +15,7 @@ vi.mock("../maplibre/MapLibreLoader", () => {
     removeLayer = vi.fn();
     removeSource = vi.fn();
     setLayoutProperty = vi.fn();
+    resize = vi.fn();
     jumpTo = vi.fn();
     fitBounds = vi.fn();
     getBounds = vi.fn(() => ({ west: -180, east: 180, south: -85, north: 85 }));
@@ -80,6 +81,7 @@ interface TestableNyxmapCard extends HTMLElement {
     fire(event: string): void;
     setStyle: ReturnType<typeof vi.fn>;
     setLayoutProperty: ReturnType<typeof vi.fn>;
+    resize: ReturnType<typeof vi.fn>;
   };
   _entities?: EntitiesRenderService;
 }
@@ -114,6 +116,15 @@ describe("NyxmapCard", () => {
     expect(el.getCardSize()).toBe(8);
   });
 
+  it("getCardSize reflects an explicit height even when card_size is left at its default (masonry layout consistency)", async () => {
+    // A mismatch here previously left HA's masonry layout under-allocating
+    // space for the card, surfacing as an unexpected dashboard scrollbar.
+    el.setConfig({ height: 600 });
+    await el.updateComplete;
+
+    expect(el.getCardSize()).toBe(12); // 600 / 50
+  });
+
   it("throws from setConfig on a missing config", () => {
     expect(() => el.setConfig(undefined)).toThrow();
   });
@@ -128,6 +139,17 @@ describe("NyxmapCard", () => {
     await el.updateComplete;
 
     expect(el._map).toBe(firstMap);
+  });
+
+  it("nudges map.resize() once layout has settled after building (tab-switch/masonry sizing workaround)", async () => {
+    el.setConfig({});
+    await el.updateComplete;
+    // The nudge is a double requestAnimationFrame (stubbed as chained
+    // setTimeout(0) in jsdom) — flush twice to let both frames land.
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    expect(el._map!.resize).toHaveBeenCalled();
   });
 
   it("calls map.setStyle when config changes after the map is built (theme/style swap path)", async () => {

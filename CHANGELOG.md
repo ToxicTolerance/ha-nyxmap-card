@@ -1,0 +1,65 @@
+# Changelog
+
+All notable changes to this project are documented here. Format loosely
+follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+
+## [Unreleased]
+
+## [0.3.0] - 2026-07-19
+
+### Added
+
+- Native GeoJSON rendering (`geojson:` per-entity config) — points, lines, and
+  polygons from any entity attribute, dispatched to the right MapLibre layer
+  type automatically. Registered with the layer switcher as a toggleable
+  overlay, and supports `hide_marker` to suppress the entity's own marker.
+
+### Fixed
+
+- Map staying undersized until switching Lovelace tabs: MapLibre's own
+  container `ResizeObserver` silently drops the very first resize
+  notification after construction, which could eat the corrective resize
+  from Home Assistant's masonry/grid layout computing the card's real column
+  width shortly after mount. The card now also observes its own container
+  and nudges a resize once layout has settled.
+- Layer switcher panel getting clipped: it lived inside the same
+  `overflow: hidden` box used to round off the map canvas's corners, so its
+  dropdown could be cut off on a short map. The clip now scopes to just the
+  map canvas.
+- `getCardSize()` could disagree with the actual rendered height when an
+  explicit `height:` was set without a matching `card_size`, causing Home
+  Assistant's masonry layout to under-allocate space for the card — visible
+  as an unexpected scrollbar on the dashboard.
+
+## [0.2.0] - 2026-07-18
+
+### Added
+
+- Circle markers (`circle:` per-entity config) — a geodesic circle around an
+  entity, radius sourced from `gps_accuracy`, another state attribute, or a
+  fixed value. Toggleable from the layer switcher.
+
+## [0.1.0] - 2026-07-17
+
+Initial HACS-installable release.
+
+### Added
+
+- Core card: MapLibre GL vector-tile rendering, entity markers with a
+  picture → icon → initials fallback chain, tap-to-more-info.
+- Light/dark map styles that follow Home Assistant's theme (`theme_mode`),
+  with a `StyleReattach` registry so sources/layers survive `setStyle()`
+  theme swaps.
+- Per-entity history trails (`history_start`/`history_line_color`).
+- Initial camera framing via `focus_entity`/`focus_follow`
+  (`none`/`refocus`/`contains`), and auto-fit across all entities otherwise.
+- 3D globe projection (default), togglable to flat mercator.
+- Layer switcher panel: base map style selection + overlay visibility
+  toggles.
+- HACS packaging (`hacs.json`, release workflow publishing `nyxmap-card.js`
+  as a GitHub Release asset).
+
+[Unreleased]: https://github.com/ToxicTolerance/ha-nyxmap-card/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/ToxicTolerance/ha-nyxmap-card/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/ToxicTolerance/ha-nyxmap-card/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/ToxicTolerance/ha-nyxmap-card/releases/tag/v0.1.0

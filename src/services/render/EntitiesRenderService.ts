@@ -46,6 +46,10 @@ export class EntitiesRenderService {
     let any = false;
 
     for (const ent of entities) {
+      // geojson: {hide_marker: true} suppresses the entity's own marker so
+      // only its rendered GeoJSON shape shows — mirrors upstream ha-map-card.
+      if (ent.geojson?.hideMarker) continue;
+
       const st = hass.states[ent.id];
       const lng = ent.fixedX ?? st?.attributes?.longitude;
       const lat = ent.fixedY ?? st?.attributes?.latitude;

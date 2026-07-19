@@ -105,6 +105,24 @@ describe("EntitiesRenderService", () => {
     expect(onTap).toHaveBeenCalledWith("device_tracker.phone");
   });
 
+  it("suppresses the marker for an entity whose geojson config sets hide_marker", () => {
+    const service = new EntitiesRenderService(
+      createFakeMaplibreMap() as never,
+      createFakeMaplibreGl(),
+      vi.fn(),
+    );
+    const cfg = EntityConfig.from({
+      entity: "geo_location.demo",
+      fixed_x: 1,
+      fixed_y: 2,
+      geojson: { attribute: "geo_shape", hide_marker: true },
+    });
+
+    service.update([cfg], hassWith({}));
+
+    expect(service.has("geo_location.demo")).toBe(false);
+  });
+
   it("removeAll() removes every tracked marker", () => {
     const service = new EntitiesRenderService(
       createFakeMaplibreMap() as never,

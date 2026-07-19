@@ -17,6 +17,10 @@ card.setConfig({
       circle: "auto",
     },
     "person.demo_alice",
+    {
+      entity: "geo_location.demo_zone",
+      geojson: { attribute: "geo_shape", color: "#e91e63", hide_marker: true },
+    },
   ],
 });
 card.hass = createMockHass();

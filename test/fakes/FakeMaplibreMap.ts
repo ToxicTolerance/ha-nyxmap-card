@@ -16,6 +16,7 @@ export function createFakeMaplibreMap() {
     getStyle: vi.fn(() => ({})),
     setStyle: vi.fn(),
     on: vi.fn(),
+    off: vi.fn(),
     once: vi.fn(),
     fitBounds: vi.fn(),
     flyTo: vi.fn(),

@@ -47,6 +47,29 @@ export function createMockHass(): HomeAssistant {
           icon: "mdi:account",
         },
       },
+      "geo_location.demo_zone": {
+        entity_id: "geo_location.demo_zone",
+        state: "zone",
+        last_changed: new Date().toISOString(),
+        last_updated: new Date().toISOString(),
+        attributes: {
+          friendly_name: "Demo Zone",
+          latitude: 52.515,
+          longitude: 13.41,
+          geo_shape: {
+            type: "Polygon",
+            coordinates: [
+              [
+                [13.395, 52.51],
+                [13.425, 52.51],
+                [13.425, 52.525],
+                [13.395, 52.525],
+                [13.395, 52.51],
+              ],
+            ],
+          },
+        },
+      },
     },
   };
 }
