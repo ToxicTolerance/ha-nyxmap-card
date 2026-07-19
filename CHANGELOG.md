@@ -5,6 +5,31 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-07-19
+
+### Added
+
+- `tile_layers:`/`wms:` card-level config — raster overlays layered on top
+  of the vector base style, registered with the layer switcher as
+  toggleable overlays. `url` supports `{{ states('entity_id') }}`
+  templating, re-resolved live as that entity's state changes. WMS requests
+  are built as a raster tile-URL template around MapLibre's
+  `{bbox-epsg-3857}` substitution token rather than hand-rolled BBOX math.
+  (The `history`/WMS-TIME-parameter sub-config from upstream ha-map-card is
+  deferred alongside the energy-dashboard date-range linking it depends on
+  — see the Roadmap.)
+
+### Fixed
+
+- MapLibre's control icons (most visibly the bottom-right compact
+  attribution "i") having their outer edge clipped: they're positioned
+  flush in the corner (zero margin) by MapLibre itself, but `ha-card` clips
+  to its own rounded corners (`overflow: hidden` + `border-radius`, needed
+  so the map canvas's naturally square corners don't poke out past it) — a
+  control with no inset sitting exactly in a rounded corner is guaranteed
+  to have its outer edge cut off by the curve. Every corner's controls now
+  get a small margin to clear it.
+
 ## [0.3.3] - 2026-07-19
 
 ### Fixed
@@ -101,7 +126,8 @@ Initial HACS-installable release.
 - HACS packaging (`hacs.json`, release workflow publishing `nyxmap-card.js`
   as a GitHub Release asset).
 
-[Unreleased]: https://github.com/ToxicTolerance/ha-nyxmap-card/compare/v0.3.3...HEAD
+[Unreleased]: https://github.com/ToxicTolerance/ha-nyxmap-card/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/ToxicTolerance/ha-nyxmap-card/compare/v0.3.3...v0.4.0
 [0.3.3]: https://github.com/ToxicTolerance/ha-nyxmap-card/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/ToxicTolerance/ha-nyxmap-card/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/ToxicTolerance/ha-nyxmap-card/compare/v0.3.0...v0.3.1

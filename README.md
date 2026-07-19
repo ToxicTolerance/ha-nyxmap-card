@@ -22,6 +22,7 @@ GeoJSON/geometry rendering.
   - [Entity options](#entity-options)
   - [Circle options](#circle-options-per-entity-circle)
   - [GeoJSON options](#geojson-options-per-entity-geojson)
+  - [Tile/WMS layer options](#tilewms-layer-options-tile_layers--wms)
 - [Examples](#examples)
 - [Development](#development)
 - [Roadmap](#roadmap)
@@ -39,6 +40,8 @@ GeoJSON/geometry rendering.
   (history trails, circles, GeoJSON shapes) independently
 - ⭕ Per-entity circles sized from `gps_accuracy`, a state attribute, or a fixed radius
 - 🧩 Native GeoJSON rendering from any entity attribute (points, lines, polygons)
+- 🛰️ Raster tile and WMS overlays (e.g. weather radar) layered on top of the vector base style,
+  with `{{ states('entity_id') }}` URL templating
 
 See [Roadmap](#roadmap) for what's not built yet.
 
@@ -98,6 +101,8 @@ framed, and optionally trail their recent history.
 | `focus_follow` | `none` \| `refocus` \| `contains` | `none` | `refocus` re-centers on every update; `contains` only re-fits when `focus_entity` leaves the current view. |
 | `layer_switcher` | boolean | `false` | Show a panel (top-right) for switching base styles and toggling overlays (history, circles, GeoJSON) on/off. |
 | `history_start` / `history_end` | string (relative or ISO) | — | Card-level default history window, inherited by entities that don't set their own. |
+| `tile_layers` | one or a list of [layer objects](#tilewms-layer-options-tile_layers--wms) | — | Raster tile overlay(s), layered on top of the vector base style. |
+| `wms` | one or a list of [layer objects](#tilewms-layer-options-tile_layers--wms) | — | WMS overlay(s). |
 | `entities` | list of entity ids or [entity objects](#entity-options) | `[]` | Entities to render. |
 
 ### Entity options
@@ -158,6 +163,32 @@ entities:
 | `opacity` | number | `1.0` | Line/outline opacity. |
 | `fill_opacity` | number | `0.2` | Polygon fill opacity. |
 | `hide_marker` | boolean | `false` | Hide this entity's own marker so only the shape shows. |
+
+### Tile/WMS layer options (`tile_layers:` / `wms:`)
+
+Card-level (not per-entity) raster overlays, layered on top of the vector
+base style. Each entry:
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `url` | string | *required* | For `tile_layers`, an XYZ template (`{z}/{x}/{y}`). For `wms`, the bare service endpoint — no query string. Supports `{{ states('entity_id') }}` templating, re-resolved live as that entity's state changes. |
+| `options` | object | `{}` | For `tile_layers`, passed straight through as extra raster-source fields. For `wms`, WMS GetMap params: `layers`, `format` (default `image/png`), `transparent` (default `true`), `version` (default `1.1.1`), `styles`. |
+| `attribution` | string | — | Shown in the map's attribution control. |
+
+```yaml
+tile_layers:
+  url: https://tile.openstreetmap.org/{z}/{x}/{y}.png
+  options:
+    attribution: '&copy; OpenStreetMap contributors'
+wms:
+  - url: https://mesonet.agron.iastate.edu/cgi-bin/wms/nexrad/n0r.cgi
+    options:
+      layers: nexrad-n0r
+```
+
+WMS requests are built as a MapLibre raster tile-URL template around its
+`{bbox-epsg-3857}` substitution token — not hand-rolled BBOX math — so tiles
+load exactly like any other raster source.
 
 ## Examples
 
@@ -222,6 +253,23 @@ entities:
 </details>
 
 <details>
+<summary><strong>Weather radar (WMS) overlay</strong></summary>
+
+```yaml
+type: custom:nyxmap-card
+layer_switcher: true
+wms:
+  - url: https://mesonet.agron.iastate.edu/cgi-bin/wms/nexrad/n0r.cgi
+    options:
+      layers: nexrad-n0r
+    attribution: 'Iowa Environmental Mesonet'
+entities:
+  - person.alice
+```
+
+</details>
+
+<details>
 <summary><strong>Full-screen Panel view</strong></summary>
 
 For a [Panel view](https://www.home-assistant.io/dashboards/panel/) (a
@@ -261,7 +309,6 @@ version's notes from [`CHANGELOG.md`](CHANGELOG.md); `filename` in
 
 Not yet built, tracked as upstream `ha-map-card` feature parity:
 
-- `tile_layers` / WMS raster overlays
 - Native marker clustering
 - A plugin system
 - Energy-dashboard date-range linking (`history_date_selection`)

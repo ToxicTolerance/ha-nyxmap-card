@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { TileLayerConfig } from "./TileLayerConfig";
+import { WmsLayerConfig } from "./WmsLayerConfig";
 import { DEFAULT_STYLE_DARK, DEFAULT_STYLE_LIGHT, MapConfig } from "./MapConfig";
 
 describe("MapConfig", () => {
@@ -19,6 +21,23 @@ describe("MapConfig", () => {
     expect(cfg.layerSwitcher).toBe(false);
     expect(cfg.mapStyles).toEqual([]);
     expect(cfg.entities).toEqual([]);
+    expect(cfg.tileLayers).toEqual([]);
+    expect(cfg.wms).toEqual([]);
+  });
+
+  it("parses tile_layers and wms, each as either a single object or a list", () => {
+    const cfg = new MapConfig({
+      tile_layers: { url: "https://example.com/{z}/{x}/{y}.png" },
+      wms: [
+        { url: "https://example.com/wms/a", options: { layers: "a" } },
+        { url: "https://example.com/wms/b", options: { layers: "b" } },
+      ],
+    });
+    expect(cfg.tileLayers).toHaveLength(1);
+    expect(cfg.tileLayers[0]).toBeInstanceOf(TileLayerConfig);
+    expect(cfg.wms).toHaveLength(2);
+    expect(cfg.wms.every((w) => w instanceof WmsLayerConfig)).toBe(true);
+    expect(cfg.wms.map((w) => w.options.layers)).toEqual(["a", "b"]);
   });
 
   it("respects an explicit projection override", () => {

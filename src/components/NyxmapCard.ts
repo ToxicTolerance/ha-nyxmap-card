@@ -11,6 +11,7 @@ import { GeoJsonRenderService, type GeoJsonMapLike } from "../services/render/Ge
 import { HistoryRenderService, type MapSourceLike } from "../services/render/HistoryRenderService";
 import { InitialViewRenderService, type MapViewLike } from "../services/render/InitialViewRenderService";
 import { LayerRegistry } from "../services/render/LayerRegistry";
+import { TileLayersRenderService, type TileLayersMapLike } from "../services/render/TileLayersRenderService";
 import type { HomeAssistant } from "../types/home-assistant";
 import { resolveStyle, resolveStylePair, resolveThemeMode } from "../util/HaMapUtilities";
 import "./LayerSwitcherControl";
@@ -34,6 +35,7 @@ export class NyxmapCard extends LitElement {
   private _history?: HistoryRenderService;
   private _circles?: CircleRenderService;
   private _geojson?: GeoJsonRenderService;
+  private _tileLayers?: TileLayersRenderService;
   private _initialViewApplied = false;
   private _historyCatchUpDone = false;
   private _resizeObserver?: ResizeObserver;
@@ -85,6 +87,7 @@ export class NyxmapCard extends LitElement {
       this._entities?.update(this._config.entities, this.hass);
       this._circles?.update(this._config.entities, this.hass);
       this._geojson?.update(this._config.entities, this.hass);
+      this._tileLayers?.update(this._config.tileLayers, this._config.wms, this.hass);
       this._applyInitialViewIfNeeded();
       this._initialView.updateFit(
         this._map as unknown as MapViewLike,
@@ -252,6 +255,11 @@ export class NyxmapCard extends LitElement {
       this._layerRegistry,
       (entityId) => this._fireMoreInfo(entityId),
     );
+    this._tileLayers = new TileLayersRenderService(
+      this._map as unknown as TileLayersMapLike,
+      this._reattach,
+      this._layerRegistry,
+    );
 
     // Base styles are now registered — re-render so the switcher (if
     // enabled) reflects them instead of showing an empty radio group.
@@ -274,6 +282,7 @@ export class NyxmapCard extends LitElement {
         this._entities?.update(this._config.entities, this.hass);
         this._circles?.update(this._config.entities, this.hass);
         this._geojson?.update(this._config.entities, this.hass);
+        this._tileLayers?.update(this._config.tileLayers, this._config.wms, this.hass);
         this._refreshHistory();
         this._applyInitialViewIfNeeded();
       }

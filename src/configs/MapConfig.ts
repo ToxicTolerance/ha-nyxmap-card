@@ -1,4 +1,7 @@
 import { EntityConfig, type EntityConfigRaw } from "./EntityConfig";
+import { type LayerConfigRaw, parseLayerConfigList } from "./LayerConfig";
+import { TileLayerConfig } from "./TileLayerConfig";
+import { WmsLayerConfig } from "./WmsLayerConfig";
 
 export type ThemeMode = "auto" | "light" | "dark";
 export type FocusFollow = "none" | "refocus" | "contains";
@@ -46,6 +49,13 @@ export interface MapConfigRaw {
   layer_switcher?: boolean;
   history_start?: string;
   history_end?: string;
+  /** Raster overlay(s) layered on top of the vector base style. A single
+   * object or a list; `url` supports `{{ states('entity_id') }}` templating
+   * and, for tile layers, the usual `{z}/{x}/{y}` XYZ tokens. */
+  tile_layers?: LayerConfigRaw | LayerConfigRaw[];
+  /** WMS overlay(s) — `url` is the bare service endpoint (no query string);
+   * `options` supplies WMS GetMap params (layers/format/transparent/etc). */
+  wms?: LayerConfigRaw | LayerConfigRaw[];
   entities?: Array<string | EntityConfigRaw>;
   [key: string]: unknown;
 }
@@ -77,6 +87,8 @@ export class MapConfig {
    * that don't define their own (see EntityConfig.historyStart). */
   readonly historyStart?: string;
   readonly historyEnd?: string;
+  readonly tileLayers: TileLayerConfig[];
+  readonly wms: WmsLayerConfig[];
   readonly entities: EntityConfig[];
 
   constructor(raw: MapConfigRaw) {
@@ -102,6 +114,8 @@ export class MapConfig {
     this.layerSwitcher = raw.layer_switcher ?? false;
     this.historyStart = raw.history_start;
     this.historyEnd = raw.history_end;
+    this.tileLayers = parseLayerConfigList(raw.tile_layers, TileLayerConfig);
+    this.wms = parseLayerConfigList(raw.wms, WmsLayerConfig);
     this.entities = (raw.entities ?? []).map(EntityConfig.from);
   }
 

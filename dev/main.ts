@@ -9,6 +9,10 @@ card.setConfig({
   y: 52.52,
   zoom: 11,
   layer_switcher: true,
+  tile_layers: {
+    url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+    options: { attribution: "&copy; OpenStreetMap contributors" },
+  },
   entities: [
     {
       entity: "device_tracker.demo_phone",

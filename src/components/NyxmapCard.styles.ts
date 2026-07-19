@@ -50,4 +50,20 @@ export const nyxmapCardStyles = css`
   .nyxmap-marker ha-icon {
     --mdc-icon-size: 60%;
   }
+  /* MapLibre positions its control corners flush against the container
+   * edge (bottom:0/right:0 etc, zero inset) — fine against a square box,
+   * but ha-card clips to its own rounded corners (border-radius, see
+   * above), so a control sitting exactly in the corner with no margin has
+   * its outer edge cut off by the curve (most visible on the bottom-right
+   * compact attribution icon). A small margin pulls every corner's
+   * controls in far enough to clear it. Margin, not padding/inset, because
+   * these are absolutely positioned: for an abspos box, top/right/bottom/
+   * left place the *margin* box, so margin still creates a real inset from
+   * the containing block's edge here. */
+  .maplibregl-ctrl-top-right,
+  .maplibregl-ctrl-bottom-right,
+  .maplibregl-ctrl-top-left,
+  .maplibregl-ctrl-bottom-left {
+    margin: 8px;
+  }
 `;
