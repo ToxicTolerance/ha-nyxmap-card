@@ -26,6 +26,31 @@ describe("TileLayersRenderService", () => {
     expect(service.has("tile-layer-0")).toBe(true);
   });
 
+  it("applies minzoom/maxzoom from options onto the raster source", () => {
+    const map = createFakeMaplibreMap();
+    const service = new TileLayersRenderService(map as never, new StyleReattach(), new LayerRegistry());
+    const tile = new LayerConfig({
+      url: "https://example.com/{z}/{x}/{y}.png",
+      options: { minzoom: 5, maxzoom: 20 },
+    });
+
+    service.update([tile], [], hassWith({}));
+
+    expect(map.addSource).toHaveBeenCalledWith("tile-layer-0", expect.objectContaining({ minzoom: 5, maxzoom: 20 }));
+  });
+
+  it("omits minzoom/maxzoom from the source when not set in options", () => {
+    const map = createFakeMaplibreMap();
+    const service = new TileLayersRenderService(map as never, new StyleReattach(), new LayerRegistry());
+    const tile = new LayerConfig({ url: "https://example.com/{z}/{x}/{y}.png" });
+
+    service.update([tile], [], hassWith({}));
+
+    const call = map.addSource.mock.calls.find((c) => c[0] === "tile-layer-0")!;
+    expect(call[1]).not.toHaveProperty("minzoom");
+    expect(call[1]).not.toHaveProperty("maxzoom");
+  });
+
   it("resolves {{ states() }} templating in a tile layer url", () => {
     const map = createFakeMaplibreMap();
     const service = new TileLayersRenderService(map as never, new StyleReattach(), new LayerRegistry());

@@ -97,13 +97,14 @@ switch to **Edit in YAML** (the toggle in the same dialog) to set those.
 |---|---|---|---|
 | `x` / `y` | number | — | Explicit initial center as `x` (longitude) / `y` (latitude). Takes priority over `focus_entity`. |
 | `zoom` | number | `12` | Initial zoom level. |
+| `max_zoom` / `min_zoom` | number | MapLibre's own defaults (0–22) | Caps how far the camera can zoom. Set `max_zoom` if a raster `tile_layers`/`wms` overlay (or the base style itself) doesn't have imagery past a certain level, so zooming in stops at the last real tiles instead of going blank. |
 | `title` | string | — | Card header text. |
 | `card_size` | number | `5` | Used by Home Assistant's masonry layout when `height` isn't set (1 unit ≈ 50px). |
 | `height` | number or CSS length string | auto from `card_size` | A number is pixels. A string (e.g. `"100%"`, `"50vh"`) is used verbatim — mainly for a [Panel view](https://www.home-assistant.io/dashboards/panel/), where `"100%"` fills the whole viewport exactly instead of leaving a gap or causing page scroll. |
 | `theme_mode` | `auto` \| `light` \| `dark` | `auto` | `auto` follows the browser's `prefers-color-scheme`. |
 | `map_style` | string (style JSON URL) | a free [OpenFreeMap](https://openfreemap.org/) style | Light-mode base style. |
 | `map_style_dark` | string (style JSON URL) | a free [CARTO](https://carto.com/basemaps) dark style | Dark-mode base style. |
-| `map_styles` | list of `{name, map_style, map_style_dark}` | — | Extra named base styles offered in the [layer switcher](#layer_switcher), beyond the primary light/dark pair. |
+| `map_styles` | list of `{name, map_style, map_style_dark}` | — | Named base styles offered in the [layer switcher](#layer_switcher). Once this is set, the switcher shows only these — the generic "Light"/"Dark" options are hidden, since they'd otherwise duplicate/conflict with your own named entries. `map_style`/`map_style_dark` still drive the initial theme-follow behavior either way. |
 | `projection` | `globe` \| `mercator` | `globe` | MapLibre's 3D globe view, or the classic flat projection. |
 | `focus_entity` | entity id | — | Initial center, used when `x`/`y` aren't set. |
 | `focus_follow` | `none` \| `refocus` \| `contains` | `none` | `refocus` re-centers on every update; `contains` only re-fits when `focus_entity` leaves the current view. |
@@ -180,7 +181,7 @@ base style. Each entry:
 | Option | Type | Default | Description |
 |---|---|---|---|
 | `url` | string | *required* | For `tile_layers`, an XYZ template (`{z}/{x}/{y}`). For `wms`, the bare service endpoint — no query string. Supports `{{ states('entity_id') }}` templating, re-resolved live as that entity's state changes. |
-| `options` | object | `{}` | For `tile_layers`, passed straight through as extra raster-source fields. For `wms`, WMS GetMap params: `layers`, `format` (default `image/png`), `transparent` (default `true`), `version` (default `1.1.1`), `styles`. |
+| `options` | object | `{}` | For `tile_layers`, passed straight through as extra raster-source fields — including `minzoom`/`maxzoom`, if this layer's provider doesn't have imagery past a certain level. For `wms`, WMS GetMap params: `layers`, `format` (default `image/png`), `transparent` (default `true`), `version` (default `1.1.1`), `styles` (`minzoom`/`maxzoom` work here too). |
 | `attribution` | string | — | Shown in the map's attribution control. |
 
 ```yaml

@@ -203,16 +203,26 @@ export class NyxmapCard extends LitElement {
     // Seeds the layer switcher's base-style radio group. Registered once at
     // build time — changing map_styles on a later setConfig() won't add new
     // options until the card is reloaded, an accepted MVP simplification.
-    this._layerRegistry.registerBaseStyle("light", {
-      label: "Light",
-      styleLight: config.styleLight,
-      styleDark: config.styleLight,
-    });
-    this._layerRegistry.registerBaseStyle("dark", {
-      label: "Dark",
-      styleLight: config.styleDark,
-      styleDark: config.styleDark,
-    });
+    //
+    // The generic Light/Dark entries only make sense when they're the only
+    // base styles on offer — once the user provides their own map_styles,
+    // Light/Dark just duplicate (or conflict with) whatever's in that list
+    // under a generic name, which is confusing rather than useful. With
+    // map_styles present, the switcher shows only those named entries;
+    // map_style/map_style_dark still drive the initial auto theme-follow
+    // (see _resolveActiveStyleUrl), just without a separate button for it.
+    if (config.mapStyles.length === 0) {
+      this._layerRegistry.registerBaseStyle("light", {
+        label: "Light",
+        styleLight: config.styleLight,
+        styleDark: config.styleLight,
+      });
+      this._layerRegistry.registerBaseStyle("dark", {
+        label: "Dark",
+        styleLight: config.styleDark,
+        styleDark: config.styleDark,
+      });
+    }
     for (const s of config.mapStyles) {
       this._layerRegistry.registerBaseStyle(`custom:${s.name}`, {
         label: s.name,
@@ -227,6 +237,8 @@ export class NyxmapCard extends LitElement {
       style: this._resolveActiveStyleUrl(),
       center: initialCenter,
       zoom: config.zoom,
+      maxZoom: config.maxZoom,
+      minZoom: config.minZoom,
       attributionControl: { compact: true },
     });
     this._map.addControl(new maplibregl.NavigationControl({ showCompass: true }), "top-right");

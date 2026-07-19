@@ -48,6 +48,19 @@ function buildWmsUrl(baseUrl: string, options: Record<string, unknown>): string 
   return `${baseUrl}${separator}${params.toString()}&BBOX={bbox-epsg-3857}`;
 }
 
+/** Pulls MapLibre's raster-source zoom-range fields out of a layer's
+ * `options` bag so they land on the source itself instead of being silently
+ * dropped — without this, a source whose real tile coverage stops short of
+ * the map's own zoom range (e.g. an aerial-imagery WMS/tile provider that
+ * only has data up to z20) just renders blank past that point instead of
+ * MapLibre falling back to the last available tiles. */
+function extractZoomRange(options: Record<string, unknown>): { minzoom?: number; maxzoom?: number } {
+  const range: { minzoom?: number; maxzoom?: number } = {};
+  if (typeof options.minzoom === "number") range.minzoom = options.minzoom;
+  if (typeof options.maxzoom === "number") range.maxzoom = options.maxzoom;
+  return range;
+}
+
 function toRasterLayer(id: string, visible: boolean) {
   return {
     id,
@@ -108,7 +121,7 @@ export class TileLayersRenderService {
   private _upsert(id: string, url: string, options: Record<string, unknown>, label: string): void {
     const isVisible = () => this.visibility.get(id) ?? true;
     const attribution = typeof options.attribution === "string" ? options.attribution : undefined;
-    const source = { type: "raster" as const, tiles: [url], tileSize: 256, attribution };
+    const source = { type: "raster" as const, tiles: [url], tileSize: 256, attribution, ...extractZoomRange(options) };
 
     const existingSource = this.map.getSource(id);
     if (existingSource) {

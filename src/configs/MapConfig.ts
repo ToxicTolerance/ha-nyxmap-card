@@ -32,6 +32,12 @@ export interface MapConfigRaw {
   x?: number;
   y?: number;
   zoom?: number;
+  /** Caps how far the camera can zoom in/out. Unset uses MapLibre's own
+   * defaults (0/22) — set max_zoom if a raster tile_layers/wms overlay (or
+   * the base style itself) doesn't have imagery past a certain zoom, so
+   * zooming in stops at the last real tiles instead of going blank. */
+  max_zoom?: number;
+  min_zoom?: number;
   title?: string;
   card_size?: number;
   /** Pixels (number) or any CSS length (string, e.g. "100%"/"50vh") — the
@@ -65,6 +71,8 @@ export class MapConfig {
   readonly x?: number;
   readonly y?: number;
   readonly zoom: number;
+  readonly maxZoom?: number;
+  readonly minZoom?: number;
   readonly title?: string;
   readonly cardSize: number;
   readonly height?: number | string;
@@ -97,6 +105,8 @@ export class MapConfig {
     this.x = raw.x;
     this.y = raw.y;
     this.zoom = raw.zoom ?? 12;
+    this.maxZoom = raw.max_zoom;
+    this.minZoom = raw.min_zoom;
     this.title = raw.title;
     this.cardSize = raw.card_size ?? 5;
     this.height = raw.height;

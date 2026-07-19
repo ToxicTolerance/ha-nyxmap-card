@@ -23,6 +23,14 @@ describe("MapConfig", () => {
     expect(cfg.entities).toEqual([]);
     expect(cfg.tileLayers).toEqual([]);
     expect(cfg.wms).toEqual([]);
+    expect(cfg.maxZoom).toBeUndefined();
+    expect(cfg.minZoom).toBeUndefined();
+  });
+
+  it("parses max_zoom/min_zoom", () => {
+    const cfg = new MapConfig({ max_zoom: 19, min_zoom: 3 });
+    expect(cfg.maxZoom).toBe(19);
+    expect(cfg.minZoom).toBe(3);
   });
 
   it("parses tile_layers and wms, each as either a single object or a list", () => {

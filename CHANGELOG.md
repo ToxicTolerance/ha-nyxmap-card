@@ -5,6 +5,30 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-07-19
+
+### Changed
+
+- Layer switcher: once `map_styles:` is configured, the generic "Light"/
+  "Dark" base-style options are no longer shown alongside them — they only
+  duplicated (or conflicted with) whatever the user's own named styles
+  already covered, with no clear relationship between a generic label and a
+  custom one (e.g. a style literally named "Karte (hell)" next to a
+  separate generic "Light" button). `map_style`/`map_style_dark` still
+  drive the initial theme-follow behavior; they just don't get a dedicated
+  switcher button when a full custom set is provided.
+
+### Added
+
+- `max_zoom`/`min_zoom` card options, capping how far the camera can zoom —
+  useful when a raster `tile_layers`/`wms` overlay (or the base style
+  itself) doesn't have imagery past a certain level, so zooming in stops at
+  the last real tiles instead of going blank.
+- `tile_layers`/`wms` `options.minzoom`/`options.maxzoom` are now actually
+  applied to the raster source (previously silently dropped), for capping
+  an individual overlay's own zoom range independently of the map's overall
+  `max_zoom`/`min_zoom`.
+
 ## [0.5.0] - 2026-07-19
 
 ### Added
@@ -167,7 +191,9 @@ Initial HACS-installable release.
 - HACS packaging (`hacs.json`, release workflow publishing `nyxmap-card.js`
   as a GitHub Release asset).
 
-[Unreleased]: https://github.com/ToxicTolerance/ha-nyxmap-card/compare/v0.4.2...HEAD
+[Unreleased]: https://github.com/ToxicTolerance/ha-nyxmap-card/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/ToxicTolerance/ha-nyxmap-card/compare/v0.5.0...v0.5.1
+[0.5.0]: https://github.com/ToxicTolerance/ha-nyxmap-card/compare/v0.4.2...v0.5.0
 [0.4.2]: https://github.com/ToxicTolerance/ha-nyxmap-card/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/ToxicTolerance/ha-nyxmap-card/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/ToxicTolerance/ha-nyxmap-card/compare/v0.3.3...v0.4.0

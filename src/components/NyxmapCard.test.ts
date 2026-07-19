@@ -276,6 +276,29 @@ describe("NyxmapCard", () => {
       expect(switcher.baseStyles.map((s) => s.id).sort()).toEqual(["dark", "light"]);
     });
 
+    it("omits the generic Light/Dark options once map_styles is configured, showing only the named ones", async () => {
+      // Light/Dark alongside a user's own named styles is confusing rather
+      // than useful — e.g. a custom entry that's itself a light-mode style
+      // (say "Karte (hell)") duplicates the generic "Light" button under a
+      // different name, with no clear relationship between the two.
+      el.setConfig({
+        layer_switcher: true,
+        map_styles: [
+          { name: "Satellit", map_style: "https://example.com/satellite.json" },
+          { name: "Karte (hell)", map_style: "https://example.com/karte-hell.json" },
+        ],
+      });
+      await el.updateComplete;
+      await flushMicrotasks();
+      await el.updateComplete;
+
+      const switcher = el.shadowRoot!.querySelector("nyxmap-layer-switcher") as unknown as {
+        baseStyles: Array<{ id: string; label: string; active: boolean }>;
+      };
+      expect(switcher.baseStyles.map((s) => s.label).sort()).toEqual(["Karte (hell)", "Satellit"]);
+      expect(switcher.baseStyles.some((s) => s.id === "light" || s.id === "dark")).toBe(false);
+    });
+
     it("selecting a base style pins map.setStyle to that style's URL", async () => {
       el.setConfig({
         layer_switcher: true,
