@@ -32,6 +32,7 @@ export function createMockHass(): HomeAssistant {
           friendly_name: "Demo Phone",
           latitude: 52.52,
           longitude: 13.405,
+          gps_accuracy: 120,
         },
       },
       "person.demo_alice": {

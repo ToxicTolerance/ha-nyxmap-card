@@ -1,3 +1,5 @@
+import { CircleConfig, type CircleConfigRaw } from "./CircleConfig";
+
 export type EntityDisplay = "marker" | "icon" | "state";
 
 export interface EntityConfigRaw {
@@ -15,6 +17,7 @@ export interface EntityConfigRaw {
   history_start?: string;
   history_end?: string;
   history_line_color?: string;
+  circle?: "auto" | CircleConfigRaw;
   [key: string]: unknown;
 }
 
@@ -38,6 +41,7 @@ export class EntityConfig {
   readonly historyStart?: string;
   readonly historyEnd?: string;
   readonly historyLineColor?: string;
+  readonly circle?: CircleConfig;
   readonly raw: EntityConfigRaw;
 
   static from(e: string | EntityConfigRaw): EntityConfig {
@@ -62,5 +66,6 @@ export class EntityConfig {
     this.historyStart = raw.history_start;
     this.historyEnd = raw.history_end;
     this.historyLineColor = raw.history_line_color ?? raw.color;
+    this.circle = CircleConfig.from(raw.circle, this.color);
   }
 }

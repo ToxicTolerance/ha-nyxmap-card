@@ -5,6 +5,7 @@ import { EntityHistoryManager } from "../models/EntityHistoryManager";
 import { maplibreCss, maplibregl } from "../maplibre/MapLibreLoader";
 import { StyleReattach } from "../maplibre/StyleReattach";
 import { HaHistoryService } from "../services/HaHistoryService";
+import { CircleRenderService } from "../services/render/CircleRenderService";
 import { EntitiesRenderService, type MapLibreGlLike } from "../services/render/EntitiesRenderService";
 import { HistoryRenderService, type MapSourceLike } from "../services/render/HistoryRenderService";
 import { InitialViewRenderService, type MapViewLike } from "../services/render/InitialViewRenderService";
@@ -30,6 +31,7 @@ export class NyxmapCard extends LitElement {
   private _ready = false;
   private _entities?: EntitiesRenderService;
   private _history?: HistoryRenderService;
+  private _circles?: CircleRenderService;
   private _initialViewApplied = false;
   private _historyCatchUpDone = false;
   private readonly _reattach = new StyleReattach();
@@ -55,6 +57,7 @@ export class NyxmapCard extends LitElement {
     }
     if (changed.has("hass") && this._ready && this._config && this.hass) {
       this._entities?.update(this._config.entities, this.hass);
+      this._circles?.update(this._config.entities, this.hass);
       this._applyInitialViewIfNeeded();
       this._initialView.updateFit(
         this._map as unknown as MapViewLike,
@@ -185,6 +188,11 @@ export class NyxmapCard extends LitElement {
       this._reattach,
       this._layerRegistry,
     );
+    this._circles = new CircleRenderService(
+      this._map as unknown as MapSourceLike,
+      this._reattach,
+      this._layerRegistry,
+    );
 
     // Base styles are now registered — re-render so the switcher (if
     // enabled) reflects them instead of showing an empty radio group.
@@ -205,6 +213,7 @@ export class NyxmapCard extends LitElement {
       this._reattach.replayAll(this._map!);
       if (this._config && this.hass) {
         this._entities?.update(this._config.entities, this.hass);
+        this._circles?.update(this._config.entities, this.hass);
         this._refreshHistory();
         this._applyInitialViewIfNeeded();
       }

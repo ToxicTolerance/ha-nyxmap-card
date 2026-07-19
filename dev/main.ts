@@ -10,7 +10,12 @@ card.setConfig({
   zoom: 11,
   layer_switcher: true,
   entities: [
-    { entity: "device_tracker.demo_phone", history_start: "5 hours ago", history_line_color: "#4287f5" },
+    {
+      entity: "device_tracker.demo_phone",
+      history_start: "5 hours ago",
+      history_line_color: "#4287f5",
+      circle: "auto",
+    },
     "person.demo_alice",
   ],
 });

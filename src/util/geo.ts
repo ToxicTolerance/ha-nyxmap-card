@@ -1,3 +1,5 @@
+import circle from "@turf/circle";
+
 export interface BoundsLike {
   west: number;
   east: number;
@@ -46,4 +48,15 @@ export function boundsContains(outer: BoundsLike, inner: BoundsLike): boolean {
     inner.south >= outer.south &&
     inner.north <= outer.north
   );
+}
+
+/** Geodesic circle polygon (ring coordinates, GeoJSON Polygon shape) around
+ * `center` ([lng, lat]) with `radiusMeters`. Uses @turf/circle rather than a
+ * flat-degrees approximation so circles stay round at high latitudes. */
+export function circlePolygonCoordinates(
+  center: [number, number],
+  radiusMeters: number,
+  steps = 64,
+): number[][][] {
+  return circle(center, radiusMeters, { steps, units: "meters" }).geometry.coordinates;
 }
