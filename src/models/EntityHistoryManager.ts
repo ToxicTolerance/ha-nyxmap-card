@@ -35,7 +35,10 @@ export class EntityHistoryManager {
 
         const coords = await fetchPath(ent.id, start, end);
         const lineColor = ent.historyLineColor ?? colorFromString(ent.id);
-        result.set(ent.id, new EntityHistory(ent.id, coords, lineColor));
+        result.set(
+          ent.id,
+          new EntityHistory(ent.id, coords, lineColor, mapConfig.historyShowLines, mapConfig.historyShowDots),
+        );
       }),
     );
 

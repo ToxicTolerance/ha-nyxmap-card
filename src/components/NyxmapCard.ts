@@ -8,6 +8,7 @@ import { StyleReattach } from "../maplibre/StyleReattach";
 import "./NyxmapCardEditor";
 import { HaHistoryService } from "../services/HaHistoryService";
 import { CircleRenderService } from "../services/render/CircleRenderService";
+import { ClusterRenderService, type ClusterMapLike } from "../services/render/ClusterRenderService";
 import { EntitiesRenderService, type MapLibreGlLike } from "../services/render/EntitiesRenderService";
 import { GeoJsonRenderService, type GeoJsonMapLike } from "../services/render/GeoJsonRenderService";
 import { HistoryRenderService, type MapSourceLike } from "../services/render/HistoryRenderService";
@@ -37,6 +38,7 @@ export class NyxmapCard extends LitElement {
   private _history?: HistoryRenderService;
   private _circles?: CircleRenderService;
   private _geojson?: GeoJsonRenderService;
+  private _cluster?: ClusterRenderService;
   private _tileLayers?: TileLayersRenderService;
   private _initialViewApplied = false;
   private _historyCatchUpDone = false;
@@ -94,7 +96,7 @@ export class NyxmapCard extends LitElement {
       this._buildMap();
     }
     if (changed.has("hass") && this._ready && this._config && this.hass) {
-      this._entities?.update(this._config.entities, this.hass);
+      this._updateEntitiesAndClusters();
       this._circles?.update(this._config.entities, this.hass);
       this._geojson?.update(this._config.entities, this.hass);
       this._tileLayers?.update(this._config.tileLayers, this._config.wms, this.hass);
@@ -244,14 +246,26 @@ export class NyxmapCard extends LitElement {
       });
     }
 
+    // The initially active style (via map_style/map_style_dark) may itself
+    // be one of the named map_styles entries above — if so, its own
+    // maxZoom/minZoom must cap the camera from the very first frame, the
+    // same way _onSelectBaseStyle caps it on a manual switch. Otherwise a
+    // raster style narrower than the card-level cap (e.g. a WMTS aerial
+    // layer capped tighter than the general max_zoom) keeps the wider
+    // card-level bound until the user happens to reselect it via the
+    // switcher, overshooting into blank tiles/400s on initial load.
+    const initialEntry = config.mapStyles.find(
+      (s) => s.styleLight === config.styleLight && s.styleDark === config.styleDark,
+    );
+
     const initialCenter = this._initialView.getInitialCenter(config, this.hass) ?? [config.x ?? 0, config.y ?? 0];
     this._map = new maplibregl.Map({
       container,
       style: this._resolveActiveStyleUrl(),
       center: initialCenter,
       zoom: config.zoom,
-      maxZoom: config.maxZoom,
-      minZoom: config.minZoom,
+      maxZoom: initialEntry?.maxZoom ?? config.maxZoom,
+      minZoom: initialEntry?.minZoom ?? config.minZoom,
       attributionControl: { compact: true },
     });
     this._map.addControl(new maplibregl.NavigationControl({ showCompass: true }), "top-right");
@@ -293,6 +307,12 @@ export class NyxmapCard extends LitElement {
       this._layerRegistry,
       (entityId) => this._fireMoreInfo(entityId),
     );
+    this._cluster = new ClusterRenderService(
+      this._map as unknown as ClusterMapLike,
+      this._reattach,
+      this._layerRegistry,
+      () => this._resyncEntityMarkers(),
+    );
     this._tileLayers = new TileLayersRenderService(
       this._map as unknown as TileLayersMapLike,
       this._reattach,
@@ -300,11 +320,17 @@ export class NyxmapCard extends LitElement {
     );
 
     // Base styles are now registered — re-render so the switcher (if
-    // enabled) reflects them instead of showing an empty radio group.
+    // enabled) reflects them instead of showing an empty radio group, and
+    // (if the initial style matched a named entry above) highlight it as
+    // the active switcher selection instead of leaving nothing selected.
     // Deferred to a microtask: _buildMap() runs synchronously inside
-    // updated(), and requesting another update from there triggers Lit's
+    // updated(), and requesting another update from there (or assigning a
+    // @state property, which schedules one implicitly) triggers Lit's
     // "scheduled an update after an update completed" dev-mode warning.
-    queueMicrotask(() => this.requestUpdate());
+    queueMicrotask(() => {
+      if (initialEntry) this._manualStyleId = `custom:${initialEntry.name}`;
+      this.requestUpdate();
+    });
 
     // Fires on first load AND after every subsequent setStyle() (theme
     // swap). Sources/layers (history trails) get wiped by setStyle() and are
@@ -317,7 +343,7 @@ export class NyxmapCard extends LitElement {
       if (this._config) this._map!.setProjection({ type: this._config.projection });
       this._reattach.replayAll(this._map!);
       if (this._config && this.hass) {
-        this._entities?.update(this._config.entities, this.hass);
+        this._updateEntitiesAndClusters();
         this._circles?.update(this._config.entities, this.hass);
         this._geojson?.update(this._config.entities, this.hass);
         this._tileLayers?.update(this._config.tileLayers, this._config.wms, this.hass);
@@ -325,6 +351,30 @@ export class NyxmapCard extends LitElement {
         this._applyInitialViewIfNeeded();
       }
     });
+  }
+
+  /** Feeds ClusterRenderService (or tears it down when cluster_markers is
+   * off, so no empty source/overlay lingers) and then resyncs entity markers
+   * against whatever it now considers clustered. Called from both updated()'s
+   * hass branch and the "style.load" handler, same as every other service. */
+  private _updateEntitiesAndClusters(): void {
+    if (!this._config || !this.hass) return;
+    if (this._config.clusterMarkers) {
+      this._cluster?.update(this._config.entities, this.hass);
+    } else {
+      this._cluster?.removeAll();
+    }
+    this._resyncEntityMarkers();
+  }
+
+  /** Re-applies entity marker positions/visibility against the current
+   * cluster state, without recomputing the cluster source itself — this is
+   * the callback ClusterRenderService invokes on its own zoomend/moveend/
+   * overlay-toggle events, so it must not loop back into updating the
+   * cluster source again. */
+  private _resyncEntityMarkers(): void {
+    if (!this._config || !this.hass) return;
+    this._entities?.update(this._config.entities, this.hass, this._cluster?.getHiddenEntityIds());
   }
 
   /** Runs once, the first time hass+config are both available after the map

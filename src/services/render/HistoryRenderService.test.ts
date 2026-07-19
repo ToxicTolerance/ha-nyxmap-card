@@ -9,7 +9,12 @@ function historiesOf(...entries: EntityHistory[]): Map<string, EntityHistory> {
   return new Map(entries.map((h) => [h.entityId, h]));
 }
 
-function twoPointHistory(entityId: string, color = "#ff0000"): EntityHistory {
+function twoPointHistory(
+  entityId: string,
+  color = "#ff0000",
+  showLines = true,
+  showDots = false,
+): EntityHistory {
   return new EntityHistory(
     entityId,
     [
@@ -17,6 +22,8 @@ function twoPointHistory(entityId: string, color = "#ff0000"): EntityHistory {
       [3, 4],
     ],
     color,
+    showLines,
+    showDots,
   );
 }
 
@@ -34,7 +41,42 @@ describe("HistoryRenderService", () => {
     expect(map.addLayer).toHaveBeenCalledWith(
       expect.objectContaining({ id: "history-device_tracker.phone", type: "line" }),
     );
+    expect(map.addLayer).not.toHaveBeenCalledWith(expect.objectContaining({ type: "circle" }));
     expect(service.has("device_tracker.phone")).toBe(true);
+  });
+
+  it("adds a dots (circle) layer with one Point feature per coordinate when showDots is set", () => {
+    const map = createFakeMaplibreMap();
+    const service = new HistoryRenderService(map as never, new StyleReattach(), new LayerRegistry());
+
+    service.update(historiesOf(twoPointHistory("device_tracker.phone", "#ff0000", true, true)));
+
+    expect(map.addLayer).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "history-device_tracker.phone-dots", type: "circle" }),
+    );
+    expect(map.addSource).toHaveBeenCalledWith(
+      "history-device_tracker.phone",
+      expect.objectContaining({
+        data: expect.objectContaining({
+          features: expect.arrayContaining([
+            expect.objectContaining({ geometry: { type: "Point", coordinates: [1, 2] } }),
+            expect.objectContaining({ geometry: { type: "Point", coordinates: [3, 4] } }),
+          ]),
+        }),
+      }),
+    );
+  });
+
+  it("adds only the dots layer when showLines is false", () => {
+    const map = createFakeMaplibreMap();
+    const service = new HistoryRenderService(map as never, new StyleReattach(), new LayerRegistry());
+
+    service.update(historiesOf(twoPointHistory("device_tracker.phone", "#ff0000", false, true)));
+
+    expect(map.addLayer).toHaveBeenCalledTimes(1);
+    expect(map.addLayer).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "history-device_tracker.phone-dots", type: "circle" }),
+    );
   });
 
   it("skips a history with fewer than two points", () => {
@@ -129,6 +171,23 @@ describe("HistoryRenderService", () => {
 
       expect(map.setLayoutProperty).toHaveBeenCalledWith(
         "history-device_tracker.phone",
+        "visibility",
+        "none",
+      );
+    });
+
+    it("setVisible(map, false) hides both the line and dots layers when both are shown", () => {
+      const map = createFakeMaplibreMap();
+      const layerRegistry = new LayerRegistry();
+      const service = new HistoryRenderService(map as never, new StyleReattach(), layerRegistry);
+      service.update(historiesOf(twoPointHistory("device_tracker.phone", "#ff0000", true, true)));
+
+      const overlay = layerRegistry.getOverlays().get("history-device_tracker.phone")!;
+      overlay.setVisible(map, false);
+
+      expect(map.setLayoutProperty).toHaveBeenCalledWith("history-device_tracker.phone", "visibility", "none");
+      expect(map.setLayoutProperty).toHaveBeenCalledWith(
+        "history-device_tracker.phone-dots",
         "visibility",
         "none",
       );

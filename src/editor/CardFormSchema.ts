@@ -7,6 +7,8 @@ const CARD_SCHEMA_KEYS = [
   "x",
   "y",
   "zoom",
+  "max_zoom",
+  "min_zoom",
   "theme_mode",
   "map_style",
   "map_style_dark",
@@ -30,6 +32,8 @@ export function buildCardSchema(): HaFormSchema[] {
         { name: "x", selector: { number: {} } },
         { name: "y", selector: { number: {} } },
         { name: "zoom", selector: { number: { min: 0, max: 22 } } },
+        { name: "max_zoom", selector: { number: { min: 0, max: 22 } } },
+        { name: "min_zoom", selector: { number: { min: 0, max: 22 } } },
       ],
     },
     {

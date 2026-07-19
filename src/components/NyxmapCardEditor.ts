@@ -18,6 +18,8 @@ const LABELS: Record<string, string> = {
   x: "Longitude",
   y: "Latitude",
   zoom: "Zoom",
+  max_zoom: "Max zoom",
+  min_zoom: "Min zoom",
   theme_mode: "Theme mode",
   map_style: "Map style (light)",
   map_style_dark: "Map style (dark)",

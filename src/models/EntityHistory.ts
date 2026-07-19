@@ -3,6 +3,8 @@ export class EntityHistory {
     readonly entityId: string,
     readonly coordinates: Array<[number, number]>,
     readonly lineColor: string,
+    readonly showLines: boolean = true,
+    readonly showDots: boolean = false,
   ) {}
 
   /** A LineString needs at least two points to draw anything. */

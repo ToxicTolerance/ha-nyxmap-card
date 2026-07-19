@@ -25,12 +25,26 @@ describe("MapConfig", () => {
     expect(cfg.wms).toEqual([]);
     expect(cfg.maxZoom).toBeUndefined();
     expect(cfg.minZoom).toBeUndefined();
+    expect(cfg.historyShowLines).toBe(true);
+    expect(cfg.historyShowDots).toBe(false);
+    expect(cfg.clusterMarkers).toBe(false);
   });
 
   it("parses max_zoom/min_zoom", () => {
     const cfg = new MapConfig({ max_zoom: 19, min_zoom: 3 });
     expect(cfg.maxZoom).toBe(19);
     expect(cfg.minZoom).toBe(3);
+  });
+
+  it("parses history_show_lines/history_show_dots", () => {
+    const cfg = new MapConfig({ history_show_lines: false, history_show_dots: true });
+    expect(cfg.historyShowLines).toBe(false);
+    expect(cfg.historyShowDots).toBe(true);
+  });
+
+  it("parses cluster_markers", () => {
+    const cfg = new MapConfig({ cluster_markers: true });
+    expect(cfg.clusterMarkers).toBe(true);
   });
 
   it("parses tile_layers and wms, each as either a single object or a list", () => {

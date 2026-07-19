@@ -90,7 +90,5 @@ assuming a feature is unsupported vs. simply not yet implemented:
 - `circle:` options → GeoJSON fill layer (turf.circle or geodesic polygon)
 - `geojson:` attribute → `map.addSource({ type: 'geojson' })` directly (native support, should be
   straightforward)
-- `cluster_markers` → source `cluster: true` + circle/symbol layers (**not** HTML markers — a
-  different rendering path than the current marker system)
 - `plugins: []` → Leaflet's plugin API doesn't map to MapLibre; needs a new hook design
 - `history_date_selection` → subscribe to `energy-date-selection`, as upstream does

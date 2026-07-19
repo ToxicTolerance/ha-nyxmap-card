@@ -21,6 +21,8 @@ vi.mock("../maplibre/MapLibreLoader", () => {
     resize = vi.fn();
     jumpTo = vi.fn();
     fitBounds = vi.fn();
+    easeTo = vi.fn();
+    querySourceFeatures = vi.fn(() => []);
     getBounds = vi.fn(() => ({ west: -180, east: 180, south: -85, north: 85 }));
     constructor(public options: unknown) {}
     on(event: string, handler: () => void): void {
@@ -40,12 +42,8 @@ vi.mock("../maplibre/MapLibreLoader", () => {
     setLngLat(): this {
       return this;
     }
-    addTo(): this {
-      return this;
-    }
-    remove(): this {
-      return this;
-    }
+    addTo = vi.fn((): this => this);
+    remove = vi.fn((): this => this);
   }
   class FakeLngLatBounds {
     extend(): this {
@@ -78,11 +76,13 @@ interface TestableNyxmapCard extends HTMLElement {
   hass?: HomeAssistant;
   _map?: {
     fire(event: string): void;
+    options: { maxZoom?: number; minZoom?: number };
     setStyle: ReturnType<typeof vi.fn>;
     setMaxZoom: ReturnType<typeof vi.fn>;
     setMinZoom: ReturnType<typeof vi.fn>;
     setLayoutProperty: ReturnType<typeof vi.fn>;
     resize: ReturnType<typeof vi.fn>;
+    querySourceFeatures: ReturnType<typeof vi.fn>;
   };
   _entities?: EntitiesRenderService;
 }
@@ -246,6 +246,32 @@ describe("NyxmapCard", () => {
     });
   });
 
+  it("detaches an entity's marker once ClusterRenderService considers it absorbed into a bubble", async () => {
+    el.setConfig({
+      cluster_markers: true,
+      entities: [
+        { entity: "device_tracker.a", fixed_x: 1, fixed_y: 2 },
+        { entity: "device_tracker.b", fixed_x: 1.0001, fixed_y: 2.0001 },
+      ],
+    });
+    await el.updateComplete;
+    el._map!.fire("style.load");
+    el.hass = hassWith({});
+    await el.updateComplete;
+
+    const markers = (el._entities as unknown as { markers: Map<string, { remove: ReturnType<typeof vi.fn> }> })
+      .markers;
+    const markerB = markers.get("device_tracker.b")!;
+    expect(markerB.remove).not.toHaveBeenCalled();
+
+    // Simulate MapLibre now reporting only "a" as unclustered — "b" got
+    // absorbed into a bubble.
+    el._map!.querySourceFeatures.mockReturnValue([{ properties: { entityId: "device_tracker.a" } }]);
+    el._map!.fire("zoomend");
+
+    expect(markerB.remove).toHaveBeenCalledTimes(1);
+  });
+
   describe("layer switcher", () => {
     it("does not render the switcher when layer_switcher is unset (default false)", async () => {
       el.setConfig({});
@@ -371,6 +397,54 @@ describe("NyxmapCard", () => {
 
       expect(el._map!.setMaxZoom).toHaveBeenLastCalledWith(17);
       expect(el._map!.setMinZoom).toHaveBeenLastCalledWith(2);
+    });
+
+    it("applies a map_styles entry's own max_zoom/min_zoom at initial construction when it's the active style", async () => {
+      // Bayern DOP20 regression: map_style/map_style_dark (the initially
+      // active style, before any switcher click) can match one of the named
+      // map_styles entries by URL. That entry's own zoom cap must be used
+      // right from the Map constructor, not just once the user later
+      // reselects it via the switcher — otherwise the wider card-level cap
+      // stays in effect on load and the camera overshoots into blank/400s.
+      el.setConfig({
+        map_style: "https://example.com/aerial.json",
+        map_style_dark: "https://example.com/aerial.json",
+        max_zoom: 19,
+        min_zoom: 10,
+        map_styles: [
+          {
+            name: "Aerial",
+            map_style: "https://example.com/aerial.json",
+            map_style_dark: "https://example.com/aerial.json",
+            max_zoom: 18,
+          },
+          { name: "Streets", map_style: "https://example.com/streets.json" },
+        ],
+      });
+      await el.updateComplete;
+
+      expect(el._map!.options.maxZoom).toBe(18);
+      expect(el._map!.options.minZoom).toBe(10);
+    });
+
+    it("highlights the matching map_styles entry as active in the switcher on initial load", async () => {
+      el.setConfig({
+        layer_switcher: true,
+        map_style: "https://example.com/aerial.json",
+        map_style_dark: "https://example.com/aerial.json",
+        map_styles: [
+          { name: "Aerial", map_style: "https://example.com/aerial.json" },
+          { name: "Streets", map_style: "https://example.com/streets.json" },
+        ],
+      });
+      await el.updateComplete;
+      await flushMicrotasks();
+      await el.updateComplete;
+
+      const switcher = el.shadowRoot!.querySelector("nyxmap-layer-switcher") as unknown as {
+        baseStyles: Array<{ id: string; active: boolean }>;
+      };
+      expect(switcher.baseStyles.find((s) => s.id === "custom:Aerial")?.active).toBe(true);
     });
 
     it("toggling a history overlay calls setLayoutProperty via LayerRegistry", async () => {

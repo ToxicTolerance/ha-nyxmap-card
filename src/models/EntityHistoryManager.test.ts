@@ -103,6 +103,23 @@ describe("EntityHistoryManager.refresh", () => {
     expect(history.hasPath).toBe(true);
   });
 
+  it("threads the card-level history_show_lines/history_show_dots onto each EntityHistory", async () => {
+    const manager = new EntityHistoryManager();
+    const fetchPath = vi.fn().mockResolvedValue([]);
+    const entity = EntityConfig.from({ entity: "device_tracker.phone", history_start: "1 hour ago" });
+    const mapConfig = new MapConfig({
+      history_start: "1 hour ago",
+      history_show_lines: false,
+      history_show_dots: true,
+    });
+
+    const result = await manager.refresh([entity], mapConfig, fetchPath, NOW);
+
+    const history = result.get("device_tracker.phone")!;
+    expect(history.showLines).toBe(false);
+    expect(history.showDots).toBe(true);
+  });
+
   it("defaults the line color from the entity id when unset", async () => {
     const manager = new EntityHistoryManager();
     const fetchPath = vi.fn().mockResolvedValue([]);

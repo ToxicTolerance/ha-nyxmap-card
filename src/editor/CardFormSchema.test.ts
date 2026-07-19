@@ -12,9 +12,9 @@ describe("buildCardSchema", () => {
     expect(behavior).toMatchObject({ type: "expandable", flatten: true });
   });
 
-  it("puts x/y/zoom in a grid row", () => {
+  it("puts x/y/zoom/max_zoom/min_zoom in a grid row", () => {
     const grid = buildCardSchema().find((s) => s.type === "grid");
-    expect(grid?.schema.map((s) => s.name)).toEqual(["x", "y", "zoom"]);
+    expect(grid?.schema.map((s) => s.name)).toEqual(["x", "y", "zoom", "max_zoom", "min_zoom"]);
   });
 });
 
@@ -37,6 +37,21 @@ describe("cardConfigToFormData / formDataToCardConfig", () => {
     expect(updated.entities).toEqual(["device_tracker.a"]);
     expect(updated.tile_layers).toEqual(config.tile_layers);
     expect(updated.map_styles).toEqual(config.map_styles);
+  });
+
+  it("round-trips card-level max_zoom/min_zoom", () => {
+    // Regression: max_zoom/min_zoom capped the camera correctly at runtime
+    // but had no field in the visual editor at all, so an existing value
+    // was invisible/uneditable there (silently preserved only because
+    // formDataToCardConfig starts from a spread of the previous config).
+    const config: MapConfigRaw = { max_zoom: 19, min_zoom: 10 };
+    const formData = cardConfigToFormData(config);
+    expect(formData.max_zoom).toBe(19);
+    expect(formData.min_zoom).toBe(10);
+
+    const updated = formDataToCardConfig({ ...formData, max_zoom: 18 }, config);
+    expect(updated.max_zoom).toBe(18);
+    expect(updated.min_zoom).toBe(10);
   });
 
   it("converts a numeric-looking height string back to a number", () => {

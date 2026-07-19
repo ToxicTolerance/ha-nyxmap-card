@@ -63,6 +63,14 @@ export interface MapConfigRaw {
   layer_switcher?: boolean;
   history_start?: string;
   history_end?: string;
+  /** Whether to draw the connecting trail line / a dot per sampled position.
+   * Card-level only, applied to every entity's history — matches upstream.
+   * Defaults mirror upstream: lines on, dots off. */
+  history_show_lines?: boolean;
+  history_show_dots?: boolean;
+  /** Opt-in low-zoom marker clustering: nearby entities collapse into a
+   * numbered bubble, matching upstream ha-map-card's own opt-in default. */
+  cluster_markers?: boolean;
   /** Raster overlay(s) layered on top of the vector base style. A single
    * object or a list; `url` supports `{{ states('entity_id') }}` templating
    * and, for tile layers, the usual `{z}/{x}/{y}` XYZ tokens. */
@@ -103,6 +111,9 @@ export class MapConfig {
    * that don't define their own (see EntityConfig.historyStart). */
   readonly historyStart?: string;
   readonly historyEnd?: string;
+  readonly historyShowLines: boolean;
+  readonly historyShowDots: boolean;
+  readonly clusterMarkers: boolean;
   readonly tileLayers: TileLayerConfig[];
   readonly wms: WmsLayerConfig[];
   readonly entities: EntityConfig[];
@@ -134,6 +145,9 @@ export class MapConfig {
     this.layerSwitcher = raw.layer_switcher ?? false;
     this.historyStart = raw.history_start;
     this.historyEnd = raw.history_end;
+    this.historyShowLines = raw.history_show_lines ?? true;
+    this.historyShowDots = raw.history_show_dots ?? false;
+    this.clusterMarkers = raw.cluster_markers ?? false;
     this.tileLayers = parseLayerConfigList(raw.tile_layers, TileLayerConfig);
     this.wms = parseLayerConfigList(raw.wms, WmsLayerConfig);
     this.entities = (raw.entities ?? []).map(EntityConfig.from);

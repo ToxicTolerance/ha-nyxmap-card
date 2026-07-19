@@ -5,6 +5,42 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-07-19
+
+### Added
+
+- `history_show_lines`/`history_show_dots` card options — draw a dot per
+  sampled history position (in addition to, or instead of, the connecting
+  trail line). Previously accepted in config but silently ignored; history
+  trails always drew a single connecting line with no way to see individual
+  waypoints.
+- `cluster_markers` card option — opt-in marker clustering: nearby entities
+  collapse into a numbered bubble at low zoom (click, or zoom in, to expand),
+  matching upstream `ha-map-card`'s clustering behavior. Individual entities
+  keep their existing picture/icon marker look; only clustered groups render
+  as a bubble. Ports the `cluster_markers` item from the porting backlog.
+
+### Fixed
+
+- A `map_styles:` entry's own `max_zoom`/`min_zoom` (added in 0.5.2) was only
+  ever applied when the user picked that style via the layer switcher. If
+  the *initially* active style (from `map_style`/`map_style_dark`) happened
+  to match one of the named entries, its per-entry cap was ignored at
+  construction time — only the wider card-level `max_zoom`/`min_zoom`
+  applied — so a raster style capped tighter than the card level could still
+  overshoot into blank tiles/400s on first load, before any switcher click.
+  The initial `maplibregl.Map` construction now resolves the matching entry
+  (if any) the same way `_onSelectBaseStyle` does, and the switcher now
+  highlights that entry as active from the start instead of showing no
+  selection.
+- The visual card editor had no `max_zoom`/`min_zoom` fields at all — only
+  `zoom` (the initial camera position) was exposed, so an existing
+  card-level `max_zoom`/`min_zoom` was invisible and uneditable there
+  (silently preserved on other edits only because the editor spreads the
+  previous raw config first). Added alongside `zoom` in the card editor's
+  grid row. (Per-`map_styles`-entry `max_zoom`/`min_zoom` were unaffected —
+  those already round-tripped correctly.)
+
 ## [0.5.2] - 2026-07-19
 
 ### Fixed

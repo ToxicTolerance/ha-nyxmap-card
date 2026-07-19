@@ -31,6 +31,12 @@ export interface MapLibreGlLike {
  * for free. */
 export class EntitiesRenderService {
   private readonly markers = new Map<string, MarkerLike>();
+  /** Entity ids whose marker is currently detached from the map because
+   * ClusterRenderService considers them absorbed into a cluster bubble —
+   * distinct from an entity dropped from config entirely (which deletes the
+   * marker outright): a detached marker is kept around so it can be
+   * reattached without rebuilding its DOM once it's no longer clustered. */
+  private readonly detached = new Set<string>();
 
   constructor(
     private readonly map: maplibregl.Map,
@@ -38,9 +44,11 @@ export class EntitiesRenderService {
     private readonly onTap: EntityTapHandler,
   ) {}
 
-  /** Creates/moves a marker per entity with a resolvable position. Returns
+  /** Creates/moves a marker per entity with a resolvable position, detaching
+   * (not removing) any entity id present in hiddenIds — e.g. absorbed into a
+   * cluster bubble — and reattaching it once it's no longer hidden. Returns
    * bounds covering all positioned entities, or null if none were positioned. */
-  update(entities: EntityConfig[], hass: HomeAssistant): LngLatBoundsLike | null {
+  update(entities: EntityConfig[], hass: HomeAssistant, hiddenIds?: ReadonlySet<string>): LngLatBoundsLike | null {
     const seen = new Set<string>();
     const bounds = new this.gl.LngLatBounds();
     let any = false;
@@ -69,6 +77,15 @@ export class EntitiesRenderService {
         marker.setLngLat(lngLat);
       }
       bounds.extend(lngLat);
+
+      const shouldHide = hiddenIds?.has(ent.id) ?? false;
+      if (shouldHide && !this.detached.has(ent.id)) {
+        marker.remove();
+        this.detached.add(ent.id);
+      } else if (!shouldHide && this.detached.has(ent.id)) {
+        marker.addTo(this.map);
+        this.detached.delete(ent.id);
+      }
     }
 
     // Entities dropped from config (or now unresolvable) lose their marker.
@@ -82,6 +99,7 @@ export class EntitiesRenderService {
   remove(entityId: string): void {
     this.markers.get(entityId)?.remove();
     this.markers.delete(entityId);
+    this.detached.delete(entityId);
   }
 
   removeAll(): void {

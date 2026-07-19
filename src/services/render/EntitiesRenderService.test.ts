@@ -123,6 +123,38 @@ describe("EntitiesRenderService", () => {
     expect(service.has("geo_location.demo")).toBe(false);
   });
 
+  it("detaches (but keeps tracking) a marker whose id is in hiddenIds, and reattaches it once no longer hidden", () => {
+    const service = new EntitiesRenderService(
+      createFakeMaplibreMap() as never,
+      createFakeMaplibreGl(),
+      vi.fn(),
+    );
+    const cfg = EntityConfig.from({ entity: "device_tracker.phone", fixed_x: 1, fixed_y: 2 });
+    const hass = hassWith({});
+
+    service.update([cfg], hass);
+    const marker = (service as unknown as { markers: Map<string, FakeMarker> }).markers.get(
+      "device_tracker.phone",
+    )!;
+    expect(marker.remove).not.toHaveBeenCalled();
+
+    service.update([cfg], hass, new Set(["device_tracker.phone"]));
+    expect(marker.remove).toHaveBeenCalledTimes(1);
+    // Still tracked — a clustered marker isn't the same as one dropped from config.
+    expect(service.has("device_tracker.phone")).toBe(true);
+
+    // A second update while still hidden must not call remove() again.
+    service.update([cfg], hass, new Set(["device_tracker.phone"]));
+    expect(marker.remove).toHaveBeenCalledTimes(1);
+
+    service.update([cfg], hass, new Set());
+    const sameMarker = (service as unknown as { markers: Map<string, FakeMarker> }).markers.get(
+      "device_tracker.phone",
+    )!;
+    expect(sameMarker).toBe(marker);
+    expect(marker.addTo).toHaveBeenCalledTimes(2); // once on creation, once on reattach
+  });
+
   it("removeAll() removes every tracked marker", () => {
     const service = new EntitiesRenderService(
       createFakeMaplibreMap() as never,
