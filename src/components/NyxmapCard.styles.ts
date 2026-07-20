@@ -31,6 +31,19 @@ export const nyxmapCardStyles = css`
     display: flex;
     flex-direction: column;
     width: 100%;
+    /* A percentage height (e.g. "100%" for a Panel view) needs an ancestor
+     * with a *specified* height to resolve against — min-height on :host
+     * (see NyxmapCard.ts's updated()) makes it render at a real size, but
+     * CSS doesn't count a min-height-clamped auto height as "specified" for
+     * a descendant's own percentage-height purposes, so the unresolved
+     * chain (:host → ha-card → here) still computes to 0 wherever the
+     * outermost ancestor (e.g. HA's edit-card dialog preview pane) has no
+     * real height of its own — no error, just a blank map area. min-height
+     * *here* sidesteps that: flexbox distributes .nyxmap-map-area's space
+     * from this element's own actual (min-height-clamped) computed size,
+     * not from a percentage resolution. Harmless for a real Panel view,
+     * which already provides a taller real height this floor sits under. */
+    min-height: 200px;
   }
   .nyxmap-title {
     /* Renders our own title instead of using ha-card's built-in .header

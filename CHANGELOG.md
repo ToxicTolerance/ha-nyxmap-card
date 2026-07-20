@@ -5,6 +5,34 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.7.4] - 2026-07-20
+
+### Added
+
+- A separate "Theme" (Auto/Light/Dark) control in the layer switcher,
+  shown whenever `map_styles` is configured. Previously, once `map_styles`
+  hid the generic "Light"/"Dark" base-style buttons (0.5.1), there was no
+  live way to swap a named entry's own light/dark variant at all —
+  `theme_mode` was config-only. Independent of which named style is
+  active: picking a base style and picking its light/dark variant are two
+  different questions, so a style no longer needs a redundant "hell"/
+  "dunkel"-suffixed name pair to offer both.
+
+### Fixed
+
+- The visual card editor's live preview rendered a completely blank area
+  for any card configured with a percentage/CSS-length `height` (e.g.
+  `height: "100%"`, the common choice for a Panel view). `height: 100%`
+  only resolves against an ancestor with a *specified* height — fine in a
+  real Panel view, but HA's "Edit card" dialog gives its preview pane no
+  explicit height (sizes to content instead), collapsing the whole chain
+  (`:host` → `ha-card` → `.nyxmap-viewport`) to 0 with no error, just an
+  empty area where the map should be. `.nyxmap-viewport` now has its own
+  `min-height`, which flexbox distributes real space from regardless of
+  whether the percentage chain above it ever resolves — confirmed via a
+  reproduction mimicking the dialog's actual layout shape (auto-height
+  content pane, no explicit ancestor height) before and after the fix.
+
 ## [0.7.3] - 2026-07-20
 
 ### Fixed

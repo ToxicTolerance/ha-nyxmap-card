@@ -476,6 +476,68 @@ describe("NyxmapCard", () => {
       expect(switcher.baseStyles.some((s) => s.id === "light" || s.id === "dark")).toBe(false);
     });
 
+    it("shows the switcher's Theme toggle only when map_styles is configured", async () => {
+      el.setConfig({ layer_switcher: true });
+      await el.updateComplete;
+      await flushMicrotasks();
+      await el.updateComplete;
+
+      let switcher = el.shadowRoot!.querySelector("nyxmap-layer-switcher") as unknown as {
+        showThemeToggle: boolean;
+      };
+      expect(switcher.showThemeToggle).toBe(false);
+
+      el.setConfig({
+        layer_switcher: true,
+        map_styles: [{ name: "Karte", map_style: "https://example.com/a.json" }],
+      });
+      await el.updateComplete;
+      await flushMicrotasks();
+      await el.updateComplete;
+
+      switcher = el.shadowRoot!.querySelector("nyxmap-layer-switcher") as unknown as { showThemeToggle: boolean };
+      expect(switcher.showThemeToggle).toBe(true);
+    });
+
+    it("selecting a theme mode via the switcher swaps the active style's own light/dark variant", async () => {
+      // A named map_styles entry keeps its own light/dark pair even while
+      // selected — the Theme control picks between them independently of
+      // which entry is active (unlike theme_mode, which is a static config
+      // value with no live switcher control once map_styles hides the
+      // generic Light/Dark base-style buttons).
+      el.setConfig({
+        layer_switcher: true,
+        theme_mode: "light",
+        map_styles: [
+          {
+            name: "Karte",
+            map_style: "https://example.com/light.json",
+            map_style_dark: "https://example.com/dark.json",
+          },
+        ],
+      });
+      await el.updateComplete;
+      await flushMicrotasks();
+      await el.updateComplete;
+
+      const switcher = el.shadowRoot!.querySelector("nyxmap-layer-switcher") as unknown as {
+        onSelectBaseStyle: (id: string) => void;
+        onSelectThemeMode: (mode: "auto" | "light" | "dark") => void;
+        themeMode: string;
+      };
+      switcher.onSelectBaseStyle("custom:Karte");
+      expect(el._map!.setStyle).toHaveBeenLastCalledWith("https://example.com/light.json");
+
+      switcher.onSelectThemeMode("dark");
+      await el.updateComplete;
+
+      expect(el._map!.setStyle).toHaveBeenLastCalledWith("https://example.com/dark.json");
+      const refreshedSwitcher = el.shadowRoot!.querySelector("nyxmap-layer-switcher") as unknown as {
+        themeMode: string;
+      };
+      expect(refreshedSwitcher.themeMode).toBe("dark");
+    });
+
     it("registers a new map_styles entry when it's added via a later setConfig() on an already-built card", async () => {
       // Regression: base styles used to only be registered once, inside
       // _buildMap() — adding/editing map_styles later (e.g. via the

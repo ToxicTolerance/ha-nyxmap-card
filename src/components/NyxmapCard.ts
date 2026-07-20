@@ -1,6 +1,6 @@
 import { LitElement, html, unsafeCSS, type PropertyValues } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
-import { MapConfig, type MapConfigRaw } from "../configs/MapConfig";
+import { MapConfig, type MapConfigRaw, type ThemeMode } from "../configs/MapConfig";
 import { buildStubConfig } from "../editor/CardFormSchema";
 import { EntityHistoryManager } from "../models/EntityHistoryManager";
 import { IconButtonControl } from "../maplibre/IconButtonControl";
@@ -17,7 +17,7 @@ import { InitialViewRenderService, type MapViewLike } from "../services/render/I
 import { LayerRegistry } from "../services/render/LayerRegistry";
 import { TileLayersRenderService, type TileLayersMapLike } from "../services/render/TileLayersRenderService";
 import type { HomeAssistant } from "../types/home-assistant";
-import { resolveStyle, resolveStylePair, resolveThemeMode } from "../util/HaMapUtilities";
+import { resolveStylePair, resolveThemeMode } from "../util/HaMapUtilities";
 import "./LayerSwitcherControl";
 import type { SwitcherBaseStyleItem, SwitcherOverlayItem } from "./LayerSwitcherControl";
 import { nyxmapCardStyles } from "./NyxmapCard.styles";
@@ -31,6 +31,12 @@ export class NyxmapCard extends LitElement {
   /** Layer switcher's base-style radio selection; undefined means "no
    * manual override, follow theme_mode" (the original Phase 1 behavior). */
   @state() private _manualStyleId?: string;
+  /** Layer switcher's own Auto/Light/Dark override (shown only alongside
+   * map_styles — see showThemeToggle); undefined means "no manual override,
+   * follow the configured theme_mode". Independent of _manualStyleId: which
+   * named style is active and which of its own light/dark variants to show
+   * are two different questions. */
+  @state() private _manualThemeMode?: ThemeMode;
 
   private _map?: maplibregl.Map;
   private _built = false;
@@ -105,7 +111,17 @@ export class NyxmapCard extends LitElement {
     // shrink to that external height instead of sizing to its content,
     // clipping the bottom of the map (and whatever control lived there)
     // even though nothing was actually configured to fill 100% of anything.
-    this.style.height = typeof this._config?.height === "string" ? "100%" : "";
+    const usesCssLengthHeight = typeof this._config?.height === "string";
+    this.style.height = usesCssLengthHeight ? "100%" : "";
+    // A percentage/CSS-length height only resolves against an ancestor that
+    // itself has a real resolved height — fine in a Panel view, but HA's own
+    // "Edit card" dialog gives its preview pane no explicit height (it sizes
+    // to its content instead), so height:100% collapses the whole chain
+    // (:host → ha-card → .nyxmap-viewport) down to 0 and the map area
+    // renders with zero size: no error, just a blank card. This floor keeps
+    // the preview visible without capping a real Panel view, which already
+    // provides a taller real height that this minimum sits well under.
+    this.style.minHeight = usesCssLengthHeight ? "200px" : "";
 
     if (!this._built && this._config) {
       this._buildMap();
@@ -151,6 +167,9 @@ export class NyxmapCard extends LitElement {
                   .overlays=${this._overlayItems()}
                   .onSelectBaseStyle=${(id: string) => this._onSelectBaseStyle(id)}
                   .onToggleOverlay=${(id: string) => this._onToggleOverlay(id)}
+                  .showThemeToggle=${(this._config.mapStyles.length ?? 0) > 0}
+                  .themeMode=${this._effectiveThemeMode()}
+                  .onSelectThemeMode=${(mode: ThemeMode) => this._onSelectThemeMode(mode)}
                 ></nyxmap-layer-switcher>`
               : null}
           </div>
@@ -171,21 +190,39 @@ export class NyxmapCard extends LitElement {
     return matchMedia("(prefers-color-scheme: dark)").matches;
   }
 
+  /** The layer switcher's own Theme control (Auto/Light/Dark, shown
+   * alongside map_styles) overrides the static config value at runtime,
+   * the same way _manualStyleId overrides which base style is active —
+   * neither mutates the underlying config. */
+  private _effectiveThemeMode(): ThemeMode {
+    return this._manualThemeMode ?? this._config?.themeMode ?? "auto";
+  }
+
   /** Manual switcher selection (if any) takes precedence over the automatic
    * theme_mode resolution — see LayerRegistry.BaseStyleEntry: each entry is
    * still a light/dark pair, so a genuinely dual-variant custom style keeps
-   * responding to the system theme even while "selected". */
+   * responding to the effective theme mode even while "selected". */
   private _resolveActiveStyleUrl(): string {
+    const themeMode = this._effectiveThemeMode();
     if (this._manualStyleId && this._config) {
       const entry = this._layerRegistry.getBaseStyles().get(this._manualStyleId);
-      if (entry) return resolveStylePair(entry, this._config.themeMode, this._prefersDark());
+      if (entry) return resolveStylePair(entry, themeMode, this._prefersDark());
     }
-    return resolveStyle(this._config!, this._prefersDark());
+    return resolveStylePair(this._config!, themeMode, this._prefersDark());
   }
 
   private _defaultBaseStyleId(): "light" | "dark" {
     if (!this._config) return "light";
-    return resolveThemeMode(this._config.themeMode, this._prefersDark()) === "dark" ? "dark" : "light";
+    return resolveThemeMode(this._effectiveThemeMode(), this._prefersDark()) === "dark" ? "dark" : "light";
+  }
+
+  /** Handles the layer switcher's own Theme (Auto/Light/Dark) control —
+   * independent of _onSelectBaseStyle: which named style is active and
+   * which of its own light/dark variants to show are different questions. */
+  private _onSelectThemeMode(mode: ThemeMode): void {
+    this._manualThemeMode = mode;
+    if (!this._map || !this._config) return;
+    this._map.setStyle(this._resolveActiveStyleUrl());
   }
 
   private _baseStyleItems(): SwitcherBaseStyleItem[] {
@@ -240,7 +277,7 @@ export class NyxmapCard extends LitElement {
    * setConfig() (so editing map_styles later, e.g. via the dashboard's
    * visual editor, without a full page reload actually takes effect).
    * Previously this only ran once at build time: selecting a map_styles
-   * entry added or edited afterward silently fell back to resolveStyle()'s
+   * entry added or edited afterward silently fell back to the resolved
    * card-level map_style/map_style_dark instead of the entry's own style —
    * indistinguishable from "that style is just broken" unless you knew to
    * check for a stale registry. registerBaseStyle()/unregister() are

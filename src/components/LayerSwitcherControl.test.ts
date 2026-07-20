@@ -77,6 +77,45 @@ describe("LayerSwitcherControl", () => {
     expect(onToggleOverlay).toHaveBeenCalledWith("history-a");
   });
 
+  it("does not render the Theme group by default (showThemeToggle unset)", async () => {
+    el.themeMode = "light";
+    await el.updateComplete;
+    openPanel(el);
+    await el.updateComplete;
+
+    expect(el.shadowRoot!.querySelectorAll('input[name="nyxmap-theme-mode"]')).toHaveLength(0);
+  });
+
+  it("renders Auto/Light/Dark radios reflecting themeMode when showThemeToggle is set", async () => {
+    el.showThemeToggle = true;
+    el.themeMode = "dark";
+    await el.updateComplete;
+    openPanel(el);
+    await el.updateComplete;
+
+    const radios = [...el.shadowRoot!.querySelectorAll<HTMLInputElement>('input[name="nyxmap-theme-mode"]')];
+    expect(radios).toHaveLength(3);
+    const checkedLabel = radios.find((r) => r.checked)?.closest("label")?.textContent?.trim();
+    expect(checkedLabel).toBe("Dark");
+  });
+
+  it("calls onSelectThemeMode with the chosen mode", async () => {
+    const onSelectThemeMode = vi.fn();
+    el.showThemeToggle = true;
+    el.themeMode = "auto";
+    el.onSelectThemeMode = onSelectThemeMode;
+    await el.updateComplete;
+    openPanel(el);
+    await el.updateComplete;
+
+    const radios = [...el.shadowRoot!.querySelectorAll<HTMLInputElement>('input[name="nyxmap-theme-mode"]')];
+    const lightRadio = radios.find((r) => r.closest("label")?.textContent?.trim() === "Light")!;
+    lightRadio.checked = true;
+    lightRadio.dispatchEvent(new Event("change"));
+
+    expect(onSelectThemeMode).toHaveBeenCalledWith("light");
+  });
+
   it("omits a group entirely when it has no entries", async () => {
     el.overlays = [{ id: "history-a", label: "History: a", active: true }];
     await el.updateComplete;
