@@ -32,6 +32,8 @@ const LABELS: Record<string, string> = {
   history_show_lines: "Show history lines",
   history_show_dots: "Show history dots",
   cluster_markers: "Cluster markers",
+  cluster_radius: "Cluster radius (px)",
+  cluster_max_zoom: "Cluster max zoom",
   show_accuracy_circles: "Show accuracy circles",
   height: "Height",
   card_size: "Card size",

@@ -21,6 +21,8 @@ const CARD_SCHEMA_KEYS = [
   "history_show_lines",
   "history_show_dots",
   "cluster_markers",
+  "cluster_radius",
+  "cluster_max_zoom",
   "show_accuracy_circles",
   "height",
   "card_size",
@@ -69,6 +71,14 @@ export function buildCardSchema(): HaFormSchema[] {
         { name: "history_show_lines", selector: { boolean: {} } },
         { name: "history_show_dots", selector: { boolean: {} } },
         { name: "cluster_markers", selector: { boolean: {} } },
+        {
+          name: "",
+          type: "grid",
+          schema: [
+            { name: "cluster_radius", selector: { number: { min: 1 } } },
+            { name: "cluster_max_zoom", selector: { number: { min: 0, max: 22 } } },
+          ],
+        },
         { name: "show_accuracy_circles", selector: { boolean: {} } },
         // Text, not number: height is number|string (px or a CSS length like
         // "50vh"/"100%") — see parseHeight() below for the round-trip.

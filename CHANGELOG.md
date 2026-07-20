@@ -5,6 +5,25 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.7.7] - 2026-07-20
+
+### Added
+
+- `cluster_markers` grouping is now tunable: new `cluster_radius` and
+  `cluster_max_zoom` card options control how aggressively nearby entities
+  collapse into a bubble. `cluster_radius` defaults to the largest configured
+  entity `size` (48px if none set) instead of a flat 50 — since every marker
+  renders as a circle exactly `size` px across, this approximates "cluster
+  once markers would actually touch" out of the box. Both are exposed as
+  fields in the visual editor's "Behavior" section, next to `cluster_markers`.
+
+### Fixed
+
+- Changing `cluster_radius`/`cluster_max_zoom` on an already-built map now
+  actually takes effect — MapLibre bakes those options into the cluster
+  source at creation time and ignores changes pushed through `setData()`, so
+  the source is now torn down and recreated when either value changes.
+
 ## [0.7.6] - 2026-07-20
 
 ### Added

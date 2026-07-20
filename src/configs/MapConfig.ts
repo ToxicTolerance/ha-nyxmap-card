@@ -25,6 +25,18 @@ export interface MapStyleRaw {
   min_zoom?: number;
 }
 
+/** Every `.nyxmap-marker` is a circle exactly `EntityConfig.size` px in
+ * diameter (see MarkerFactory.buildMarkerElement), so two same-size markers
+ * touch when their screen centers are `size` px apart — MapLibre's
+ * clusterRadius is measured in the same CSS-pixel units (see
+ * ClusterRenderService), making "largest configured marker size" a direct,
+ * no-guesswork stand-in for "cluster only once markers would actually
+ * touch." Falls back to EntityConfig's own default size when there are no
+ * entities yet (e.g. a brand-new card) or none set a custom `size`. */
+function defaultClusterRadius(entities: EntityConfig[]): number {
+  return entities.length > 0 ? Math.max(...entities.map((e) => e.size)) : 48;
+}
+
 /** A single named base-style option for the layer switcher (see
  * MapConfig.mapStyles) — a light/dark pair like the card-level map_style/
  * map_style_dark, just given a label and offered as a switcher choice. */
@@ -71,6 +83,17 @@ export interface MapConfigRaw {
   /** Opt-in low-zoom marker clustering: nearby entities collapse into a
    * numbered bubble, matching upstream ha-map-card's own opt-in default. */
   cluster_markers?: boolean;
+  /** MapLibre cluster-source tuning, only relevant when cluster_markers is
+   * on. Pixel radius (per integer zoom level) within which entities collapse
+   * into one bubble. Defaults to the largest configured entity `size` (see
+   * defaultClusterRadius below), which approximates "cluster once markers
+   * would touch" for same-size markers — set explicitly to override that.
+   * See ClusterRenderService's class doc for why this can't fully track each
+   * entity's actual marker size at every zoom. */
+  cluster_radius?: number;
+  /** Zoom level at and above which clustering stops entirely, regardless of
+   * how close entities are. */
+  cluster_max_zoom?: number;
   /** Whether entities with a gps_accuracy/radius attribute get an automatic
    * accuracy circle (see EntityConfig.circle), matching HA's own built-in
    * map. Defaults on; set false to require an explicit per-entity `circle:`
@@ -120,6 +143,8 @@ export class MapConfig {
   readonly historyShowLines: boolean;
   readonly historyShowDots: boolean;
   readonly clusterMarkers: boolean;
+  readonly clusterRadius: number;
+  readonly clusterMaxZoom: number;
   readonly showAccuracyCircles: boolean;
   readonly tileLayers: TileLayerConfig[];
   readonly wms: WmsLayerConfig[];
@@ -154,11 +179,13 @@ export class MapConfig {
     this.historyEnd = raw.history_end;
     this.historyShowLines = raw.history_show_lines ?? true;
     this.historyShowDots = raw.history_show_dots ?? false;
+    this.entities = (raw.entities ?? []).map(EntityConfig.from);
     this.clusterMarkers = raw.cluster_markers ?? false;
+    this.clusterRadius = raw.cluster_radius ?? defaultClusterRadius(this.entities);
+    this.clusterMaxZoom = raw.cluster_max_zoom ?? 14;
     this.showAccuracyCircles = raw.show_accuracy_circles ?? true;
     this.tileLayers = parseLayerConfigList(raw.tile_layers, TileLayerConfig);
     this.wms = parseLayerConfigList(raw.wms, WmsLayerConfig);
-    this.entities = (raw.entities ?? []).map(EntityConfig.from);
   }
 
   /** Numeric pixel estimate of the map's height, used for HA's masonry

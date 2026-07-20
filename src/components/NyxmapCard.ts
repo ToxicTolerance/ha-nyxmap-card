@@ -477,7 +477,10 @@ export class NyxmapCard extends LitElement {
     if (!this._config || !this.hass) return;
     this._syncClusterToggleControl();
     if (this._config.clusterMarkers) {
-      this._cluster?.update(this._config.entities, this.hass);
+      this._cluster?.update(this._config.entities, this.hass, {
+        radius: this._config.clusterRadius,
+        maxZoom: this._config.clusterMaxZoom,
+      });
     } else {
       this._cluster?.removeAll();
     }

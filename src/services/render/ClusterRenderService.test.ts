@@ -47,6 +47,62 @@ describe("ClusterRenderService", () => {
     );
   });
 
+  it("uses the given radius/maxZoom for the cluster source instead of the defaults", () => {
+    const map = createFakeMaplibreMap();
+    const service = new ClusterRenderService(map as never, new StyleReattach(), new LayerRegistry(), vi.fn());
+
+    service.update([entityAt("a", 1, 2)], hassWith({}), { radius: 30, maxZoom: 16 });
+
+    expect(map.addSource).toHaveBeenCalledWith(
+      "entity-clusters",
+      expect.objectContaining({ clusterRadius: 30, clusterMaxZoom: 16 }),
+    );
+  });
+
+  /** getSource() needs to actually reflect add/removeSource() here (unlike
+   * other tests in this file, which only ever call update() once against a
+   * source that never existed): a rebuild only manifests correctly if a
+   * post-teardown getSource() genuinely reports "gone", same as real
+   * MapLibre — a single static mockReturnValue can't distinguish "before"
+   * from "after" the removeSource() call these tests exercise. */
+  function fakeMapWithLiveSourceTracking(): FakeMaplibreMap {
+    const map = createFakeMaplibreMap();
+    let exists = false;
+    map.getSource.mockImplementation(() => (exists ? { setData: vi.fn(), getClusterExpansionZoom: vi.fn() } : undefined));
+    map.addSource.mockImplementation(() => {
+      exists = true;
+    });
+    map.removeSource.mockImplementation(() => {
+      exists = false;
+    });
+    return map;
+  }
+
+  it("rebuilds the source when radius/maxZoom changes on a later update()", () => {
+    const map = fakeMapWithLiveSourceTracking();
+    const service = new ClusterRenderService(map as never, new StyleReattach(), new LayerRegistry(), vi.fn());
+
+    service.update([entityAt("a", 1, 2)], hassWith({}), { radius: 50, maxZoom: 14 });
+    service.update([entityAt("a", 1, 2)], hassWith({}), { radius: 30, maxZoom: 14 });
+
+    expect(map.removeSource).toHaveBeenCalledWith("entity-clusters");
+    expect(map.addSource).toHaveBeenLastCalledWith(
+      "entity-clusters",
+      expect.objectContaining({ clusterRadius: 30, clusterMaxZoom: 14 }),
+    );
+  });
+
+  it("does not rebuild the source when radius/maxZoom is unchanged across updates", () => {
+    const map = fakeMapWithLiveSourceTracking();
+    const service = new ClusterRenderService(map as never, new StyleReattach(), new LayerRegistry(), vi.fn());
+
+    service.update([entityAt("a", 1, 2)], hassWith({}), { radius: 30, maxZoom: 14 });
+    service.update([entityAt("a", 1, 2)], hassWith({}), { radius: 30, maxZoom: 14 });
+
+    expect(map.removeSource).not.toHaveBeenCalled();
+    expect(map.addSource).toHaveBeenCalledTimes(1);
+  });
+
   it("excludes entities with an unresolved position or geojson.hide_marker from the fed FeatureCollection", () => {
     const map = createFakeMaplibreMap();
     const service = new ClusterRenderService(map as never, new StyleReattach(), new LayerRegistry(), vi.fn());
