@@ -12,7 +12,16 @@ export class HaHistoryService {
       start_time: start.toISOString(),
       end_time: end.toISOString(),
       entity_ids: [entityId],
-      minimal_response: true,
+      // false, not true: HA's history API only returns full attributes
+      // (incl. latitude/longitude) for the *first and last* row when
+      // minimal_response is set — every row in between is stripped down to
+      // just {last_changed, state}. That's fine for the state-timeline UI
+      // it was designed for, but for a GPS trail it means most points get
+      // silently dropped, and a tracker that hasn't changed state at all in
+      // the window can end up with 0-1 usable points — failing the
+      // "at least 2 points" check in EntityHistory.hasPath and making the
+      // whole trail (and its layer switcher entry) vanish.
+      minimal_response: false,
       no_attributes: false,
     });
 

@@ -5,6 +5,23 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-07-20
+
+### Fixed
+
+- History trails could silently fail to render at all — and disappear from
+  the layer switcher entirely — for a tracker whose state hadn't changed
+  within the configured `history_start` window. `HaHistoryService.fetchPath`
+  requested Home Assistant's history WS API with `minimal_response: true`,
+  which only returns full attributes (including `latitude`/`longitude`) for
+  the *first and last* row of the result; every row in between is stripped
+  down to just `{last_changed, state}`. A tracker sitting in the same state
+  the whole window could end up with 0-1 usable coordinate points, failing
+  `EntityHistory.hasPath`'s "at least 2 points" check — which also gates
+  registering the trail's layer-switcher overlay entry, so it vanished from
+  both places at once. Now fetches with `minimal_response: false`, so every
+  row's attributes are present.
+
 ## [0.7.0] - 2026-07-20
 
 ### Added

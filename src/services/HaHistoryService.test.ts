@@ -28,7 +28,7 @@ describe("HaHistoryService.fetchPath", () => {
     ]);
   });
 
-  it("skips rows missing lat/lng (minimal_response state-only rows)", async () => {
+  it("skips rows missing lat/lng attributes", async () => {
     const hass = hassReturning({
       "device_tracker.phone": [{ s: "not_home" }, { a: { latitude: 1, longitude: 2 } }, { a: {} }],
     });
@@ -61,7 +61,11 @@ describe("HaHistoryService.fetchPath", () => {
       start_time: "2026-01-01T00:00:00.000Z",
       end_time: "2026-01-02T00:00:00.000Z",
       entity_ids: ["device_tracker.phone"],
-      minimal_response: true,
+      // Must be false: true only returns attributes (incl. lat/lng) for the
+      // first and last row, which can leave a GPS trail with fewer than the
+      // 2 points EntityHistory.hasPath requires — see fetchPath's own
+      // comment for the full explanation.
+      minimal_response: false,
       no_attributes: false,
     });
   });
