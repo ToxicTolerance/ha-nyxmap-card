@@ -54,6 +54,26 @@ describe("cardConfigToFormData / formDataToCardConfig", () => {
     expect(updated.min_zoom).toBe(10);
   });
 
+  it("round-trips history_show_lines/history_show_dots/cluster_markers", () => {
+    // Regression: these were added to MapConfig (v0.6.0) without ever being
+    // added to the visual editor's schema, mirroring the earlier max_zoom/
+    // min_zoom gap above.
+    const config: MapConfigRaw = {
+      history_show_lines: false,
+      history_show_dots: true,
+      cluster_markers: true,
+    };
+    const formData = cardConfigToFormData(config);
+    expect(formData.history_show_lines).toBe(false);
+    expect(formData.history_show_dots).toBe(true);
+    expect(formData.cluster_markers).toBe(true);
+
+    const updated = formDataToCardConfig({ ...formData, cluster_markers: false }, config);
+    expect(updated.history_show_lines).toBe(false);
+    expect(updated.history_show_dots).toBe(true);
+    expect(updated.cluster_markers).toBe(false);
+  });
+
   it("converts a numeric-looking height string back to a number", () => {
     const updated = formDataToCardConfig({ height: "350" }, {});
     expect(updated.height).toBe(350);

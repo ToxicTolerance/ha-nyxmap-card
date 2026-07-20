@@ -5,6 +5,16 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.7.5] - 2026-07-20
+
+### Fixed
+
+- `history_show_lines`, `history_show_dots`, and `cluster_markers` were
+  added to `MapConfig` in 0.6.0 but never wired into the visual card
+  editor's schema, so they were only settable via YAML despite being
+  documented top-level options. They now appear as toggles in the
+  editor's "Behavior" section.
+
 ## [0.7.4] - 2026-07-20
 
 ### Added
