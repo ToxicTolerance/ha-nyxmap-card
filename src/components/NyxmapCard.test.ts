@@ -9,6 +9,7 @@ vi.mock("../maplibre/MapLibreLoader", () => {
   class FakeMap {
     handlers = new Map<string, Array<() => void>>();
     addControl = vi.fn();
+    removeControl = vi.fn();
     setStyle = vi.fn();
     setMaxZoom = vi.fn();
     setMinZoom = vi.fn();
@@ -86,10 +87,12 @@ interface TestableNyxmapCard extends HTMLElement {
     querySourceFeatures: ReturnType<typeof vi.fn>;
     addLayer: ReturnType<typeof vi.fn>;
     addControl: ReturnType<typeof vi.fn>;
+    removeControl: ReturnType<typeof vi.fn>;
     jumpTo: ReturnType<typeof vi.fn>;
     fitBounds: ReturnType<typeof vi.fn>;
   };
   _entities?: EntitiesRenderService;
+  _clusterToggleControl?: IconButtonControl;
 }
 
 function asTestable(el: InstanceType<typeof NyxmapCard>): TestableNyxmapCard {
@@ -371,6 +374,48 @@ describe("NyxmapCard", () => {
 
       expect(el._map!.setLayoutProperty).toHaveBeenCalledWith("entity-clusters-circle", "visibility", "none");
       expect(control.options.isPressed?.()).toBe(false);
+    });
+
+    it("adds the 'Toggle grouping' control reactively when cluster_markers is turned on via a later setConfig(), without rebuilding the card", async () => {
+      // Regression: cluster_markers used to only be checked once, inside
+      // _buildMap() (which only ever runs once) — turning it on later via
+      // the dashboard editor (setConfig() on the same already-built card
+      // element) never added the button until a full page reload.
+      const entities = [{ entity: "device_tracker.phone", fixed_x: 1, fixed_y: 2 }];
+      el.setConfig({ entities });
+      await el.updateComplete;
+      el._map!.fire("style.load");
+      el.hass = hassWith({});
+      await el.updateComplete;
+      expect(() => findControl("Toggle grouping")).toThrow();
+
+      el.setConfig({ cluster_markers: true, entities });
+      await el.updateComplete;
+      el._map!.fire("style.load"); // setConfig() on an already-built card calls setStyle(), which reloads
+      await el.updateComplete;
+
+      expect(() => findControl("Toggle grouping")).not.toThrow();
+    });
+
+    it("removes the 'Toggle grouping' control when cluster_markers is turned off via a later setConfig()", async () => {
+      const entities = [{ entity: "device_tracker.phone", fixed_x: 1, fixed_y: 2 }];
+      el.setConfig({ cluster_markers: true, entities });
+      await el.updateComplete;
+      el._map!.fire("style.load");
+      el.hass = hassWith({});
+      await el.updateComplete;
+      const control = findControl("Toggle grouping");
+
+      el.setConfig({ cluster_markers: false, entities });
+      await el.updateComplete;
+      el._map!.fire("style.load");
+      await el.updateComplete;
+
+      expect(el._map!.removeControl).toHaveBeenCalledWith(control);
+      // findControl() itself can't be reused here — it only ever inspects
+      // addControl's cumulative call history, which still contains this
+      // control's original addition even after a later removeControl().
+      expect(el._clusterToggleControl).toBeUndefined();
     });
   });
 

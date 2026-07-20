@@ -5,6 +5,26 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-07-20
+
+### Fixed
+
+- "Toggle grouping" never appeared when `cluster_markers` was turned on via
+  a later config edit (e.g. through the dashboard editor) rather than at
+  the card's very first load — its presence was only ever decided once,
+  inside `_buildMap()`, which never runs again for the lifetime of the card
+  element. `setConfig()`/the `style.load` cycle now re-syncs the button's
+  presence on every config change, so it reacts correctly whichever way
+  `cluster_markers` gets flipped, without needing a full page reload.
+- The new "Reset focus"/"Toggle grouping" buttons had poor contrast in a
+  dark HA theme: MapLibre's own `.maplibregl-ctrl-group` hardcodes a white
+  background regardless of theme, while the button icon's color followed
+  HA's `--primary-text-color` (theme-aware) — in dark theme that paired a
+  light icon with a background that never got any darker. The button
+  container's background now themes together with the icon color (matching
+  how the layer switcher's own toggle button already does), confirmed via
+  the dev harness with simulated dark-theme CSS variables.
+
 ## [0.7.1] - 2026-07-20
 
 ### Fixed

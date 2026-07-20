@@ -56,6 +56,13 @@ export class NyxmapCard extends LitElement {
     this._config = new MapConfig(config);
     if (this._built && this._map) {
       this._map.setStyle(this._resolveActiveStyleUrl());
+      // Called directly here too, not just from the style.load cycle:
+      // MapLibre's setStyle() doesn't reliably re-fire "style.load" when the
+      // resolved URL is unchanged from the currently active style (e.g.
+      // toggling cluster_markers without also touching map_style), which
+      // would otherwise leave the "Toggle grouping" button's presence stuck
+      // until something else happened to trigger a reload.
+      this._syncClusterToggleControl();
     }
   }
 
@@ -300,19 +307,12 @@ export class NyxmapCard extends LitElement {
       }),
       "bottom-left",
     );
-    // Ports upstream's "Toggle grouping" button — only present when
-    // cluster_markers is on, matching upstream. Reuses the exact same
-    // overlay-visibility plumbing the layer switcher's own "Clusters"
-    // checkbox uses, so the two controls always agree with each other.
-    if (config.clusterMarkers) {
-      this._clusterToggleControl = new IconButtonControl({
-        icon: "mdi:group",
-        label: "Toggle grouping",
-        onClick: () => this._onToggleOverlay("entity-clusters"),
-        isPressed: () => this._overlayVisibility.get("entity-clusters") ?? true,
-      });
-      this._map.addControl(this._clusterToggleControl, "bottom-left");
-    }
+    // "Toggle grouping" itself is added/removed by _syncClusterToggleControl()
+    // (called from _updateEntitiesAndClusters(), i.e. every style.load and
+    // hass update) rather than fixed here — cluster_markers can change on a
+    // later setConfig() without this element ever getting rebuilt (_buildMap
+    // only runs once), so its presence has to be able to react too, not just
+    // reflect whatever the very first build saw.
 
     // MapLibre installs its own ResizeObserver on the container, but its
     // very first notification after `.observe()` is deliberately ignored
@@ -408,12 +408,34 @@ export class NyxmapCard extends LitElement {
    * hass branch and the "style.load" handler, same as every other service. */
   private _updateEntitiesAndClusters(): void {
     if (!this._config || !this.hass) return;
+    this._syncClusterToggleControl();
     if (this._config.clusterMarkers) {
       this._cluster?.update(this._config.entities, this.hass);
     } else {
       this._cluster?.removeAll();
     }
     this._resyncEntityMarkers();
+  }
+
+  /** Adds/removes the "Toggle grouping" map button to match the current
+   * cluster_markers config — cluster_markers can flip on a later
+   * setConfig() without the card element itself ever getting rebuilt
+   * (_buildMap() only runs once), so the button's presence has to be able
+   * to react on every update rather than being decided once at build time. */
+  private _syncClusterToggleControl(): void {
+    if (!this._config || !this._map) return;
+    if (this._config.clusterMarkers && !this._clusterToggleControl) {
+      this._clusterToggleControl = new IconButtonControl({
+        icon: "mdi:group",
+        label: "Toggle grouping",
+        onClick: () => this._onToggleOverlay("entity-clusters"),
+        isPressed: () => this._overlayVisibility.get("entity-clusters") ?? true,
+      });
+      this._map.addControl(this._clusterToggleControl, "bottom-left");
+    } else if (!this._config.clusterMarkers && this._clusterToggleControl) {
+      this._map.removeControl(this._clusterToggleControl);
+      this._clusterToggleControl = undefined;
+    }
   }
 
   /** Re-applies entity marker positions/visibility against the current

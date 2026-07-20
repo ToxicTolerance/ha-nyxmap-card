@@ -32,7 +32,11 @@ export class IconButtonControl implements IControl {
 
   onAdd(): HTMLElement {
     this._container = document.createElement("div");
-    this._container.className = "maplibregl-ctrl maplibregl-ctrl-group";
+    // nyxmap-ctrl-group (alongside MapLibre's own maplibregl-ctrl-group,
+    // whose background is a hardcoded #fff regardless of HA's theme) scopes
+    // NyxmapCard.styles.ts's theme-aware background override to just this
+    // control, without touching the look of NavigationControl's own group.
+    this._container.className = "maplibregl-ctrl maplibregl-ctrl-group nyxmap-ctrl-group";
 
     this._button = document.createElement("button");
     this._button.type = "button";

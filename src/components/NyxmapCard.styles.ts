@@ -104,6 +104,18 @@ export const nyxmapCardStyles = css`
   .maplibregl-ctrl-bottom-left {
     margin: 8px;
   }
+  /* IconButtonControl (Reset focus / Toggle grouping): MapLibre's own
+   * .maplibregl-ctrl-group hardcodes a #fff background regardless of HA's
+   * theme, while .nyxmap-ctrl-button's icon color below follows the theme's
+   * --primary-text-color — fine together in light theme, but in dark theme
+   * that pairs a light icon with a background that never got any darker,
+   * gutting contrast. Matches LayerSwitcherControl.styles.ts's own
+   * .toggle button, which already themes both together for the same reason.
+   * Scoped to .nyxmap-ctrl-group (not plain .maplibregl-ctrl-group) so
+   * NavigationControl's own buttons are untouched. */
+  .nyxmap-ctrl-group {
+    background: var(--card-background-color, #fff);
+  }
   /* IconButtonControl (Reset focus / Toggle grouping): sized/centered to
    * match MapLibre's own NavigationControl buttons, which it stacks below
    * via the shared .maplibregl-ctrl-group container. */

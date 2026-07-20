@@ -25,6 +25,7 @@ export function createFakeMaplibreMap() {
     addImage: vi.fn(),
     setLayoutProperty: vi.fn(),
     addControl: vi.fn(),
+    removeControl: vi.fn(),
     querySourceFeatures: vi.fn((): unknown[] => []),
     easeTo: vi.fn(),
   };
