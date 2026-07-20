@@ -74,6 +74,15 @@ describe("cardConfigToFormData / formDataToCardConfig", () => {
     expect(updated.cluster_markers).toBe(false);
   });
 
+  it("round-trips show_accuracy_circles", () => {
+    const config: MapConfigRaw = { show_accuracy_circles: false };
+    const formData = cardConfigToFormData(config);
+    expect(formData.show_accuracy_circles).toBe(false);
+
+    const updated = formDataToCardConfig({ ...formData, show_accuracy_circles: true }, config);
+    expect(updated.show_accuracy_circles).toBe(true);
+  });
+
   it("converts a numeric-looking height string back to a number", () => {
     const updated = formDataToCardConfig({ height: "350" }, {});
     expect(updated.height).toBe(350);

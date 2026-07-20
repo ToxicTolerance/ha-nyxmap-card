@@ -32,6 +32,7 @@ const LABELS: Record<string, string> = {
   history_show_lines: "Show history lines",
   history_show_dots: "Show history dots",
   cluster_markers: "Cluster markers",
+  show_accuracy_circles: "Show accuracy circles",
   height: "Height",
   card_size: "Card size",
   entity: "Entity",
@@ -46,6 +47,7 @@ const LABELS: Record<string, string> = {
   z_index_offset: "Z-index offset",
   focus_on_fit: "Include when fitting map",
   history_line_color: "History line color",
+  circle: "Show accuracy circle",
   name: "Name",
 };
 

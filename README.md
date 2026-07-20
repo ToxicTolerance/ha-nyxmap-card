@@ -86,8 +86,10 @@ framed, and optionally trail their recent history.
 Open **Edit card** on a NyxMap card and you'll get a visual form instead of
 raw YAML: every [card option](#card-options) above, plus a full entities list
 (add/remove/reorder, and every field in [Entity options](#entity-options)).
-`circle`, `geojson`, `tile_layers`, and `wms` aren't in the visual editor yet —
-switch to **Edit in YAML** (the toggle in the same dialog) to set those.
+`circle` gets a simple on/off checkbox ("Show accuracy circle"); `geojson`,
+`tile_layers`, and `wms` aren't in the visual editor yet, nor is customizing a
+circle's radius/color/opacity — switch to **Edit in YAML** (the toggle in the
+same dialog) to set those.
 
 ## Configuration reference
 
@@ -113,6 +115,7 @@ switch to **Edit in YAML** (the toggle in the same dialog) to set those.
 | `history_show_lines` | boolean | `true` | Draw the connecting trail line for each entity's history. |
 | `history_show_dots` | boolean | `false` | Draw a dot at each sampled history position, in addition to (or instead of) the connecting line. |
 | `cluster_markers` | boolean | `false` | Collapse nearby entities into a numbered bubble at low zoom; click a bubble (or zoom in) to expand it back into individual markers. Individual entities keep their normal picture/icon marker look — only grouped entities render as a bubble. Also adds a bottom-left "Toggle grouping" map button for one-click on/off. |
+| `show_accuracy_circles` | boolean | `true` | Automatically draw a [circle](#circle-options-per-entity-circle) around any entity with a `gps_accuracy`/`radius` attribute — matching Home Assistant's own built-in map. Set `false` to turn this off card-wide (an entity's own `circle: false` always opts just that entity out; an explicit per-entity `circle:` config always overrides both). |
 | `tile_layers` | one or a list of [layer objects](#tilewms-layer-options-tile_layers--wms) | — | Raster tile overlay(s), layered on top of the vector base style. |
 | `wms` | one or a list of [layer objects](#tilewms-layer-options-tile_layers--wms) | — | WMS overlay(s). |
 | `entities` | list of entity ids or [entity objects](#entity-options) | `[]` | Entities to render. |
@@ -134,18 +137,24 @@ Each item in `entities:` is either a bare entity id string, or an object:
 | `focus_on_fit` | boolean | `true` | Whether this entity counts toward auto-fit-all-entities framing. |
 | `history_start` / `history_end` | string | card-level default | Per-entity history window. Set `history_start` to enable a trail. |
 | `history_line_color` | string | this entity's `color` | |
-| `circle` | `"auto"` or [object](#circle-options-per-entity-circle) | — | |
+| `circle` | `"auto"`, `false`, or [object](#circle-options-per-entity-circle) | — | Only needed to override the card-level `show_accuracy_circles` default: `false` opts this entity out, an object/`"auto"` customizes it. |
 | `geojson` | string (attribute name) or [object](#geojson-options-per-entity-geojson) | — | |
 
 ### Circle options (per-entity `circle:`)
 
 Draws a circle around the entity — handy for showing GPS accuracy or a
-geofence radius.
+geofence radius. **This happens automatically** for any entity with a
+`gps_accuracy` or `radius` attribute, matching Home Assistant's own built-in
+map; `circle:` is only needed to opt an entity out (`circle: false`) or to
+customize the radius/color/opacity. Turn the automatic behavior off entirely
+with the card-level [`show_accuracy_circles: false`](#card-options).
 
 ```yaml
 entities:
   - entity: device_tracker.alice_phone
-    circle: auto   # shorthand — same as { source: auto }
+    circle: auto   # shorthand — same as { source: auto } (this is also the implicit default)
+  - entity: person.bob
+    circle: false  # opt this one entity out
 ```
 
 | Option | Type | Default | Description |

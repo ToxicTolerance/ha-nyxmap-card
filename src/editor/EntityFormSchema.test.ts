@@ -23,7 +23,19 @@ describe("entityRawToFormData", () => {
       circle: "auto",
       geojson: "geo_location",
     };
-    expect(entityRawToFormData(raw)).toEqual({ entity: "person.alice", color: "#123456" });
+    expect(entityRawToFormData(raw)).toEqual({ entity: "person.alice", color: "#123456", circle: true });
+  });
+
+  it("omits circle from form data when unset, so the schema default (checked) applies", () => {
+    expect(entityRawToFormData({ entity: "person.alice" }).circle).toBeUndefined();
+  });
+
+  it("maps an explicit circle: false to a false checkbox", () => {
+    expect(entityRawToFormData({ entity: "person.alice", circle: false }).circle).toBe(false);
+  });
+
+  it("maps a circle object config to a checked checkbox", () => {
+    expect(entityRawToFormData({ entity: "person.alice", circle: { radius: 10 } }).circle).toBe(true);
   });
 });
 
@@ -46,5 +58,24 @@ describe("formDataToEntityRaw", () => {
   it("normalizes a bare-string previous value before merging", () => {
     const next = formDataToEntityRaw({ entity: "device_tracker.phone", label: "Phone" }, "device_tracker.phone");
     expect(next).toEqual({ entity: "device_tracker.phone", label: "Phone" });
+  });
+
+  it("unchecking the circle toggle sets circle: false", () => {
+    const next = formDataToEntityRaw({ entity: "person.alice", circle: false }, { entity: "person.alice" });
+    expect(next.circle).toBe(false);
+  });
+
+  it("re-checking a previously-false circle toggle clears it back to unset", () => {
+    const next = formDataToEntityRaw(
+      { entity: "person.alice", circle: true },
+      { entity: "person.alice", circle: false },
+    );
+    expect(next.circle).toBeUndefined();
+  });
+
+  it("checking the circle toggle preserves an existing advanced circle object untouched", () => {
+    const previous: EntityConfigRaw = { entity: "person.alice", circle: { radius: 10, color: "#ff0000" } };
+    const next = formDataToEntityRaw({ entity: "person.alice", circle: true }, previous);
+    expect(next.circle).toEqual({ radius: 10, color: "#ff0000" });
   });
 });

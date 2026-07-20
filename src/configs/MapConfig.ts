@@ -71,6 +71,12 @@ export interface MapConfigRaw {
   /** Opt-in low-zoom marker clustering: nearby entities collapse into a
    * numbered bubble, matching upstream ha-map-card's own opt-in default. */
   cluster_markers?: boolean;
+  /** Whether entities with a gps_accuracy/radius attribute get an automatic
+   * accuracy circle (see EntityConfig.circle), matching HA's own built-in
+   * map. Defaults on; set false to require an explicit per-entity `circle:`
+   * instead. An entity's own `circle: false` always opts that one entity out
+   * regardless of this card-level setting. */
+  show_accuracy_circles?: boolean;
   /** Raster overlay(s) layered on top of the vector base style. A single
    * object or a list; `url` supports `{{ states('entity_id') }}` templating
    * and, for tile layers, the usual `{z}/{x}/{y}` XYZ tokens. */
@@ -114,6 +120,7 @@ export class MapConfig {
   readonly historyShowLines: boolean;
   readonly historyShowDots: boolean;
   readonly clusterMarkers: boolean;
+  readonly showAccuracyCircles: boolean;
   readonly tileLayers: TileLayerConfig[];
   readonly wms: WmsLayerConfig[];
   readonly entities: EntityConfig[];
@@ -148,6 +155,7 @@ export class MapConfig {
     this.historyShowLines = raw.history_show_lines ?? true;
     this.historyShowDots = raw.history_show_dots ?? false;
     this.clusterMarkers = raw.cluster_markers ?? false;
+    this.showAccuracyCircles = raw.show_accuracy_circles ?? true;
     this.tileLayers = parseLayerConfigList(raw.tile_layers, TileLayerConfig);
     this.wms = parseLayerConfigList(raw.wms, WmsLayerConfig);
     this.entities = (raw.entities ?? []).map(EntityConfig.from);

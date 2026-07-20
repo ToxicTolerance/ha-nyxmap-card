@@ -18,7 +18,7 @@ export interface EntityConfigRaw {
   history_start?: string;
   history_end?: string;
   history_line_color?: string;
-  circle?: "auto" | CircleConfigRaw;
+  circle?: "auto" | CircleConfigRaw | false;
   geojson?: string | GeoJsonConfigRaw | false;
   [key: string]: unknown;
 }
@@ -44,6 +44,10 @@ export class EntityConfig {
   readonly historyEnd?: string;
   readonly historyLineColor?: string;
   readonly circle?: CircleConfig;
+  /** True when the entity's own YAML sets `circle: false`, opting this one
+   * entity out of MapConfig.showAccuracyCircles' implicit default-on circle
+   * regardless of the card-level setting. */
+  readonly circleDisabled: boolean;
   readonly geojson?: GeoJsonConfig;
   readonly raw: EntityConfigRaw;
 
@@ -70,6 +74,7 @@ export class EntityConfig {
     this.historyEnd = raw.history_end;
     this.historyLineColor = raw.history_line_color ?? raw.color;
     this.circle = CircleConfig.from(raw.circle, this.color);
+    this.circleDisabled = raw.circle === false;
     this.geojson = GeoJsonConfig.from(raw.geojson, this.color);
   }
 }

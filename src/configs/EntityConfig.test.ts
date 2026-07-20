@@ -50,4 +50,22 @@ describe("EntityConfig", () => {
     // @ts-expect-error deliberately malformed config
     expect(() => EntityConfig.from({})).toThrow();
   });
+
+  it("marks circleDisabled when circle: false is set", () => {
+    const cfg = EntityConfig.from({ entity: "person.alice", circle: false });
+    expect(cfg.circleDisabled).toBe(true);
+    expect(cfg.circle).toBeUndefined();
+  });
+
+  it("leaves circleDisabled false when circle is unset", () => {
+    const cfg = EntityConfig.from({ entity: "person.alice" });
+    expect(cfg.circleDisabled).toBe(false);
+    expect(cfg.circle).toBeUndefined();
+  });
+
+  it("leaves circleDisabled false when an explicit circle config is set", () => {
+    const cfg = EntityConfig.from({ entity: "person.alice", circle: "auto" });
+    expect(cfg.circleDisabled).toBe(false);
+    expect(cfg.circle).toBeDefined();
+  });
 });

@@ -28,6 +28,7 @@ describe("MapConfig", () => {
     expect(cfg.historyShowLines).toBe(true);
     expect(cfg.historyShowDots).toBe(false);
     expect(cfg.clusterMarkers).toBe(false);
+    expect(cfg.showAccuracyCircles).toBe(true);
   });
 
   it("parses max_zoom/min_zoom", () => {
@@ -45,6 +46,11 @@ describe("MapConfig", () => {
   it("parses cluster_markers", () => {
     const cfg = new MapConfig({ cluster_markers: true });
     expect(cfg.clusterMarkers).toBe(true);
+  });
+
+  it("parses show_accuracy_circles: false", () => {
+    const cfg = new MapConfig({ show_accuracy_circles: false });
+    expect(cfg.showAccuracyCircles).toBe(false);
   });
 
   it("parses tile_layers and wms, each as either a single object or a list", () => {

@@ -5,6 +5,21 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.7.6] - 2026-07-20
+
+### Added
+
+- Entities with a `gps_accuracy` or `radius` attribute now get an accuracy
+  circle drawn around them automatically, matching Home Assistant's own
+  built-in map — previously this required setting `circle: auto` by hand on
+  every entity. Turn it off card-wide with `show_accuracy_circles: false`, or
+  opt a single entity out with `circle: false`; an explicit per-entity
+  `circle:` config still always takes precedence over either default.
+- The per-entity `circle:` option now has a "Show accuracy circle" checkbox
+  in the visual editor (previously YAML-only), and the new
+  `show_accuracy_circles` card option is exposed as a "Behavior" toggle
+  alongside `cluster_markers`.
+
 ## [0.7.5] - 2026-07-20
 
 ### Fixed

@@ -57,9 +57,14 @@ Consequently:
   `_reattachSources()`, called from the `"style.load"` map event handler — that handler fires both
   on first load and after every subsequent `setStyle()`.
 
-Any new overlay type (circles, clustering, raster tile layers, etc.) that uses MapLibre
-sources/layers rather than HTML markers needs to plug into this same re-attach path, or it will
-silently vanish on the next theme change.
+Any new overlay type that uses MapLibre sources/layers rather than HTML markers needs to plug into
+this same re-attach path, or it will silently vanish on the next theme change. `CircleRenderService`
+(GPS-accuracy/radius circles) and `ClusterRenderService` already follow it as examples.
+
+Per-entity accuracy circles (`CircleConfig`/`CircleRenderService`) render automatically for any
+entity with a `gps_accuracy` or `radius` attribute — matching HA's own built-in map — controlled by
+the card-level `show_accuracy_circles` (default `true`) and an entity's own `circle: false` opt-out;
+an explicit per-entity `circle:` config always overrides both.
 
 ### Visual config editor
 
@@ -77,9 +82,14 @@ this repo binds to, mirroring the existing `home-assistant.d.ts` precedent.
 array editor reused for both the entities list and `map_styles`, emitting a
 bubbling `items-changed` event; `NyxmapCardEditor` merges those back into the
 full config and re-dispatches a single `config-changed` event, always
-preserving `type` and any out-of-scope keys (`circle`, `geojson`,
-`tile_layers`, `wms` — not covered by the visual editor; users drop to HA's
-"Edit in YAML" toggle for those).
+preserving `type` and any out-of-scope keys (`geojson`, `tile_layers`, `wms` —
+not covered by the visual editor; users drop to HA's "Edit in YAML" toggle for
+those). The per-entity `circle:` key gets a simple on/off checkbox in the
+entity form (`EntityFormSchema.ts`) — unchecking it writes `circle: false`;
+checking it clears an explicit `false` back to unset (inheriting the
+card-level default) while leaving any hand-authored `circle:` object
+untouched, since the visual editor only covers the on/off case, not per-field
+radius/color/fill_opacity editing.
 
 ### Not yet ported (tracked against upstream `ha-map-card` feature parity)
 
@@ -87,7 +97,6 @@ Listed at the bottom of `maplibre-map-card.js` as the porting backlog — check 
 assuming a feature is unsupported vs. simply not yet implemented:
 
 - `tile_layers` / WMS → MapLibre raster source (`{ type: 'raster', tiles: [...] }`)
-- `circle:` options → GeoJSON fill layer (turf.circle or geodesic polygon)
 - `geojson:` attribute → `map.addSource({ type: 'geojson' })` directly (native support, should be
   straightforward)
 - `plugins: []` → Leaflet's plugin API doesn't map to MapLibre; needs a new hook design

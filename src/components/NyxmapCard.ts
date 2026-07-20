@@ -137,7 +137,7 @@ export class NyxmapCard extends LitElement {
       // above it instead of hidden underneath.
       this._tileLayers?.update(this._config.tileLayers, this._config.wms, this.hass);
       this._updateEntitiesAndClusters();
-      this._circles?.update(this._config.entities, this.hass);
+      this._circles?.update(this._config.entities, this.hass, this._config.showAccuracyCircles);
       this._geojson?.update(this._config.entities, this.hass);
       this._applyInitialViewIfNeeded();
       this._initialView.updateFit(
@@ -461,7 +461,7 @@ export class NyxmapCard extends LitElement {
         // replay order for every later theme swap.
         this._tileLayers?.update(this._config.tileLayers, this._config.wms, this.hass);
         this._updateEntitiesAndClusters();
-        this._circles?.update(this._config.entities, this.hass);
+        this._circles?.update(this._config.entities, this.hass, this._config.showAccuracyCircles);
         this._geojson?.update(this._config.entities, this.hass);
         this._refreshHistory();
         this._applyInitialViewIfNeeded();

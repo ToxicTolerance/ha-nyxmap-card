@@ -1,3 +1,4 @@
+import { CircleConfig } from "../../configs/CircleConfig";
 import type { EntityConfig } from "../../configs/EntityConfig";
 import { colorFromString } from "../../maplibre/MarkerFactory";
 import type { StyleReattach } from "../../maplibre/StyleReattach";
@@ -66,16 +67,21 @@ export class CircleRenderService {
     private readonly layerRegistry: LayerRegistry,
   ) {}
 
-  update(entities: EntityConfig[], hass: HomeAssistant): void {
+  update(entities: EntityConfig[], hass: HomeAssistant, showAccuracyCircles: boolean): void {
     const seen = new Set<string>();
     for (const ent of entities) {
-      if (!ent.circle) continue;
+      // An explicit per-entity `circle:` always wins; otherwise fall back to
+      // the card-level default-on behavior (matching HA's own built-in map)
+      // unless this entity opted out with `circle: false`.
+      const circleCfg =
+        ent.circle ?? (!ent.circleDisabled && showAccuracyCircles ? CircleConfig.from("auto", ent.color) : undefined);
+      if (!circleCfg) continue;
       const st = hass.states[ent.id];
       const lng = ent.fixedX ?? st?.attributes?.longitude;
       const lat = ent.fixedY ?? st?.attributes?.latitude;
       if (!Number.isFinite(lng) || !Number.isFinite(lat)) continue;
 
-      const radius = resolveCircleRadius(ent.circle, st);
+      const radius = resolveCircleRadius(circleCfg, st);
       if (radius <= 0) continue;
 
       seen.add(ent.id);
@@ -83,8 +89,8 @@ export class CircleRenderService {
         ent.id,
         [lng as number, lat as number],
         radius,
-        ent.circle.color ?? colorFromString(ent.id),
-        ent.circle.fillOpacity,
+        circleCfg.color ?? colorFromString(ent.id),
+        circleCfg.fillOpacity,
       );
     }
     for (const entityId of [...this.active]) {
