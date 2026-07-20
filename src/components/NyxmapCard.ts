@@ -361,19 +361,17 @@ export class NyxmapCard extends LitElement {
 
     // Ports upstream ha-map-card's "Reset focus" map button — always
     // present, re-runs the same initial-view resolution _applyInitialView()
-    // already uses (explicit x/y > focus_entity > fit all entities).
-    // Placed bottom-left (otherwise unused: NavigationControl already owns
-    // top-right, the layer switcher top-left, attribution bottom-right) —
-    // stacking these under NavigationControl's 3 buttons instead visually
-    // collided with the bottom-right attribution control on shorter map
-    // heights, confirmed via the dev harness at its default ~205px height.
+    // already uses (explicit x/y > focus_entity > fit all entities). Added to
+    // top-right *after* NavigationControl so it stacks directly beneath the
+    // zoom/compass buttons; the layer switcher now lives bottom-left and
+    // attribution bottom-right, so this corner is theirs to share.
     this._map.addControl(
       new IconButtonControl({
         icon: "mdi:image-filter-center-focus",
         label: "Reset focus",
         onClick: () => this._applyInitialView(),
       }),
-      "bottom-left",
+      "top-right",
     );
     // "Toggle grouping" itself is added/removed by _syncClusterToggleControl()
     // (called from _updateEntitiesAndClusters(), i.e. every style.load and
@@ -502,7 +500,9 @@ export class NyxmapCard extends LitElement {
         onClick: () => this._onToggleOverlay("entity-clusters"),
         isPressed: () => this._overlayVisibility.get("entity-clusters") ?? true,
       });
-      this._map.addControl(this._clusterToggleControl, "bottom-left");
+      // top-right so it stacks under NavigationControl + the Reset focus
+      // button (see _buildMap()).
+      this._map.addControl(this._clusterToggleControl, "top-right");
     } else if (!this._config.clusterMarkers && this._clusterToggleControl) {
       this._map.removeControl(this._clusterToggleControl);
       this._clusterToggleControl = undefined;

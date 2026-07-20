@@ -5,6 +5,20 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-07-20
+
+### Changed
+
+- Map control layout reworked: the "Reset focus" and "Toggle grouping" buttons
+  now stack directly beneath the zoom/compass control (top-right), and the layer
+  switcher moved to the bottom-left.
+- The layer switcher is restyled after Google/Apple Maps' layer picker — a
+  floating layers button that opens a card panel (opening upward) with the base
+  map as selectable cards, the theme as a segmented control, and overlays as
+  iOS-style toggle switches. It closes when you tap the map, and scrolls
+  internally (with rounded corners preserved) when the map is too short to fit
+  the whole panel.
+
 ## [0.8.1] - 2026-07-20
 
 ### Changed
