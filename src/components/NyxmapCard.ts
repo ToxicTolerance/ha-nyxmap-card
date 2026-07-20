@@ -136,8 +136,9 @@ export class NyxmapCard extends LitElement {
       // move it) lands after the raster layer, keeping markers/shapes visible
       // above it instead of hidden underneath.
       this._tileLayers?.update(this._config.tileLayers, this._config.wms, this.hass);
+      // _updateEntitiesAndClusters() → _resyncEntityMarkers() refreshes circles
+      // too (with the current absorbed set), so no separate circle update here.
       this._updateEntitiesAndClusters();
-      this._circles?.update(this._config.entities, this.hass, this._config.showAccuracyCircles);
       this._geojson?.update(this._config.entities, this.hass);
       this._applyInitialViewIfNeeded();
       this._initialView.updateFit(
@@ -460,8 +461,9 @@ export class NyxmapCard extends LitElement {
         // created via addLayer(), which is also what seeds StyleReattach's
         // replay order for every later theme swap.
         this._tileLayers?.update(this._config.tileLayers, this._config.wms, this.hass);
+        // _updateEntitiesAndClusters() → _resyncEntityMarkers() refreshes
+        // circles too (with the current absorbed set) — see the hass branch.
         this._updateEntitiesAndClusters();
-        this._circles?.update(this._config.entities, this.hass, this._config.showAccuracyCircles);
         this._geojson?.update(this._config.entities, this.hass);
         this._refreshHistory();
         this._applyInitialViewIfNeeded();
@@ -507,14 +509,29 @@ export class NyxmapCard extends LitElement {
     }
   }
 
-  /** Re-applies entity marker positions/visibility against the current
+  /** Re-applies entity markers AND accuracy circles against the current
    * cluster state, without recomputing the cluster source itself — this is
    * the callback ClusterRenderService invokes on its own zoomend/moveend/
    * overlay-toggle events, so it must not loop back into updating the
-   * cluster source again. */
+   * cluster source again. Circles are refreshed here too so an entity absorbed
+   * into a bubble on zoom loses its circle at the same moment its marker hides
+   * (absorption changes on camera settle, not on a hass update). */
   private _resyncEntityMarkers(): void {
     if (!this._config || !this.hass) return;
     this._entities?.update(this._config.entities, this.hass, this._cluster?.getAbsorbed());
+    this._refreshCircles();
+  }
+
+  /** Draws accuracy circles for every entity except those currently absorbed
+   * into a cluster bubble (whose markers — and thus circles — are hidden). */
+  private _refreshCircles(): void {
+    if (!this._config || !this.hass) return;
+    this._circles?.update(
+      this._config.entities,
+      this.hass,
+      this._config.showAccuracyCircles,
+      this._cluster?.getAbsorbed(),
+    );
   }
 
   /** Runs once, the first time hass+config are both available after the map

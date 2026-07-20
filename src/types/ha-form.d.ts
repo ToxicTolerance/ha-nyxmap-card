@@ -10,6 +10,9 @@ export type HaFormSelector =
   | { boolean?: Record<string, never> }
   | { entity?: { domain?: string | string[] } }
   | { icon?: Record<string, never> }
+  // HA's color-wheel picker. Its value is an [r, g, b] array, not a CSS string
+  // — see EntityFormSchema's hex<->rgb conversion for the round-trip.
+  | { color_rgb?: Record<string, never> }
   | { select?: { mode?: "dropdown" | "list"; options: Array<string | { value: string; label: string }> } };
 
 export interface HaFormSelectorSchema {

@@ -65,25 +65,20 @@ export function buildClusterBubbleElement(count: number): HTMLElement {
   return el;
 }
 
-/** (Re)applies a bubble's count-dependent size/color/label to an existing
- * element — used both by buildClusterBubbleElement and when a surviving
- * bubble's member count changes between frames, so the bubble updates in place
- * instead of being torn down and re-animated. */
+/** (Re)applies a bubble's count-dependent size/label to an existing element —
+ * used both by buildClusterBubbleElement and when a surviving bubble's member
+ * count changes between frames, so the bubble updates in place instead of being
+ * torn down and re-animated. The bubble's colour is theme-driven (HA's
+ * --primary-color + translucent halo, see NyxmapCard.styles.ts), matching Home
+ * Assistant's own map, so it isn't set here. */
 export function applyClusterBubbleVisual(el: HTMLElement, count: number): void {
   const diameter = clusterDiameter(count);
   el.style.width = el.style.height = `${diameter}px`;
-  el.style.setProperty("--nyxmap-cluster-color", clusterColor(count));
   el.textContent = abbreviateCount(count);
 }
 
-function clusterColor(count: number): string {
-  if (count >= 50) return "#e74c3c";
-  if (count >= 10) return "#f1c40f";
-  return "#51bbd6";
-}
-
-// Mirrors the old GL circle-radius step (16/20/26px radius → 32/40/52px
-// diameter) so bubble sizing is unchanged for existing users.
+// Bubble diameter steps up with member count so a bigger cluster reads as
+// heavier (matching the spirit of HA's own tiered cluster sizing).
 function clusterDiameter(count: number): number {
   if (count >= 50) return 52;
   if (count >= 10) return 40;

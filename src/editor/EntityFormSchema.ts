@@ -1,6 +1,27 @@
 import type { EntityConfigRaw } from "../configs/EntityConfig";
 import type { HaFormSchema } from "../types/ha-form";
 
+/** Color fields edited via HA's color-wheel picker (color_rgb selector), whose
+ * value is an [r, g, b] array — converted to/from the `#rrggbb` string the
+ * card stores. A non-hex stored value (e.g. "red", "rgb(...)") can't seed the
+ * wheel, so it's left out of the form and preserved untouched on save. */
+const COLOR_KEYS = new Set(["color", "history_line_color"]);
+
+function hexToRgb(value: unknown): [number, number, number] | undefined {
+  if (typeof value !== "string") return undefined;
+  const m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(value.trim());
+  if (!m) return undefined;
+  const hex = m[1]!.length === 3 ? m[1]!.replace(/./g, "$&$&") : m[1]!;
+  const n = parseInt(hex, 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+function rgbToHex(value: unknown): string | undefined {
+  if (!Array.isArray(value) || value.length < 3) return undefined;
+  const h = (v: number) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, "0");
+  return `#${h(value[0])}${h(value[1])}${h(value[2])}`;
+}
+
 const ENTITY_SCHEMA_KEYS = [
   "entity",
   "display",
@@ -26,7 +47,7 @@ export function buildEntitySchema(): HaFormSchema[] {
     { name: "picture", selector: { text: { type: "url" } } },
     { name: "icon", selector: { icon: {} } },
     { name: "label", selector: { text: {} } },
-    { name: "color", selector: { text: {} } },
+    { name: "color", selector: { color_rgb: {} } },
     { name: "size", selector: { number: { min: 1 } } },
     {
       name: "",
@@ -40,7 +61,7 @@ export function buildEntitySchema(): HaFormSchema[] {
     { name: "focus_on_fit", selector: { boolean: {} } },
     { name: "history_start", selector: { text: {} } },
     { name: "history_end", selector: { text: {} } },
-    { name: "history_line_color", selector: { text: {} } },
+    { name: "history_line_color", selector: { color_rgb: {} } },
     { name: "circle", default: true, selector: { boolean: {} } },
   ];
 }
@@ -61,6 +82,11 @@ export function entityRawToFormData(e: string | EntityConfigRaw): Record<string,
   for (const key of ENTITY_SCHEMA_KEYS) {
     if (key === "circle") {
       if (raw.circle !== undefined) data.circle = raw.circle !== false;
+      continue;
+    }
+    if (COLOR_KEYS.has(key)) {
+      const rgb = hexToRgb(raw[key]);
+      if (rgb) data[key] = rgb;
       continue;
     }
     if (raw[key] !== undefined) data[key] = raw[key];
@@ -84,6 +110,14 @@ export function formDataToEntityRaw(data: Record<string, unknown>, previous: str
     if (key === "circle") {
       if (!("circle" in data)) continue;
       next.circle = data.circle === false ? false : prevRaw.circle === false ? undefined : prevRaw.circle;
+      continue;
+    }
+    if (COLOR_KEYS.has(key)) {
+      if (!(key in data)) continue;
+      const v = data[key];
+      // Picker value ([r,g,b]) → #rrggbb; an already-string color passes
+      // through untouched; a cleared field (undefined) unsets it.
+      (next as Record<string, unknown>)[key] = Array.isArray(v) ? rgbToHex(v) : v;
       continue;
     }
     if (key in data) (next as Record<string, unknown>)[key] = data[key];

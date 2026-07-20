@@ -121,15 +121,21 @@ export const nyxmapCardStyles = css`
     transform: translate(var(--nyxmap-anim-dx, 0px), var(--nyxmap-anim-dy, 0px)) scale(0.3);
     pointer-events: none;
   }
+  /* Themed to match Home Assistant's own map cluster marker: filled with the
+   * active theme's accent (--primary-color) and ringed by a translucent halo
+   * of the same colour (via HA's --rgb-primary-color), instead of a fixed
+   * palette. Fallbacks are HA's default primary blue for contexts that don't
+   * provide the theme vars (e.g. the dev harness). */
   .nyxmap-cluster-bubble {
     border-radius: 50%;
     display: flex;
     align-items: center;
     justify-content: center;
-    background-color: var(--nyxmap-cluster-color, #51bbd6);
-    color: #fff;
+    background-color: var(--primary-color, #03a9f4);
+    color: var(--text-primary-color, #fff);
     font: 600 12px/1 var(--paper-font-body1_-_font-family, sans-serif);
-    box-shadow: 0 0 0 2px #fff, 0 1px 4px rgba(0, 0, 0, 0.4);
+    box-shadow: 0 0 0 6px rgba(var(--rgb-primary-color, 3, 169, 244), 0.35),
+      0 1px 4px rgba(0, 0, 0, 0.4);
     cursor: pointer;
   }
   .nyxmap-marker--initials {

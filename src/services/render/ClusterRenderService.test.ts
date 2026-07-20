@@ -119,6 +119,18 @@ describe("ClusterRenderService", () => {
     expect(bubbles(service).size).toBe(1);
   });
 
+  it("regroups only at camera settle, not on every continuous move frame", () => {
+    const map = createFakeMaplibreMap();
+    makeService(map);
+    // Only settle events drive a regroup — recomputing mid-gesture would make
+    // the merge/split spring animate against a moving camera (janky). No
+    // continuous "move" handler should be registered.
+    const events = map.on.mock.calls.map((c) => c[0]);
+    expect(events).toContain("moveend");
+    expect(events).toContain("zoomend");
+    expect(events).not.toContain("move");
+  });
+
   it("click-to-expand eases to the group centroid and a deeper zoom", () => {
     const map = createFakeMaplibreMap();
     map.getZoom.mockReturnValue(10);

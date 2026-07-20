@@ -16,14 +16,26 @@ describe("entityRawToFormData", () => {
     expect(entityRawToFormData("device_tracker.phone")).toEqual({ entity: "device_tracker.phone" });
   });
 
-  it("projects only schema-covered keys from a full entity object", () => {
+  it("projects only schema-covered keys, converting a hex color to an [r,g,b] picker value", () => {
     const raw: EntityConfigRaw = {
       entity: "person.alice",
       color: "#123456",
       circle: "auto",
       geojson: "geo_location",
     };
-    expect(entityRawToFormData(raw)).toEqual({ entity: "person.alice", color: "#123456", circle: true });
+    expect(entityRawToFormData(raw)).toEqual({
+      entity: "person.alice",
+      color: [0x12, 0x34, 0x56],
+      circle: true,
+    });
+  });
+
+  it("expands a 3-digit hex color to [r,g,b]", () => {
+    expect(entityRawToFormData({ entity: "person.alice", color: "#f00" }).color).toEqual([255, 0, 0]);
+  });
+
+  it("omits a non-hex color (e.g. a named/rgb() value) from the picker rather than mangling it", () => {
+    expect(entityRawToFormData({ entity: "person.alice", color: "red" }).color).toBeUndefined();
   });
 
   it("omits circle from form data when unset, so the schema default (checked) applies", () => {
@@ -40,7 +52,7 @@ describe("entityRawToFormData", () => {
 });
 
 describe("formDataToEntityRaw", () => {
-  it("preserves circle/geojson/unknown keys when editing an unrelated field", () => {
+  it("preserves circle/geojson/unknown keys and converts a picked [r,g,b] color back to hex", () => {
     const previous: EntityConfigRaw = {
       entity: "person.alice",
       color: "#123456",
@@ -48,11 +60,19 @@ describe("formDataToEntityRaw", () => {
       geojson: { attribute: "geo_location" },
     };
 
-    const next = formDataToEntityRaw({ entity: "person.alice", color: "#abcdef" }, previous);
+    const next = formDataToEntityRaw({ entity: "person.alice", color: [0xab, 0xcd, 0xef] }, previous);
 
     expect(next.color).toBe("#abcdef");
     expect(next.circle).toBe("auto");
     expect(next.geojson).toEqual({ attribute: "geo_location" });
+  });
+
+  it("leaves a non-hex color untouched when the picker never emitted a value for it", () => {
+    // A "red" stored value is omitted from the form (see entityRawToFormData),
+    // so it isn't in the changed form data and survives via the previous spread.
+    const previous: EntityConfigRaw = { entity: "person.alice", color: "red" };
+    const next = formDataToEntityRaw({ entity: "person.alice", label: "A" }, previous);
+    expect(next.color).toBe("red");
   });
 
   it("normalizes a bare-string previous value before merging", () => {

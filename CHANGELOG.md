@@ -5,6 +5,30 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-07-20
+
+### Changed
+
+- Cluster bubbles now use the active Home Assistant theme's accent
+  (`--primary-color`) with a translucent halo ring, matching HA's own map
+  cluster markers, instead of a fixed blue/yellow/red palette.
+
+### Added
+
+- The entity `color` and `history_line_color` fields in the visual editor are
+  now proper color-wheel pickers (HA's `color_rgb` selector) instead of plain
+  text boxes. Hex values round-trip through the picker; a non-hex value (e.g.
+  `red` or an `rgb(...)` string) set via YAML is left untouched.
+
+### Fixed
+
+- Accuracy circles are now hidden for entities absorbed into a cluster bubble —
+  previously a clustered entity's circle lingered at its real position under the
+  bubble. They reappear when the cluster splits.
+- Cluster merge/split animation is now smooth: grouping recomputes only when the
+  camera settles (not on every move frame), so the spring plays against a static
+  camera instead of a still-moving one — matching how HA animates its clusters.
+
 ## [0.8.0] - 2026-07-20
 
 ### Changed

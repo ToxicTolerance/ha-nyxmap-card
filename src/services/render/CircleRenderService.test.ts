@@ -45,6 +45,33 @@ describe("CircleRenderService", () => {
     expect(map.addSource).not.toHaveBeenCalled();
   });
 
+  it("does not draw a circle for an entity absorbed into a cluster bubble", () => {
+    const map = createFakeMaplibreMap();
+    const service = new CircleRenderService(map as never, new StyleReattach(), new LayerRegistry());
+    const entity = entityWithCircle("device_tracker.phone", { radius: 25, source: "config" });
+    const absorbed = new Map<string, [number, number]>([["device_tracker.phone", [1, 2]]]);
+
+    service.update([entity], hassWith({}), true, absorbed);
+
+    expect(map.addSource).not.toHaveBeenCalled();
+    expect(service.has("device_tracker.phone")).toBe(false);
+  });
+
+  it("removes an entity's circle once it becomes absorbed into a cluster", () => {
+    const map = createFakeMaplibreMap();
+    const service = new CircleRenderService(map as never, new StyleReattach(), new LayerRegistry());
+    const entity = entityWithCircle("device_tracker.phone", { radius: 25, source: "config" });
+
+    service.update([entity], hassWith({}), true);
+    expect(service.has("device_tracker.phone")).toBe(true);
+
+    map.getSource.mockReturnValue({ setData: vi.fn() }); // source now exists
+    service.update([entity], hassWith({}), true, new Map([["device_tracker.phone", [1, 2]]]));
+
+    expect(map.removeSource).toHaveBeenCalledWith("circle-device_tracker.phone");
+    expect(service.has("device_tracker.phone")).toBe(false);
+  });
+
   it("skips entities whose resolved radius is 0", () => {
     const map = createFakeMaplibreMap();
     const service = new CircleRenderService(map as never, new StyleReattach(), new LayerRegistry());

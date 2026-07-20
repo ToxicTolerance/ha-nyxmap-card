@@ -91,7 +91,7 @@ describe("buildClusterBubbleElement", () => {
     expect(buildClusterBubbleElement(2000).textContent).toBe("2k");
   });
 
-  it("steps diameter and color by member count", () => {
+  it("steps diameter by member count (colour is theme-driven via CSS, not inline)", () => {
     const small = buildClusterBubbleElement(3);
     const mid = buildClusterBubbleElement(10);
     const large = buildClusterBubbleElement(50);
@@ -99,8 +99,7 @@ describe("buildClusterBubbleElement", () => {
     expect(small.style.width).toBe("32px");
     expect(mid.style.width).toBe("40px");
     expect(large.style.width).toBe("52px");
-    expect(small.style.getPropertyValue("--nyxmap-cluster-color")).toBe("#51bbd6");
-    expect(mid.style.getPropertyValue("--nyxmap-cluster-color")).toBe("#f1c40f");
-    expect(large.style.getPropertyValue("--nyxmap-cluster-color")).toBe("#e74c3c");
+    // No inline colour — .nyxmap-cluster-bubble takes the theme's --primary-color.
+    expect(small.style.getPropertyValue("--nyxmap-cluster-color")).toBe("");
   });
 });

@@ -67,9 +67,19 @@ export class CircleRenderService {
     private readonly layerRegistry: LayerRegistry,
   ) {}
 
-  update(entities: EntityConfig[], hass: HomeAssistant, showAccuracyCircles: boolean): void {
+  update(
+    entities: EntityConfig[],
+    hass: HomeAssistant,
+    showAccuracyCircles: boolean,
+    absorbed?: ReadonlyMap<string, unknown>,
+  ): void {
     const seen = new Set<string>();
     for (const ent of entities) {
+      // An entity absorbed into a cluster bubble has its individual marker
+      // hidden, so its accuracy circle must hide too — otherwise circles linger
+      // at the real positions of markers that are no longer shown. Skipping it
+      // here (not adding to `seen`) makes the cleanup loop below remove it.
+      if (absorbed?.has(ent.id)) continue;
       // An explicit per-entity `circle:` always wins; otherwise fall back to
       // the card-level default-on behavior (matching HA's own built-in map)
       // unless this entity opted out with `circle: false`.
