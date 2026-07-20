@@ -83,6 +83,7 @@ interface TestableNyxmapCard extends HTMLElement {
     setLayoutProperty: ReturnType<typeof vi.fn>;
     resize: ReturnType<typeof vi.fn>;
     querySourceFeatures: ReturnType<typeof vi.fn>;
+    addLayer: ReturnType<typeof vi.fn>;
   };
   _entities?: EntitiesRenderService;
 }
@@ -270,6 +271,32 @@ describe("NyxmapCard", () => {
     el._map!.fire("zoomend");
 
     expect(markerB.remove).toHaveBeenCalledTimes(1);
+  });
+
+  it("adds tile_layers/wms raster layers before circle/geojson/cluster overlay layers, so they don't render on top of them", async () => {
+    // Regression: TileLayersRenderService.addLayer() never passes a
+    // beforeId, so whichever overlay creates its layer first ends up on
+    // top. Raster tile_layers/wms overlays used to be updated *last* in
+    // _buildMap()'s style.load handler, landing above (hiding) circles,
+    // GeoJSON shapes, and cluster bubbles entirely whenever both were
+    // configured together — confirmed visually via the dev harness.
+    el.setConfig({
+      tile_layers: { url: "https://example.com/{z}/{x}/{y}.png" },
+      cluster_markers: true,
+      entities: [{ entity: "device_tracker.phone", fixed_x: 1, fixed_y: 2, circle: { radius: 25, source: "config" } }],
+    });
+    await el.updateComplete;
+    el._map!.fire("style.load");
+    el.hass = hassWith({});
+    await el.updateComplete;
+
+    const layerIdAt = (id: string) =>
+      el._map!.addLayer.mock.calls.findIndex((c) => (c[0] as { id: string }).id === id);
+
+    const tileLayerIndex = layerIdAt("tile-layer-0");
+    expect(tileLayerIndex).toBeGreaterThanOrEqual(0);
+    expect(tileLayerIndex).toBeLessThan(layerIdAt("entity-clusters-circle"));
+    expect(tileLayerIndex).toBeLessThan(layerIdAt("circle-device_tracker.phone-fill"));
   });
 
   describe("layer switcher", () => {

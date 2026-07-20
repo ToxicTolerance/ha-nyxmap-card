@@ -5,6 +5,22 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-07-20
+
+### Fixed
+
+- `tile_layers:`/`wms:` raster overlays always rendered on top of every other
+  entity overlay — `circle:`, `geojson:`, history trails, and the new
+  `cluster_markers` bubbles — completely hiding them whenever both were
+  configured together. `TileLayersRenderService.addLayer()` never specified
+  a `beforeId`, so whichever overlay's layer got added to the map first
+  simply ended up on the bottom of the stack; raster layers were the last
+  ones added in `_buildMap()`'s `style.load` handler, so they always won.
+  Raster overlays are now added first, so entity overlays created afterward
+  correctly stack above them instead of being hidden underneath — confirmed
+  visually via the dev harness (`npm run dev`) with a raster `tile_layers`
+  overlay combined with `cluster_markers`/`circle`/history trails.
+
 ## [0.6.0] - 2026-07-19
 
 ### Added

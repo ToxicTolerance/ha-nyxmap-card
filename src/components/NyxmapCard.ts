@@ -96,10 +96,18 @@ export class NyxmapCard extends LitElement {
       this._buildMap();
     }
     if (changed.has("hass") && this._ready && this._config && this.hass) {
+      // tile_layers/wms first: MapLibre stacks layers in add order (later
+      // added = drawn on top), and raster overlays are documented as sitting
+      // "on top of the vector base style" — but not on top of our own entity
+      // overlays. Adding them before circles/geojson/clusters means those
+      // overlays' first-ever addLayer() call (which is what actually fixes
+      // z-order; setData()/setTiles() on an already-created layer doesn't
+      // move it) lands after the raster layer, keeping markers/shapes visible
+      // above it instead of hidden underneath.
+      this._tileLayers?.update(this._config.tileLayers, this._config.wms, this.hass);
       this._updateEntitiesAndClusters();
       this._circles?.update(this._config.entities, this.hass);
       this._geojson?.update(this._config.entities, this.hass);
-      this._tileLayers?.update(this._config.tileLayers, this._config.wms, this.hass);
       this._applyInitialViewIfNeeded();
       this._initialView.updateFit(
         this._map as unknown as MapViewLike,
@@ -343,10 +351,15 @@ export class NyxmapCard extends LitElement {
       if (this._config) this._map!.setProjection({ type: this._config.projection });
       this._reattach.replayAll(this._map!);
       if (this._config && this.hass) {
+        // tile_layers/wms first — see the matching comment in updated()'s
+        // hass branch: this is what actually fixes the z-order, since this is
+        // the very first time (pre-_ready) any of these sources/layers get
+        // created via addLayer(), which is also what seeds StyleReattach's
+        // replay order for every later theme swap.
+        this._tileLayers?.update(this._config.tileLayers, this._config.wms, this.hass);
         this._updateEntitiesAndClusters();
         this._circles?.update(this._config.entities, this.hass);
         this._geojson?.update(this._config.entities, this.hass);
-        this._tileLayers?.update(this._config.tileLayers, this._config.wms, this.hass);
         this._refreshHistory();
         this._applyInitialViewIfNeeded();
       }
