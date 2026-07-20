@@ -5,6 +5,14 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.8.3] - 2026-07-20
+
+### Changed
+
+- Layer switcher "Map type" options are now a uniform-width vertical list (icon
+  left, label right) so every base-map card is the same size regardless of its
+  name's length, instead of each card sizing to its label.
+
 ## [0.8.2] - 2026-07-20
 
 ### Changed

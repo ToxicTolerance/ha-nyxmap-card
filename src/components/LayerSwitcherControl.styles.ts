@@ -110,23 +110,29 @@ export const layerSwitcherStyles = css`
     pointer-events: none;
   }
 
-  /* Base-map choices as Google-Maps-style selectable cards. */
+  /* Base-map choices as a uniform-width vertical list (icon left, label right),
+   * so every card is the same size regardless of how long its name is. */
   .cards {
     display: flex;
-    flex-wrap: wrap;
+    flex-direction: column;
     gap: 8px;
   }
   .card {
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
     align-items: center;
-    gap: 5px;
-    min-width: 66px;
-    padding: 9px 10px;
+    gap: 10px;
+    width: 100%;
+    box-sizing: border-box;
+    padding: 10px 12px;
     border: 2px solid var(--divider-color, #e0e0e0);
     border-radius: 12px;
     cursor: pointer;
     transition: border-color 0.15s ease, background 0.15s ease;
+  }
+  .card-icon {
+    flex: 0 0 auto;
+    display: flex;
   }
   .card-icon svg {
     display: block;
@@ -135,8 +141,12 @@ export const layerSwitcherStyles = css`
     opacity: 0.7;
   }
   .card-label {
-    font-size: 12px;
+    flex: 1;
+    min-width: 0;
+    font-size: 13px;
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .card--active {
     border-color: var(--primary-color, #03a9f4);
