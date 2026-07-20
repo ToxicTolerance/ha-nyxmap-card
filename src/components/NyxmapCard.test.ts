@@ -476,6 +476,69 @@ describe("NyxmapCard", () => {
       expect(switcher.baseStyles.some((s) => s.id === "light" || s.id === "dark")).toBe(false);
     });
 
+    it("registers a new map_styles entry when it's added via a later setConfig() on an already-built card", async () => {
+      // Regression: base styles used to only be registered once, inside
+      // _buildMap() — adding/editing map_styles later (e.g. via the
+      // dashboard's visual editor, without a full page reload) left the
+      // switcher's registry stale, so selecting the newly-added entry
+      // silently fell back to the card-level map_style/map_style_dark
+      // instead of the entry's own style — indistinguishable from "that
+      // style is broken" unless you knew to check for a stale registry.
+      el.setConfig({
+        layer_switcher: true,
+        map_style: "https://example.com/aerial.json",
+        map_style_dark: "https://example.com/aerial.json",
+      });
+      await el.updateComplete;
+      await flushMicrotasks();
+      await el.updateComplete;
+
+      el.setConfig({
+        layer_switcher: true,
+        map_style: "https://example.com/aerial.json",
+        map_style_dark: "https://example.com/aerial.json",
+        map_styles: [
+          {
+            name: "Karte (hell)",
+            map_style: "https://example.com/positron.json",
+            map_style_dark: "https://example.com/dark-matter.json",
+          },
+        ],
+      });
+      await el.updateComplete;
+      await flushMicrotasks();
+      await el.updateComplete;
+
+      const switcher = el.shadowRoot!.querySelector("nyxmap-layer-switcher") as unknown as {
+        baseStyles: Array<{ id: string; label: string }>;
+        onSelectBaseStyle: (id: string) => void;
+      };
+      expect(switcher.baseStyles.map((s) => s.label)).toContain("Karte (hell)");
+
+      switcher.onSelectBaseStyle("custom:Karte (hell)");
+      expect(el._map!.setStyle).toHaveBeenLastCalledWith("https://example.com/positron.json");
+    });
+
+    it("unregisters a map_styles entry removed via a later setConfig()", async () => {
+      el.setConfig({
+        layer_switcher: true,
+        map_styles: [{ name: "Karte (hell)", map_style: "https://example.com/positron.json" }],
+      });
+      await el.updateComplete;
+      await flushMicrotasks();
+      await el.updateComplete;
+
+      el.setConfig({ layer_switcher: true, map_styles: [] });
+      await el.updateComplete;
+      await flushMicrotasks();
+      await el.updateComplete;
+
+      const switcher = el.shadowRoot!.querySelector("nyxmap-layer-switcher") as unknown as {
+        baseStyles: Array<{ id: string; label: string }>;
+      };
+      expect(switcher.baseStyles.some((s) => s.label === "Karte (hell)")).toBe(false);
+    });
+
     it("selecting a base style pins map.setStyle to that style's URL", async () => {
       el.setConfig({
         layer_switcher: true,

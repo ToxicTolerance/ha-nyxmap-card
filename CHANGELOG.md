@@ -5,6 +5,23 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.7.3] - 2026-07-20
+
+### Fixed
+
+- Selecting a `map_styles` entry that was added or edited via a later
+  config update (e.g. through the dashboard's visual editor, without a full
+  page reload) silently fell back to the card-level `map_style`/
+  `map_style_dark` instead of that entry's own light/dark pair —
+  indistinguishable from "that style is broken" unless you knew to check
+  for a stale switcher registry. The base-style registry was only ever
+  populated once, inside `_buildMap()` (same root cause as the "Toggle
+  grouping" button bug fixed in 0.7.2, just for `map_styles` entries this
+  time). `setConfig()` now re-syncs it — registering new/changed entries
+  and unregistering removed ones — on every config change, confirmed via
+  the dev harness reproducing the exact "edit an already-built card"
+  scenario before and after the fix.
+
 ## [0.7.2] - 2026-07-20
 
 ### Fixed

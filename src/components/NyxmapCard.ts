@@ -55,6 +55,12 @@ export class NyxmapCard extends LitElement {
   setConfig(config: MapConfigRaw): void {
     this._config = new MapConfig(config);
     if (this._built && this._map) {
+      // Before resolving the active style: _resolveActiveStyleUrl() looks up
+      // _manualStyleId in the base-style registry, so a map_styles entry
+      // added/edited in this same config update needs to already be synced
+      // before that lookup runs, or a currently-selected entry falls back
+      // silently to the card-level map_style/map_style_dark instead.
+      this._syncBaseStyles();
       this._map.setStyle(this._resolveActiveStyleUrl());
       // Called directly here too, not just from the style.load cycle:
       // MapLibre's setStyle() doesn't reliably re-fire "style.load" when the
@@ -228,16 +234,23 @@ export class NyxmapCard extends LitElement {
     this.requestUpdate();
   }
 
-  private _buildMap(): void {
+  /** Registers/updates the layer switcher's base-style radio options from
+   * the current config, and unregisters any previously-registered entry no
+   * longer present — called from both _buildMap() (initial seeding) and
+   * setConfig() (so editing map_styles later, e.g. via the dashboard's
+   * visual editor, without a full page reload actually takes effect).
+   * Previously this only ran once at build time: selecting a map_styles
+   * entry added or edited afterward silently fell back to resolveStyle()'s
+   * card-level map_style/map_style_dark instead of the entry's own style —
+   * indistinguishable from "that style is just broken" unless you knew to
+   * check for a stale registry. registerBaseStyle()/unregister() are
+   * idempotent Map operations, so re-running this on every config change is
+   * safe even when nothing actually changed. */
+  private _syncBaseStyles(): void {
+    if (!this._config) return;
     const config = this._config;
-    const container = this.renderRoot.querySelector<HTMLDivElement>(".nyxmap-container");
-    if (!config || !container) return;
-    this._built = true;
+    const seen = new Set<string>();
 
-    // Seeds the layer switcher's base-style radio group. Registered once at
-    // build time — changing map_styles on a later setConfig() won't add new
-    // options until the card is reloaded, an accepted MVP simplification.
-    //
     // The generic Light/Dark entries only make sense when they're the only
     // base styles on offer — once the user provides their own map_styles,
     // Light/Dark just duplicate (or conflict with) whatever's in that list
@@ -256,16 +269,33 @@ export class NyxmapCard extends LitElement {
         styleLight: config.styleDark,
         styleDark: config.styleDark,
       });
+      seen.add("light");
+      seen.add("dark");
     }
     for (const s of config.mapStyles) {
-      this._layerRegistry.registerBaseStyle(`custom:${s.name}`, {
+      const id = `custom:${s.name}`;
+      this._layerRegistry.registerBaseStyle(id, {
         label: s.name,
         styleLight: s.styleLight,
         styleDark: s.styleDark,
         maxZoom: s.maxZoom,
         minZoom: s.minZoom,
       });
+      seen.add(id);
     }
+
+    for (const id of [...this._layerRegistry.getBaseStyles().keys()]) {
+      if (!seen.has(id)) this._layerRegistry.unregister(id);
+    }
+  }
+
+  private _buildMap(): void {
+    const config = this._config;
+    const container = this.renderRoot.querySelector<HTMLDivElement>(".nyxmap-container");
+    if (!config || !container) return;
+    this._built = true;
+
+    this._syncBaseStyles();
 
     // The initially active style (via map_style/map_style_dark) may itself
     // be one of the named map_styles entries above — if so, its own
