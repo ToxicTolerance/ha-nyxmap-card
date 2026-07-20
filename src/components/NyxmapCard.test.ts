@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MapConfig } from "../configs/MapConfig";
+import { IconButtonControl } from "../maplibre/IconButtonControl";
 import type { EntitiesRenderService } from "../services/render/EntitiesRenderService";
 import type { HomeAssistant } from "../types/home-assistant";
 
@@ -84,6 +85,9 @@ interface TestableNyxmapCard extends HTMLElement {
     resize: ReturnType<typeof vi.fn>;
     querySourceFeatures: ReturnType<typeof vi.fn>;
     addLayer: ReturnType<typeof vi.fn>;
+    addControl: ReturnType<typeof vi.fn>;
+    jumpTo: ReturnType<typeof vi.fn>;
+    fitBounds: ReturnType<typeof vi.fn>;
   };
   _entities?: EntitiesRenderService;
 }
@@ -297,6 +301,77 @@ describe("NyxmapCard", () => {
     expect(tileLayerIndex).toBeGreaterThanOrEqual(0);
     expect(tileLayerIndex).toBeLessThan(layerIdAt("entity-clusters-circle"));
     expect(tileLayerIndex).toBeLessThan(layerIdAt("circle-device_tracker.phone-fill"));
+  });
+
+  describe("map buttons (ports upstream ha-map-card's Reset focus / Toggle grouping)", () => {
+    function findControl(label: string): IconButtonControl {
+      const call = el._map!.addControl.mock.calls.find(
+        (c) => c[0] instanceof IconButtonControl && (c[0] as IconButtonControl).options.label === label,
+      );
+      if (!call) throw new Error(`no control with label "${label}" was added`);
+      return call[0] as IconButtonControl;
+    }
+
+    it("always adds a 'Reset focus' control, regardless of config", async () => {
+      el.setConfig({});
+      await el.updateComplete;
+
+      expect(() => findControl("Reset focus")).not.toThrow();
+    });
+
+    it("clicking 'Reset focus' re-centers on explicit x/y at the configured zoom", async () => {
+      el.setConfig({ x: 5, y: 6, zoom: 9 });
+      await el.updateComplete;
+      el._map!.fire("style.load");
+      el.hass = hassWith({});
+      await el.updateComplete;
+
+      const control = findControl("Reset focus");
+      el._map!.jumpTo.mockClear(); // already called once by the automatic initial-view application
+      control.options.onClick();
+
+      expect(el._map!.jumpTo).toHaveBeenCalledWith({ center: [5, 6], zoom: 9 });
+    });
+
+    it("clicking 'Reset focus' fits all entities when no explicit x/y/focus_entity is configured", async () => {
+      el.setConfig({ entities: [{ entity: "device_tracker.phone", fixed_x: 1, fixed_y: 2 }] });
+      await el.updateComplete;
+      el._map!.fire("style.load");
+      el.hass = hassWith({});
+      await el.updateComplete;
+
+      const control = findControl("Reset focus");
+      el._map!.fitBounds.mockClear();
+      control.options.onClick();
+
+      expect(el._map!.fitBounds).toHaveBeenCalled();
+    });
+
+    it("does not add a 'Toggle grouping' control when cluster_markers is unset", async () => {
+      el.setConfig({});
+      await el.updateComplete;
+
+      expect(() => findControl("Toggle grouping")).toThrow();
+    });
+
+    it("adds a 'Toggle grouping' control when cluster_markers is enabled, and clicking it toggles the entity-clusters overlay", async () => {
+      el.setConfig({
+        cluster_markers: true,
+        entities: [{ entity: "device_tracker.phone", fixed_x: 1, fixed_y: 2 }],
+      });
+      await el.updateComplete;
+      el._map!.fire("style.load");
+      el.hass = hassWith({});
+      await el.updateComplete;
+
+      const control = findControl("Toggle grouping");
+      expect(control.options.isPressed?.()).toBe(true);
+
+      control.options.onClick();
+
+      expect(el._map!.setLayoutProperty).toHaveBeenCalledWith("entity-clusters-circle", "visibility", "none");
+      expect(control.options.isPressed?.()).toBe(false);
+    });
   });
 
   describe("layer switcher", () => {

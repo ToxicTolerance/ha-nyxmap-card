@@ -5,6 +5,27 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-07-20
+
+### Added
+
+- "Reset focus" map button — always present, bottom-left corner. Re-runs the
+  same initial-view resolution the card already applies once on load
+  (explicit `x`/`y` > `focus_entity` > fit all entities), so it's a one-click
+  way back to your configured view after panning/zooming. Ports upstream
+  `ha-map-card`'s `mdi:image-filter-center-focus` control.
+- "Toggle grouping" map button — bottom-left, only shown when
+  `cluster_markers` is enabled. One click on/off for marker clustering,
+  reusing the same overlay-visibility plumbing as the layer switcher's own
+  "Clusters" checkbox, so the two stay in sync with each other. Ports
+  upstream's `mdi:group` control.
+
+  Both buttons render via a new generic `IconButtonControl` (a plain
+  MapLibre `IControl`), placed bottom-left rather than stacked under the
+  existing zoom/compass controls in top-right — stacking there was tried
+  first and visually collided with the bottom-right attribution control on
+  shorter map heights, confirmed via the dev harness.
+
 ## [0.6.1] - 2026-07-20
 
 ### Fixed

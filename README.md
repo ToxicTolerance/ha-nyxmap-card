@@ -108,11 +108,11 @@ switch to **Edit in YAML** (the toggle in the same dialog) to set those.
 | `projection` | `globe` \| `mercator` | `globe` | MapLibre's 3D globe view, or the classic flat projection. |
 | `focus_entity` | entity id | — | Initial center, used when `x`/`y` aren't set. |
 | `focus_follow` | `none` \| `refocus` \| `contains` | `none` | `refocus` re-centers on every update; `contains` only re-fits when `focus_entity` leaves the current view. |
-| `layer_switcher` | boolean | `false` | Show a panel (top-right) for switching base styles and toggling overlays (history, circles, GeoJSON) on/off. |
+| `layer_switcher` | boolean | `false` | Show a panel (top-left) for switching base styles and toggling overlays (history, circles, GeoJSON, clusters) on/off. |
 | `history_start` / `history_end` | string (relative or ISO) | — | Card-level default history window, inherited by entities that don't set their own. |
 | `history_show_lines` | boolean | `true` | Draw the connecting trail line for each entity's history. |
 | `history_show_dots` | boolean | `false` | Draw a dot at each sampled history position, in addition to (or instead of) the connecting line. |
-| `cluster_markers` | boolean | `false` | Collapse nearby entities into a numbered bubble at low zoom; click a bubble (or zoom in) to expand it back into individual markers. Individual entities keep their normal picture/icon marker look — only grouped entities render as a bubble. |
+| `cluster_markers` | boolean | `false` | Collapse nearby entities into a numbered bubble at low zoom; click a bubble (or zoom in) to expand it back into individual markers. Individual entities keep their normal picture/icon marker look — only grouped entities render as a bubble. Also adds a bottom-left "Toggle grouping" map button for one-click on/off. |
 | `tile_layers` | one or a list of [layer objects](#tilewms-layer-options-tile_layers--wms) | — | Raster tile overlay(s), layered on top of the vector base style. |
 | `wms` | one or a list of [layer objects](#tilewms-layer-options-tile_layers--wms) | — | WMS overlay(s). |
 | `entities` | list of entity ids or [entity objects](#entity-options) | `[]` | Entities to render. |

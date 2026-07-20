@@ -104,4 +104,25 @@ export const nyxmapCardStyles = css`
   .maplibregl-ctrl-bottom-left {
     margin: 8px;
   }
+  /* IconButtonControl (Reset focus / Toggle grouping): sized/centered to
+   * match MapLibre's own NavigationControl buttons, which it stacks below
+   * via the shared .maplibregl-ctrl-group container. */
+  .nyxmap-ctrl-button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 29px;
+    height: 29px;
+    padding: 0;
+    border: none;
+    background: none;
+    color: var(--primary-text-color, #333);
+    cursor: pointer;
+  }
+  .nyxmap-ctrl-button[aria-pressed="false"] {
+    opacity: 0.5;
+  }
+  .nyxmap-ctrl-button ha-icon {
+    --mdc-icon-size: 18px;
+  }
 `;

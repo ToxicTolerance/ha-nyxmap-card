@@ -3,6 +3,7 @@ import { customElement, property, state } from "lit/decorators.js";
 import { MapConfig, type MapConfigRaw } from "../configs/MapConfig";
 import { buildStubConfig } from "../editor/CardFormSchema";
 import { EntityHistoryManager } from "../models/EntityHistoryManager";
+import { IconButtonControl } from "../maplibre/IconButtonControl";
 import { maplibreCss, maplibregl } from "../maplibre/MapLibreLoader";
 import { StyleReattach } from "../maplibre/StyleReattach";
 import "./NyxmapCardEditor";
@@ -40,6 +41,7 @@ export class NyxmapCard extends LitElement {
   private _geojson?: GeoJsonRenderService;
   private _cluster?: ClusterRenderService;
   private _tileLayers?: TileLayersRenderService;
+  private _clusterToggleControl?: IconButtonControl;
   private _initialViewApplied = false;
   private _historyCatchUpDone = false;
   private _resizeObserver?: ResizeObserver;
@@ -212,6 +214,10 @@ export class NyxmapCard extends LitElement {
     this._overlayVisibility.set(id, next);
     const entry = this._layerRegistry.getOverlays().get(id);
     if (entry && this._map) entry.setVisible(this._map, next);
+    // Keeps the dedicated "Toggle grouping" map button's pressed state in
+    // sync when clusters are toggled via the layer switcher's own checkbox
+    // instead (both drive the same "entity-clusters" overlay id).
+    this._clusterToggleControl?.refresh();
     this.requestUpdate();
   }
 
@@ -277,6 +283,36 @@ export class NyxmapCard extends LitElement {
       attributionControl: { compact: true },
     });
     this._map.addControl(new maplibregl.NavigationControl({ showCompass: true }), "top-right");
+
+    // Ports upstream ha-map-card's "Reset focus" map button — always
+    // present, re-runs the same initial-view resolution _applyInitialView()
+    // already uses (explicit x/y > focus_entity > fit all entities).
+    // Placed bottom-left (otherwise unused: NavigationControl already owns
+    // top-right, the layer switcher top-left, attribution bottom-right) —
+    // stacking these under NavigationControl's 3 buttons instead visually
+    // collided with the bottom-right attribution control on shorter map
+    // heights, confirmed via the dev harness at its default ~205px height.
+    this._map.addControl(
+      new IconButtonControl({
+        icon: "mdi:image-filter-center-focus",
+        label: "Reset focus",
+        onClick: () => this._applyInitialView(),
+      }),
+      "bottom-left",
+    );
+    // Ports upstream's "Toggle grouping" button — only present when
+    // cluster_markers is on, matching upstream. Reuses the exact same
+    // overlay-visibility plumbing the layer switcher's own "Clusters"
+    // checkbox uses, so the two controls always agree with each other.
+    if (config.clusterMarkers) {
+      this._clusterToggleControl = new IconButtonControl({
+        icon: "mdi:group",
+        label: "Toggle grouping",
+        onClick: () => this._onToggleOverlay("entity-clusters"),
+        isPressed: () => this._overlayVisibility.get("entity-clusters") ?? true,
+      });
+      this._map.addControl(this._clusterToggleControl, "bottom-left");
+    }
 
     // MapLibre installs its own ResizeObserver on the container, but its
     // very first notification after `.observe()` is deliberately ignored
@@ -397,6 +433,15 @@ export class NyxmapCard extends LitElement {
   private _applyInitialViewIfNeeded(): void {
     if (this._initialViewApplied || !this._config || !this.hass || !this._map) return;
     this._initialViewApplied = true;
+    this._applyInitialView();
+  }
+
+  /** Explicit x/y > focus_entity > fit all entities — the same resolution
+   * _applyInitialViewIfNeeded() runs once automatically, exposed
+   * unconditionally for the "Reset focus" map button (ports upstream
+   * ha-map-card's mdi:image-filter-center-focus control). */
+  private _applyInitialView(): void {
+    if (!this._config || !this.hass || !this._map) return;
     const center = this._initialView.getInitialCenter(this._config, this.hass);
     if (center) {
       this._map.jumpTo({ center, zoom: this._config.zoom });
