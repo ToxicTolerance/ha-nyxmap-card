@@ -1,7 +1,13 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
 import { EntityConfig } from "../configs/EntityConfig";
-import { buildMarkerElement, colorFromString, initials } from "./MarkerFactory";
+import {
+  buildClusterBubbleElement,
+  buildMarkerElement,
+  colorFromString,
+  initials,
+  wrapAnimatedMarker,
+} from "./MarkerFactory";
 
 describe("initials", () => {
   it("takes the first letter of up to two words, split on space/underscore/dot", () => {
@@ -64,5 +70,37 @@ describe("buildMarkerElement fallback chain", () => {
       attributes: { friendly_name: "Alice Bob", entity_picture: "/local/state.jpg" },
     });
     expect(el.classList.contains("nyxmap-marker--picture")).toBe(true);
+  });
+});
+
+describe("wrapAnimatedMarker", () => {
+  it("nests the inner element inside a .nyxmap-marker-anchor wrapper", () => {
+    const inner = document.createElement("div");
+    inner.className = "nyxmap-marker";
+    const wrapper = wrapAnimatedMarker(inner);
+
+    expect(wrapper.className).toBe("nyxmap-marker-anchor");
+    expect(wrapper.firstElementChild).toBe(inner);
+  });
+});
+
+describe("buildClusterBubbleElement", () => {
+  it("labels the bubble with the raw count below 1000 and abbreviates above", () => {
+    expect(buildClusterBubbleElement(3).textContent).toBe("3");
+    expect(buildClusterBubbleElement(1200).textContent).toBe("1.2k");
+    expect(buildClusterBubbleElement(2000).textContent).toBe("2k");
+  });
+
+  it("steps diameter and color by member count", () => {
+    const small = buildClusterBubbleElement(3);
+    const mid = buildClusterBubbleElement(10);
+    const large = buildClusterBubbleElement(50);
+
+    expect(small.style.width).toBe("32px");
+    expect(mid.style.width).toBe("40px");
+    expect(large.style.width).toBe("52px");
+    expect(small.style.getPropertyValue("--nyxmap-cluster-color")).toBe("#51bbd6");
+    expect(mid.style.getPropertyValue("--nyxmap-cluster-color")).toBe("#f1c40f");
+    expect(large.style.getPropertyValue("--nyxmap-cluster-color")).toBe("#e74c3c");
   });
 });

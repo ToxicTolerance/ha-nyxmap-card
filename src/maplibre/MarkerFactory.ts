@@ -39,3 +39,60 @@ export function buildMarkerElement(entityCfg: EntityConfig, stateObj?: HassEntit
   }
   return el;
 }
+
+/** Wraps a marker's visual element in an outer anchor div. maplibregl.Marker
+ * positions the element passed to `new Marker({element})` by writing
+ * `style.transform` onto it directly on every move tick (verified in the
+ * bundled maplibre-gl source), so animating `transform: scale()` on that same
+ * node would be clobbered every frame. Putting the visual node one level down
+ * lets its own transform compose independently of MapLibre's positioning
+ * transform on the wrapper — this indirection is structural, not cosmetic. */
+export function wrapAnimatedMarker(inner: HTMLElement): HTMLElement {
+  const wrapper = document.createElement("div");
+  wrapper.className = "nyxmap-marker-anchor";
+  wrapper.appendChild(inner);
+  return wrapper;
+}
+
+/** Builds a cluster bubble's visual element (count label + size/color stepped
+ * by member count) — the same 3-step visual language the old GL circle-paint
+ * spec used, so a bubble looks the same as before; only *when* it forms
+ * (touching-based, not zoom-bucketed) and *how* it animates has changed. */
+export function buildClusterBubbleElement(count: number): HTMLElement {
+  const el = document.createElement("div");
+  el.className = "nyxmap-cluster-bubble";
+  applyClusterBubbleVisual(el, count);
+  return el;
+}
+
+/** (Re)applies a bubble's count-dependent size/color/label to an existing
+ * element — used both by buildClusterBubbleElement and when a surviving
+ * bubble's member count changes between frames, so the bubble updates in place
+ * instead of being torn down and re-animated. */
+export function applyClusterBubbleVisual(el: HTMLElement, count: number): void {
+  const diameter = clusterDiameter(count);
+  el.style.width = el.style.height = `${diameter}px`;
+  el.style.setProperty("--nyxmap-cluster-color", clusterColor(count));
+  el.textContent = abbreviateCount(count);
+}
+
+function clusterColor(count: number): string {
+  if (count >= 50) return "#e74c3c";
+  if (count >= 10) return "#f1c40f";
+  return "#51bbd6";
+}
+
+// Mirrors the old GL circle-radius step (16/20/26px radius → 32/40/52px
+// diameter) so bubble sizing is unchanged for existing users.
+function clusterDiameter(count: number): number {
+  if (count >= 50) return 52;
+  if (count >= 10) return 40;
+  return 32;
+}
+
+// Matches supercluster's point_count_abbreviated formatting closely enough
+// for this card's purposes (e.g. 1200 → "1.2k").
+function abbreviateCount(count: number): string {
+  if (count < 1000) return String(count);
+  return `${(count / 1000).toFixed(1).replace(/\.0$/, "")}k`;
+}

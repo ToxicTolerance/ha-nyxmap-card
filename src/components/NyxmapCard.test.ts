@@ -26,6 +26,12 @@ vi.mock("../maplibre/MapLibreLoader", () => {
     easeTo = vi.fn();
     querySourceFeatures = vi.fn(() => []);
     getBounds = vi.fn(() => ({ west: -180, east: 180, south: -85, north: 85 }));
+    // Spread projected pixels far apart (×1e6) so distinct test entities never
+    // accidentally cluster now that cluster_markers defaults on — tests that
+    // exercise clustering override project to bring points together.
+    project = vi.fn((ll: [number, number]) => ({ x: ll[0] * 1e6, y: ll[1] * 1e6 }));
+    getZoom = vi.fn(() => 10);
+    getMaxZoom = vi.fn(() => 22);
     constructor(public options: unknown) {}
     on(event: string, handler: () => void): void {
       const arr = this.handlers.get(event) ?? [];
@@ -90,6 +96,9 @@ interface TestableNyxmapCard extends HTMLElement {
     removeControl: ReturnType<typeof vi.fn>;
     jumpTo: ReturnType<typeof vi.fn>;
     fitBounds: ReturnType<typeof vi.fn>;
+    project: ReturnType<typeof vi.fn>;
+    getZoom: ReturnType<typeof vi.fn>;
+    getMaxZoom: ReturnType<typeof vi.fn>;
   };
   _entities?: EntitiesRenderService;
   _clusterToggleControl?: IconButtonControl;
@@ -244,9 +253,9 @@ describe("NyxmapCard", () => {
     const moreInfo = vi.fn();
     el.addEventListener("hass-more-info", moreInfo as EventListener);
 
-    const markers = (el._entities as unknown as { markers: Map<string, { element: HTMLElement }> })
+    const markers = (el._entities as unknown as { markers: Map<string, { inner: HTMLElement }> })
       .markers;
-    markers.get("device_tracker.phone")!.element.dispatchEvent(new Event("click"));
+    markers.get("device_tracker.phone")!.inner.dispatchEvent(new Event("click"));
 
     expect(moreInfo).toHaveBeenCalledTimes(1);
     expect((moreInfo.mock.calls[0]![0] as CustomEvent).detail).toEqual({
@@ -254,12 +263,12 @@ describe("NyxmapCard", () => {
     });
   });
 
-  it("detaches an entity's marker once ClusterRenderService considers it absorbed into a bubble", async () => {
+  it("detaches an entity's marker once ClusterRenderService absorbs it into a bubble", async () => {
     el.setConfig({
       cluster_markers: true,
       entities: [
         { entity: "device_tracker.a", fixed_x: 1, fixed_y: 2 },
-        { entity: "device_tracker.b", fixed_x: 1.0001, fixed_y: 2.0001 },
+        { entity: "device_tracker.b", fixed_x: 5, fixed_y: 6 },
       ],
     });
     await el.updateComplete;
@@ -267,29 +276,36 @@ describe("NyxmapCard", () => {
     el.hass = hassWith({});
     await el.updateComplete;
 
-    const markers = (el._entities as unknown as { markers: Map<string, { remove: ReturnType<typeof vi.fn> }> })
-      .markers;
-    const markerB = markers.get("device_tracker.b")!;
-    expect(markerB.remove).not.toHaveBeenCalled();
+    const markers = (
+      el._entities as unknown as {
+        markers: Map<string, { marker: { remove: ReturnType<typeof vi.fn> }; inner: HTMLElement }>;
+      }
+    ).markers;
+    const b = markers.get("device_tracker.b")!;
+    // Default projection spreads a/b far apart → not clustered initially.
+    expect(b.marker.remove).not.toHaveBeenCalled();
 
-    // Simulate MapLibre now reporting only "a" as unclustered — "b" got
-    // absorbed into a bubble.
-    el._map!.querySourceFeatures.mockReturnValue([{ properties: { entityId: "device_tracker.a" } }]);
+    // Bring both entities onto the same pixel → their circles overlap → they
+    // collapse into a bubble, absorbing b's individual marker.
+    el._map!.project.mockReturnValue({ x: 0, y: 0 });
     el._map!.fire("zoomend");
+    // Detach is animated: remove() fires when the fade completes.
+    b.inner.dispatchEvent(new Event("transitionend"));
 
-    expect(markerB.remove).toHaveBeenCalledTimes(1);
+    expect(b.marker.remove).toHaveBeenCalledTimes(1);
   });
 
-  it("adds tile_layers/wms raster layers before circle/geojson/cluster overlay layers, so they don't render on top of them", async () => {
+  it("adds tile_layers/wms raster layers before circle/geojson overlay layers, so they don't render on top of them", async () => {
     // Regression: TileLayersRenderService.addLayer() never passes a
     // beforeId, so whichever overlay creates its layer first ends up on
     // top. Raster tile_layers/wms overlays used to be updated *last* in
-    // _buildMap()'s style.load handler, landing above (hiding) circles,
-    // GeoJSON shapes, and cluster bubbles entirely whenever both were
-    // configured together — confirmed visually via the dev harness.
+    // _buildMap()'s style.load handler, landing above (hiding) circles and
+    // GeoJSON shapes whenever both were configured together — confirmed
+    // visually via the dev harness. (Cluster bubbles are HTML markers, not GL
+    // layers, so they sit above raster layers unconditionally and aren't part
+    // of this ordering.)
     el.setConfig({
       tile_layers: { url: "https://example.com/{z}/{x}/{y}.png" },
-      cluster_markers: true,
       entities: [{ entity: "device_tracker.phone", fixed_x: 1, fixed_y: 2, circle: { radius: 25, source: "config" } }],
     });
     await el.updateComplete;
@@ -302,7 +318,6 @@ describe("NyxmapCard", () => {
 
     const tileLayerIndex = layerIdAt("tile-layer-0");
     expect(tileLayerIndex).toBeGreaterThanOrEqual(0);
-    expect(tileLayerIndex).toBeLessThan(layerIdAt("entity-clusters-circle"));
     expect(tileLayerIndex).toBeLessThan(layerIdAt("circle-device_tracker.phone-fill"));
   });
 
@@ -350,16 +365,15 @@ describe("NyxmapCard", () => {
       expect(el._map!.fitBounds).toHaveBeenCalled();
     });
 
-    it("does not add a 'Toggle grouping' control when cluster_markers is unset", async () => {
-      el.setConfig({});
+    it("does not add a 'Toggle grouping' control when cluster_markers is disabled", async () => {
+      el.setConfig({ cluster_markers: false });
       await el.updateComplete;
 
       expect(() => findControl("Toggle grouping")).toThrow();
     });
 
-    it("adds a 'Toggle grouping' control when cluster_markers is enabled, and clicking it toggles the entity-clusters overlay", async () => {
+    it("adds a 'Toggle grouping' control by default (clustering on), and clicking it toggles the entity-clusters overlay", async () => {
       el.setConfig({
-        cluster_markers: true,
         entities: [{ entity: "device_tracker.phone", fixed_x: 1, fixed_y: 2 }],
       });
       await el.updateComplete;
@@ -371,9 +385,10 @@ describe("NyxmapCard", () => {
       expect(control.options.isPressed?.()).toBe(true);
 
       control.options.onClick();
-
-      expect(el._map!.setLayoutProperty).toHaveBeenCalledWith("entity-clusters-circle", "visibility", "none");
       expect(control.options.isPressed?.()).toBe(false);
+
+      control.options.onClick();
+      expect(control.options.isPressed?.()).toBe(true);
     });
 
     it("adds the 'Toggle grouping' control reactively when cluster_markers is turned on via a later setConfig(), without rebuilding the card", async () => {
@@ -382,7 +397,7 @@ describe("NyxmapCard", () => {
       // the dashboard editor (setConfig() on the same already-built card
       // element) never added the button until a full page reload.
       const entities = [{ entity: "device_tracker.phone", fixed_x: 1, fixed_y: 2 }];
-      el.setConfig({ entities });
+      el.setConfig({ cluster_markers: false, entities });
       await el.updateComplete;
       el._map!.fire("style.load");
       el.hass = hassWith({});
@@ -722,6 +737,10 @@ describe("NyxmapCard", () => {
     it("toggling a history overlay calls setLayoutProperty via LayerRegistry", async () => {
       el.setConfig({
         layer_switcher: true,
+        // Clustering off so the only overlay registered is the history trail —
+        // this test is about toggling a GL-layer overlay via setLayoutProperty,
+        // which the (marker-based) cluster overlay doesn't use.
+        cluster_markers: false,
         entities: [{ entity: "device_tracker.phone", fixed_x: 1, fixed_y: 2, history_start: "1 hour ago" }],
       });
       await el.updateComplete;

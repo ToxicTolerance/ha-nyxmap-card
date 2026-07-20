@@ -17,10 +17,12 @@ describe("buildCardSchema", () => {
     expect(grid?.schema.map((s) => s.name)).toEqual(["x", "y", "zoom", "max_zoom", "min_zoom"]);
   });
 
-  it("puts cluster_radius/cluster_max_zoom in a grid row inside the behavior section", () => {
+  it("exposes cluster_max_zoom as a standalone field in the behavior section", () => {
     const behavior = buildCardSchema().find((s) => s.name === "behavior");
-    const grid = behavior?.type === "expandable" ? behavior.schema.find((s) => s.type === "grid") : undefined;
-    expect(grid?.schema.map((s) => s.name)).toEqual(["cluster_radius", "cluster_max_zoom"]);
+    const names = behavior?.type === "expandable" ? behavior.schema.map((s) => s.name) : [];
+    expect(names).toContain("cluster_max_zoom");
+    // No cluster_radius field anymore, and no grid pairing it with max_zoom.
+    expect(names).not.toContain("cluster_radius");
   });
 });
 
@@ -80,15 +82,13 @@ describe("cardConfigToFormData / formDataToCardConfig", () => {
     expect(updated.cluster_markers).toBe(false);
   });
 
-  it("round-trips cluster_radius/cluster_max_zoom", () => {
-    const config: MapConfigRaw = { cluster_radius: 30, cluster_max_zoom: 16 };
+  it("round-trips cluster_max_zoom", () => {
+    const config: MapConfigRaw = { cluster_max_zoom: 16 };
     const formData = cardConfigToFormData(config);
-    expect(formData.cluster_radius).toBe(30);
     expect(formData.cluster_max_zoom).toBe(16);
 
-    const updated = formDataToCardConfig({ ...formData, cluster_radius: 25 }, config);
-    expect(updated.cluster_radius).toBe(25);
-    expect(updated.cluster_max_zoom).toBe(16);
+    const updated = formDataToCardConfig({ ...formData, cluster_max_zoom: 12 }, config);
+    expect(updated.cluster_max_zoom).toBe(12);
   });
 
   it("round-trips show_accuracy_circles", () => {

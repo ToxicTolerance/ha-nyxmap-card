@@ -5,6 +5,28 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-07-20
+
+### Changed
+
+- Marker clustering is now **touching-based**: entities collapse into a bubble
+  only when their actual on-screen marker circles overlap (each marker is a
+  circle of its configured `size`), instead of a fixed pixel radius bucketed per
+  zoom level. Bubbles now animate with the same **positional spring** as Home
+  Assistant's own built-in map (Leaflet): markers converge into the cluster
+  centre as they merge and fly back out to their real positions when a cluster
+  splits — but with the per-marker-size awareness HA's flat radius doesn't have.
+- **`cluster_markers` now defaults to `true`** (was `false`), matching Home
+  Assistant's built-in map. Dashboards that never set it will now cluster
+  overlapping markers; set `cluster_markers: false` to opt out.
+
+### Removed
+
+- **Breaking:** `cluster_radius` (added in 0.7.7) is removed — clustering is now
+  derived from each marker's real rendered size, so there is no pixel-radius
+  constant to tune. `cluster_max_zoom` is unchanged and still caps the zoom
+  above which clustering stops.
+
 ## [0.7.7] - 2026-07-20
 
 ### Added

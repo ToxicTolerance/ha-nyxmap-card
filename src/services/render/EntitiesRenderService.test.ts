@@ -57,15 +57,15 @@ describe("EntitiesRenderService", () => {
     const hass = hassWith({});
 
     service.update(entities, hass);
-    const firstMarker = (service as unknown as { markers: Map<string, FakeMarker> }).markers.get(
+    const firstMarker = (service as unknown as { markers: Map<string, { marker: FakeMarker }> }).markers.get(
       "device_tracker.phone",
-    )!;
+    )!.marker;
 
     entities[0] = EntityConfig.from({ entity: "device_tracker.phone", fixed_x: 3, fixed_y: 4 });
     service.update(entities, hass);
-    const secondMarker = (service as unknown as { markers: Map<string, FakeMarker> }).markers.get(
+    const secondMarker = (service as unknown as { markers: Map<string, { marker: FakeMarker }> }).markers.get(
       "device_tracker.phone",
-    )!;
+    )!.marker;
 
     expect(secondMarker).toBe(firstMarker);
     expect(secondMarker.getLngLat()).toEqual([3, 4]);
@@ -97,10 +97,10 @@ describe("EntitiesRenderService", () => {
     const cfg = EntityConfig.from({ entity: "device_tracker.phone", fixed_x: 1, fixed_y: 2 });
     service.update([cfg], hassWith({}));
 
-    const marker = (service as unknown as { markers: Map<string, FakeMarker> }).markers.get(
+    const inner = (service as unknown as { markers: Map<string, { inner: HTMLElement }> }).markers.get(
       "device_tracker.phone",
-    )!;
-    marker.element.dispatchEvent(new Event("click"));
+    )!.inner;
+    inner.dispatchEvent(new Event("click"));
 
     expect(onTap).toHaveBeenCalledWith("device_tracker.phone");
   });
@@ -123,7 +123,7 @@ describe("EntitiesRenderService", () => {
     expect(service.has("geo_location.demo")).toBe(false);
   });
 
-  it("detaches (but keeps tracking) a marker whose id is in hiddenIds, and reattaches it once no longer hidden", () => {
+  it("detaches (but keeps tracking) a marker absorbed into a cluster, and reattaches it once released", () => {
     const service = new EntitiesRenderService(
       createFakeMaplibreMap() as never,
       createFakeMaplibreGl(),
@@ -131,26 +131,35 @@ describe("EntitiesRenderService", () => {
     );
     const cfg = EntityConfig.from({ entity: "device_tracker.phone", fixed_x: 1, fixed_y: 2 });
     const hass = hassWith({});
+    // absorbed maps entity id → the bubble centroid it converges toward.
+    const absorbed = new Map<string, [number, number]>([["device_tracker.phone", [5, 6]]]);
 
     service.update([cfg], hass);
-    const marker = (service as unknown as { markers: Map<string, FakeMarker> }).markers.get(
-      "device_tracker.phone",
-    )!;
+    const tracked = (service as unknown as {
+      markers: Map<string, { marker: FakeMarker; inner: HTMLElement }>;
+    }).markers.get("device_tracker.phone")!;
+    const { marker, inner } = tracked;
     expect(marker.remove).not.toHaveBeenCalled();
 
-    service.update([cfg], hass, new Set(["device_tracker.phone"]));
+    // Absorbing now animates the marker converging in: remove() is deferred
+    // until the transition completes (a transitionend we dispatch to force it).
+    service.update([cfg], hass, absorbed);
+    expect(marker.remove).not.toHaveBeenCalled();
+    inner.dispatchEvent(new Event("transitionend"));
     expect(marker.remove).toHaveBeenCalledTimes(1);
-    // Still tracked — a clustered marker isn't the same as one dropped from config.
+    // Still tracked — an absorbed marker isn't the same as one dropped from config.
     expect(service.has("device_tracker.phone")).toBe(true);
 
-    // A second update while still hidden must not call remove() again.
-    service.update([cfg], hass, new Set(["device_tracker.phone"]));
+    // A second update while still absorbed must not start another animation.
+    service.update([cfg], hass, absorbed);
+    inner.dispatchEvent(new Event("transitionend"));
     expect(marker.remove).toHaveBeenCalledTimes(1);
 
-    service.update([cfg], hass, new Set());
-    const sameMarker = (service as unknown as { markers: Map<string, FakeMarker> }).markers.get(
-      "device_tracker.phone",
-    )!;
+    // Released (no longer in the absorbed map) → reattached and emerges out.
+    service.update([cfg], hass, new Map());
+    const sameMarker = (service as unknown as {
+      markers: Map<string, { marker: FakeMarker }>;
+    }).markers.get("device_tracker.phone")!.marker;
     expect(sameMarker).toBe(marker);
     expect(marker.addTo).toHaveBeenCalledTimes(2); // once on creation, once on reattach
   });

@@ -95,6 +95,43 @@ export const nyxmapCardStyles = css`
     cursor: pointer;
     background-color: var(--nyxmap-color);
   }
+  /* Pure animation anchor: maplibregl.Marker positions this element via its
+   * own translate transform (written directly onto it every move tick), so
+   * the actual visual node (.nyxmap-marker / .nyxmap-cluster-bubble) is a
+   * child, letting its own scale transform below animate without colliding
+   * with MapLibre's positioning transform. See wrapAnimatedMarker(). */
+  .nyxmap-marker-anchor {
+    line-height: 0;
+  }
+  /* Shared enter/exit transition for both individual markers and cluster
+   * bubbles — the resting (visible) state. .nyxmap-anim-out is the
+   * collapsed-at-offset state MarkerAnimator toggles for the merge/split
+   * spring: it translates toward the cluster centroid (via the per-element
+   * --nyxmap-anim-dx/dy custom properties MarkerAnimator sets) while shrinking
+   * and fading, mirroring Home Assistant's own Leaflet cluster animation.
+   * Duration must match ANIM_MS in MarkerAnimator.ts. */
+  .nyxmap-marker,
+  .nyxmap-cluster-bubble {
+    transition: opacity 220ms ease, transform 220ms ease;
+    transform: translate(0, 0) scale(1);
+    opacity: 1;
+  }
+  .nyxmap-anim-out {
+    opacity: 0;
+    transform: translate(var(--nyxmap-anim-dx, 0px), var(--nyxmap-anim-dy, 0px)) scale(0.3);
+    pointer-events: none;
+  }
+  .nyxmap-cluster-bubble {
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: var(--nyxmap-cluster-color, #51bbd6);
+    color: #fff;
+    font: 600 12px/1 var(--paper-font-body1_-_font-family, sans-serif);
+    box-shadow: 0 0 0 2px #fff, 0 1px 4px rgba(0, 0, 0, 0.4);
+    cursor: pointer;
+  }
   .nyxmap-marker--initials {
     background-color: var(--nyxmap-color);
   }

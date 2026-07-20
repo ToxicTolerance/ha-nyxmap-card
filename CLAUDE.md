@@ -59,12 +59,23 @@ Consequently:
 
 Any new overlay type that uses MapLibre sources/layers rather than HTML markers needs to plug into
 this same re-attach path, or it will silently vanish on the next theme change. `CircleRenderService`
-(GPS-accuracy/radius circles) and `ClusterRenderService` already follow it as examples.
+(GPS-accuracy/radius circles) and `HistoryRenderService` (trail `LineString`s) follow it as
+examples. Note `ClusterRenderService` deliberately does *not*: its cluster bubbles are HTML
+`maplibregl.Marker`s (like entity markers), so they survive `setStyle()` for free and need no
+re-attach registration — that's also what lets them animate via CSS transitions.
 
 Per-entity accuracy circles (`CircleConfig`/`CircleRenderService`) render automatically for any
 entity with a `gps_accuracy` or `radius` attribute — matching HA's own built-in map — controlled by
 the card-level `show_accuracy_circles` (default `true`) and an entity's own `circle: false` opt-out;
 an explicit per-entity `circle:` config always overrides both.
+
+Marker clustering (`ClusterRenderService`) groups entities whose on-screen marker circles overlap
+(screen-space collision via `map.project()`, union-find, recomputed on every camera move with
+hysteresis), rendering each group as an animated HTML-marker bubble. Defaults on
+(`cluster_markers`, matching HA's built-in map); `cluster_max_zoom` caps the zoom above which it
+stops. Individual-marker hide/show and bubble merge/split share the `MarkerAnimator` CSS-transition
+helper, and both marker kinds go through `wrapAnimatedMarker()` so their scale animation doesn't
+fight MapLibre's own positioning transform.
 
 ### Visual config editor
 

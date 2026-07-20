@@ -420,7 +420,7 @@ export class NyxmapCard extends LitElement {
     );
     this._cluster = new ClusterRenderService(
       this._map as unknown as ClusterMapLike,
-      this._reattach,
+      maplibregl as unknown as MapLibreGlLike,
       this._layerRegistry,
       () => this._resyncEntityMarkers(),
     );
@@ -478,7 +478,6 @@ export class NyxmapCard extends LitElement {
     this._syncClusterToggleControl();
     if (this._config.clusterMarkers) {
       this._cluster?.update(this._config.entities, this.hass, {
-        radius: this._config.clusterRadius,
         maxZoom: this._config.clusterMaxZoom,
       });
     } else {
@@ -515,7 +514,7 @@ export class NyxmapCard extends LitElement {
    * cluster source again. */
   private _resyncEntityMarkers(): void {
     if (!this._config || !this.hass) return;
-    this._entities?.update(this._config.entities, this.hass, this._cluster?.getHiddenEntityIds());
+    this._entities?.update(this._config.entities, this.hass, this._cluster?.getAbsorbed());
   }
 
   /** Runs once, the first time hass+config are both available after the map

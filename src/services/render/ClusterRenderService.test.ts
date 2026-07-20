@@ -1,171 +1,151 @@
+// @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
 import { EntityConfig } from "../../configs/EntityConfig";
-import { StyleReattach } from "../../maplibre/StyleReattach";
 import type { HomeAssistant } from "../../types/home-assistant";
-import { createFakeMaplibreMap, type FakeMaplibreMap } from "../../../test/fakes/FakeMaplibreMap";
-import { ClusterRenderService } from "./ClusterRenderService";
+import { createFakeMaplibreGl, createFakeMaplibreMap, type FakeMaplibreMap, FakeMarker } from "../../../test/fakes/FakeMaplibreMap";
+import { ClusterRenderService, computeExpansionZoom } from "./ClusterRenderService";
 import { LayerRegistry } from "./LayerRegistry";
 
-function hassWith(states: HomeAssistant["states"]): HomeAssistant {
+function hassWith(states: HomeAssistant["states"] = {}): HomeAssistant {
   return { states, callWS: vi.fn(), language: "en" };
 }
 
-function entityAt(id: string, lng: number, lat: number): EntityConfig {
-  return EntityConfig.from({ entity: id, fixed_x: lng, fixed_y: lat } as never);
+/** Entities carry fixed lng/lat; the fake map's identity projection turns
+ * those directly into screen pixels, so `x`/`y` here are effectively "px". */
+function entityAt(id: string, x: number, y: number, size?: number): EntityConfig {
+  return EntityConfig.from({ entity: id, fixed_x: x, fixed_y: y, ...(size !== undefined ? { size } : {}) } as never);
 }
 
-/** Pulls out the plain 2-arg `on(event, handler)` registration (zoomend/
- * moveend/data), as opposed to the layer-scoped 3-arg click registration. */
-function findHandler(map: FakeMaplibreMap, event: string): (arg?: unknown) => void {
-  const call = map.on.mock.calls.find((c) => c[0] === event && c.length === 2);
-  if (!call) throw new Error(`no 2-arg "${event}" handler registered`);
-  return call[1] as (arg?: unknown) => void;
+interface BubbleInternal {
+  inner: HTMLElement;
+  marker: FakeMarker;
+  ids: Set<string>;
+  count: number;
 }
 
-function findLayerHandler(map: FakeMaplibreMap, event: string, layerId: string): (arg?: unknown) => void {
-  const call = map.on.mock.calls.find((c) => c[0] === event && c[1] === layerId);
-  if (!call) throw new Error(`no "${event}" handler registered for layer "${layerId}"`);
-  return call[2] as (arg?: unknown) => void;
+function bubbles(service: ClusterRenderService): Map<string, BubbleInternal> {
+  return (service as unknown as { _bubbles: Map<string, BubbleInternal> })._bubbles;
 }
+
+function makeService(map: FakeMaplibreMap, layerRegistry = new LayerRegistry(), onChange = vi.fn()) {
+  return new ClusterRenderService(map as never, createFakeMaplibreGl(), layerRegistry, onChange);
+}
+
+function findHandler(map: FakeMaplibreMap, event: string): () => void {
+  const call = map.on.mock.calls.find((c) => c[0] === event);
+  if (!call) throw new Error(`no "${event}" handler registered`);
+  return call[1] as () => void;
+}
+
+const flushFrame = () => new Promise((r) => setTimeout(r, 0));
 
 describe("ClusterRenderService", () => {
-  it("adds a cluster source and both bubble layers for entities with a resolvable position", () => {
+  it("groups two entities whose marker circles overlap into a single bubble and hides both", () => {
     const map = createFakeMaplibreMap();
-    const service = new ClusterRenderService(map as never, new StyleReattach(), new LayerRegistry(), vi.fn());
+    const service = makeService(map);
 
-    service.update([entityAt("a", 1, 2), entityAt("b", 3, 4)], hassWith({}));
+    // 10px apart, default size 48 → touch distance 48 → well within → merge.
+    service.update([entityAt("a", 0, 0), entityAt("b", 10, 0)], hassWith());
 
-    expect(map.addSource).toHaveBeenCalledWith(
-      "entity-clusters",
-      expect.objectContaining({ type: "geojson", cluster: true, clusterRadius: 50, clusterMaxZoom: 14 }),
-    );
-    expect(map.addLayer).toHaveBeenCalledWith(
-      expect.objectContaining({ id: "entity-clusters-circle", type: "circle" }),
-    );
-    expect(map.addLayer).toHaveBeenCalledWith(
-      expect.objectContaining({ id: "entity-clusters-count", type: "symbol" }),
-    );
+    expect(bubbles(service).size).toBe(1);
+    const bubble = [...bubbles(service).values()][0]!;
+    expect(bubble.count).toBe(2);
+    expect([...service.getAbsorbed().keys()].sort()).toEqual(["a", "b"]);
   });
 
-  it("uses the given radius/maxZoom for the cluster source instead of the defaults", () => {
+  it("leaves entities whose circles do not overlap as individual markers", () => {
     const map = createFakeMaplibreMap();
-    const service = new ClusterRenderService(map as never, new StyleReattach(), new LayerRegistry(), vi.fn());
+    const service = makeService(map);
 
-    service.update([entityAt("a", 1, 2)], hassWith({}), { radius: 30, maxZoom: 16 });
+    // 100px apart, size 48 → touch distance 48 → far outside → no merge.
+    service.update([entityAt("a", 0, 0), entityAt("b", 100, 0)], hassWith());
 
-    expect(map.addSource).toHaveBeenCalledWith(
-      "entity-clusters",
-      expect.objectContaining({ clusterRadius: 30, clusterMaxZoom: 16 }),
-    );
+    expect(bubbles(service).size).toBe(0);
+    expect(service.getAbsorbed().size).toBe(0);
   });
 
-  /** getSource() needs to actually reflect add/removeSource() here (unlike
-   * other tests in this file, which only ever call update() once against a
-   * source that never existed): a rebuild only manifests correctly if a
-   * post-teardown getSource() genuinely reports "gone", same as real
-   * MapLibre — a single static mockReturnValue can't distinguish "before"
-   * from "after" the removeSource() call these tests exercise. */
-  function fakeMapWithLiveSourceTracking(): FakeMaplibreMap {
+  it("groups transitively: A touches B, B touches C, but A does not touch C → one group of 3", () => {
     const map = createFakeMaplibreMap();
-    let exists = false;
-    map.getSource.mockImplementation(() => (exists ? { setData: vi.fn(), getClusterExpansionZoom: vi.fn() } : undefined));
-    map.addSource.mockImplementation(() => {
-      exists = true;
-    });
-    map.removeSource.mockImplementation(() => {
-      exists = false;
-    });
-    return map;
-  }
+    const service = makeService(map);
 
-  it("rebuilds the source when radius/maxZoom changes on a later update()", () => {
-    const map = fakeMapWithLiveSourceTracking();
-    const service = new ClusterRenderService(map as never, new StyleReattach(), new LayerRegistry(), vi.fn());
+    // 0–40 and 40–80 each within touch (48*0.95=45.6); 0–80 (80) is not.
+    service.update([entityAt("a", 0, 0), entityAt("b", 40, 0), entityAt("c", 80, 0)], hassWith());
 
-    service.update([entityAt("a", 1, 2)], hassWith({}), { radius: 50, maxZoom: 14 });
-    service.update([entityAt("a", 1, 2)], hassWith({}), { radius: 30, maxZoom: 14 });
-
-    expect(map.removeSource).toHaveBeenCalledWith("entity-clusters");
-    expect(map.addSource).toHaveBeenLastCalledWith(
-      "entity-clusters",
-      expect.objectContaining({ clusterRadius: 30, clusterMaxZoom: 14 }),
-    );
+    expect(bubbles(service).size).toBe(1);
+    expect([...bubbles(service).values()][0]!.count).toBe(3);
+    expect([...service.getAbsorbed().keys()].sort()).toEqual(["a", "b", "c"]);
   });
 
-  it("does not rebuild the source when radius/maxZoom is unchanged across updates", () => {
-    const map = fakeMapWithLiveSourceTracking();
-    const service = new ClusterRenderService(map as never, new StyleReattach(), new LayerRegistry(), vi.fn());
+  it("does not cluster at or above cluster_max_zoom regardless of distance", () => {
+    const map = createFakeMaplibreMap();
+    map.getZoom.mockReturnValue(15);
+    const service = makeService(map);
 
-    service.update([entityAt("a", 1, 2)], hassWith({}), { radius: 30, maxZoom: 14 });
-    service.update([entityAt("a", 1, 2)], hassWith({}), { radius: 30, maxZoom: 14 });
+    service.update([entityAt("a", 0, 0), entityAt("b", 5, 0)], hassWith(), { maxZoom: 14 });
 
-    expect(map.removeSource).not.toHaveBeenCalled();
-    expect(map.addSource).toHaveBeenCalledTimes(1);
+    expect(bubbles(service).size).toBe(0);
+    expect(service.getAbsorbed().size).toBe(0);
   });
 
-  it("excludes entities with an unresolved position or geojson.hide_marker from the fed FeatureCollection", () => {
+  it("keeps an already-grouped pair grouped between the merge and split thresholds (hysteresis)", () => {
     const map = createFakeMaplibreMap();
-    const service = new ClusterRenderService(map as never, new StyleReattach(), new LayerRegistry(), vi.fn());
-    const hidden = EntityConfig.from({
-      entity: "c",
-      fixed_x: 5,
-      fixed_y: 6,
-      geojson: { hide_marker: true },
-    } as never);
-    const unresolved = EntityConfig.from("d");
+    const service = makeService(map);
 
-    service.update([entityAt("a", 1, 2), hidden, unresolved], hassWith({}));
+    // First frame: 40px apart → merges (below 45.6 merge threshold).
+    service.update([entityAt("a", 0, 0), entityAt("b", 40, 0)], hassWith());
+    expect(bubbles(service).size).toBe(1);
 
-    const [, source] = map.addSource.mock.calls[0] as [string, { data: { features: unknown[] } }];
-    const ids = (source.data.features as Array<{ properties: { entityId: string } }>).map(
-      (f) => f.properties.entityId,
-    );
-    expect(ids).toEqual(["a"]);
+    // Now 50px apart: past the 45.6 merge threshold but below the 55.2 split
+    // threshold — without hysteresis it would split; with it, it stays grouped.
+    service.update([entityAt("a", 0, 0), entityAt("b", 50, 0)], hassWith());
+    expect(bubbles(service).size).toBe(1);
+
+    // 60px apart: past the split threshold → finally splits.
+    service.update([entityAt("a", 0, 0), entityAt("b", 60, 0)], hassWith());
+    expect(bubbles(service).size).toBe(0);
+    expect(service.getAbsorbed().size).toBe(0);
   });
 
-  it("calls setData on the existing source instead of re-adding it", () => {
+  it("recomputes on a settle event (moveend) after the projection changes", () => {
     const map = createFakeMaplibreMap();
-    const setData = vi.fn();
-    map.getSource.mockReturnValue({ setData, getClusterExpansionZoom: vi.fn() });
-    const service = new ClusterRenderService(map as never, new StyleReattach(), new LayerRegistry(), vi.fn());
+    const service = makeService(map);
+    service.update([entityAt("a", 0, 0), entityAt("b", 100, 0)], hassWith());
+    expect(bubbles(service).size).toBe(0);
 
-    service.update([entityAt("a", 1, 2)], hassWith({}));
+    // Simulate the camera moving the two points on top of each other.
+    map.project.mockImplementation(() => ({ x: 0, y: 0 }));
+    findHandler(map, "moveend")();
 
-    expect(setData).toHaveBeenCalledTimes(1);
-    expect(map.addSource).not.toHaveBeenCalled();
+    expect(bubbles(service).size).toBe(1);
   });
 
-  it("registers a StyleReattach factory that replays the most recent data after a style reload", () => {
+  it("click-to-expand eases to the group centroid and a deeper zoom", () => {
     const map = createFakeMaplibreMap();
-    const reattach = new StyleReattach();
-    const service = new ClusterRenderService(map as never, reattach, new LayerRegistry(), vi.fn());
+    map.getZoom.mockReturnValue(10);
+    const service = makeService(map);
+    service.update([entityAt("a", 0, 0), entityAt("b", 40, 0)], hassWith());
 
-    service.update([entityAt("a", 1, 2)], hassWith({}));
+    const bubble = [...bubbles(service).values()][0]!;
+    bubble.inner.dispatchEvent(new Event("click"));
 
-    const freshMap = createFakeMaplibreMap();
-    reattach.replayAll(freshMap as never);
-
-    expect(freshMap.addSource).toHaveBeenCalledWith(
-      "entity-clusters",
-      expect.objectContaining({ type: "geojson" }),
-    );
-    expect(freshMap.addLayer).toHaveBeenCalledTimes(2);
+    expect(map.easeTo).toHaveBeenCalledTimes(1);
+    const arg = map.easeTo.mock.calls[0]![0] as { center: [number, number]; zoom: number };
+    expect(arg.center).toEqual([20, 0]); // mean of [0,0] and [40,0]
+    expect(arg.zoom).toBeGreaterThan(10);
   });
 
-  it("removeAll() unregisters reattach/layer registry and removes the source/layers", () => {
+  it("removeAll() removes every bubble, clears hidden ids, and unregisters the overlay", () => {
     const map = createFakeMaplibreMap();
-    const reattach = new StyleReattach();
     const layerRegistry = new LayerRegistry();
-    const service = new ClusterRenderService(map as never, reattach, layerRegistry, vi.fn());
-    service.update([entityAt("a", 1, 2)], hassWith({}));
-    map.getSource.mockReturnValue({ setData: vi.fn(), getClusterExpansionZoom: vi.fn() });
+    const service = makeService(map, layerRegistry);
+    service.update([entityAt("a", 0, 0), entityAt("b", 10, 0)], hassWith());
+    const bubble = [...bubbles(service).values()][0]!;
 
     service.removeAll();
 
-    expect(map.removeLayer).toHaveBeenCalledWith("entity-clusters-circle");
-    expect(map.removeLayer).toHaveBeenCalledWith("entity-clusters-count");
-    expect(map.removeSource).toHaveBeenCalledWith("entity-clusters");
-    expect(reattach.has("entity-clusters")).toBe(false);
+    expect(bubble.marker.remove).toHaveBeenCalled();
+    expect(bubbles(service).size).toBe(0);
+    expect(service.getAbsorbed().size).toBe(0);
     expect(layerRegistry.getOverlays().has("entity-clusters")).toBe(false);
   });
 
@@ -173,72 +153,80 @@ describe("ClusterRenderService", () => {
     it("registers a single 'Clusters' overlay entry", () => {
       const map = createFakeMaplibreMap();
       const layerRegistry = new LayerRegistry();
-      const service = new ClusterRenderService(map as never, new StyleReattach(), layerRegistry, vi.fn());
+      const service = makeService(map, layerRegistry);
 
-      service.update([entityAt("a", 1, 2)], hassWith({}));
+      service.update([entityAt("a", 0, 0), entityAt("b", 10, 0)], hassWith());
 
       const overlay = layerRegistry.getOverlays().get("entity-clusters");
       expect(overlay?.label).toBe("Clusters");
       expect(overlay?.group).toBe("cluster");
     });
 
-    it("setVisible(map, false) hides both layers and clears getHiddenEntityIds()", () => {
+    it("setVisible(false) removes bubbles and clears hidden ids; setVisible(true) regroups", () => {
       const map = createFakeMaplibreMap();
       const layerRegistry = new LayerRegistry();
-      const service = new ClusterRenderService(map as never, new StyleReattach(), layerRegistry, vi.fn());
-      service.update([entityAt("a", 1, 2), entityAt("b", 3, 4)], hassWith({}));
-
-      // "b" is absorbed into a cluster per the stubbed querySourceFeatures,
-      // once a real recompute (zoomend) runs.
-      map.querySourceFeatures.mockReturnValue([{ properties: { entityId: "a" } }]);
-      findHandler(map, "zoomend")();
-      expect(service.getHiddenEntityIds().has("b")).toBe(true);
-
+      const onChange = vi.fn();
+      const service = makeService(map, layerRegistry, onChange);
+      service.update([entityAt("a", 0, 0), entityAt("b", 10, 0)], hassWith());
       const overlay = layerRegistry.getOverlays().get("entity-clusters")!;
+
       overlay.setVisible(map, false);
+      expect(bubbles(service).size).toBe(0);
+      expect(service.getAbsorbed().size).toBe(0);
 
-      expect(map.setLayoutProperty).toHaveBeenCalledWith("entity-clusters-circle", "visibility", "none");
-      expect(map.setLayoutProperty).toHaveBeenCalledWith("entity-clusters-count", "visibility", "none");
-      expect(service.getHiddenEntityIds().size).toBe(0);
+      overlay.setVisible(map, true);
+      expect(bubbles(service).size).toBe(1);
+      expect(service.getAbsorbed().size).toBe(2);
     });
   });
 
-  describe("hidden-entity recompute", () => {
-    it("recomputes hidden ids on zoomend by diffing querySourceFeatures against fed entity ids", () => {
+  describe("merge/split animation", () => {
+    it("a newly formed bubble starts hidden then transitions in", async () => {
       const map = createFakeMaplibreMap();
-      const onVisibilityChange = vi.fn();
-      const service = new ClusterRenderService(map as never, new StyleReattach(), new LayerRegistry(), onVisibilityChange);
-      service.update([entityAt("a", 1, 2), entityAt("b", 3, 4)], hassWith({}));
-      onVisibilityChange.mockClear();
+      const service = makeService(map);
+      service.update([entityAt("a", 0, 0), entityAt("b", 10, 0)], hassWith());
+      const bubble = [...bubbles(service).values()][0]!;
 
-      // Only "a" reported as unclustered => "b" is absorbed into a bubble.
-      map.querySourceFeatures.mockReturnValue([{ properties: { entityId: "a" } }]);
-      findHandler(map, "zoomend")();
+      // Synchronously after creation it carries the collapsed state...
+      expect(bubble.inner.classList.contains("nyxmap-anim-out")).toBe(true);
+      // ...and the double-rAF (stubbed as chained setTimeout(0)) transitions it in.
+      await flushFrame();
+      await flushFrame();
+      expect(bubble.inner.classList.contains("nyxmap-anim-out")).toBe(false);
+    });
 
-      expect(service.getHiddenEntityIds()).toEqual(new Set(["b"]));
-      expect(onVisibilityChange).toHaveBeenCalledTimes(1);
+    it("a dispersing bubble animates out before its marker is removed", () => {
+      const map = createFakeMaplibreMap();
+      const service = makeService(map);
+      service.update([entityAt("a", 0, 0), entityAt("b", 10, 0)], hassWith());
+      const bubble = [...bubbles(service).values()][0]!;
 
-      // Recomputing again with an unchanged result must not re-fire the callback.
-      findHandler(map, "moveend")();
-      expect(onVisibilityChange).toHaveBeenCalledTimes(1);
+      // Pull the two entities far apart → the bubble dissolves.
+      service.update([entityAt("a", 0, 0), entityAt("b", 100, 0)], hassWith());
+      expect(bubble.inner.classList.contains("nyxmap-anim-out")).toBe(true);
+      expect(bubble.marker.remove).not.toHaveBeenCalled();
+
+      // Completing the transition unmounts it.
+      bubble.inner.dispatchEvent(new Event("transitionend"));
+      expect(bubble.marker.remove).toHaveBeenCalledTimes(1);
     });
   });
+});
 
-  describe("cluster click-to-expand", () => {
-    it("expands via getClusterExpansionZoom + easeTo on cluster-circle click", async () => {
-      const map = createFakeMaplibreMap();
-      const getClusterExpansionZoom = vi.fn().mockResolvedValue(9);
-      map.getSource.mockReturnValue({ setData: vi.fn(), getClusterExpansionZoom });
-      const service = new ClusterRenderService(map as never, new StyleReattach(), new LayerRegistry(), vi.fn());
-      service.update([entityAt("a", 1, 2)], hassWith({}));
+describe("computeExpansionZoom", () => {
+  it("zooms in at least one level even when members are already nearly separated", () => {
+    const members = [
+      { xy: { x: 0, y: 0 }, size: 48 },
+      { xy: { x: 100, y: 0 }, size: 48 },
+    ];
+    expect(computeExpansionZoom(members, 10, 22)).toBe(11);
+  });
 
-      const clickHandler = findLayerHandler(map, "click", "entity-clusters-circle");
-      clickHandler({ features: [{ properties: { cluster_id: 7 }, geometry: { coordinates: [1, 2] } }] });
-      await Promise.resolve();
-      await Promise.resolve();
-
-      expect(getClusterExpansionZoom).toHaveBeenCalledWith(7);
-      expect(map.easeTo).toHaveBeenCalledWith({ center: [1, 2], zoom: 9 });
-    });
+  it("zooms in further for a tighter group and caps at maxZoom", () => {
+    const members = [
+      { xy: { x: 0, y: 0 }, size: 48 },
+      { xy: { x: 1, y: 0 }, size: 48 },
+    ];
+    expect(computeExpansionZoom(members, 21, 22)).toBe(22);
   });
 });

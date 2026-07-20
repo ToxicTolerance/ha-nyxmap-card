@@ -28,6 +28,14 @@ export function createFakeMaplibreMap() {
     removeControl: vi.fn(),
     querySourceFeatures: vi.fn((): unknown[] => []),
     easeTo: vi.fn(),
+    // Identity projection by default (lng/lat treated directly as screen x/y),
+    // so a fixture entity at fixed_x/fixed_y N reads as "N px" without real
+    // Mercator math; override per-test via project.mockImplementation(...) for
+    // specific pixel-distance scenarios (ClusterRenderService collision tests).
+    project: vi.fn((lngLat: [number, number]) => ({ x: lngLat[0], y: lngLat[1] })),
+    unproject: vi.fn((point: { x: number; y: number }): [number, number] => [point.x, point.y]),
+    getZoom: vi.fn(() => 10),
+    getMaxZoom: vi.fn(() => 22),
   };
 }
 

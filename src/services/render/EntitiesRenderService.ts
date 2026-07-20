@@ -1,6 +1,7 @@
 import type maplibregl from "maplibre-gl";
 import type { EntityConfig } from "../../configs/EntityConfig";
-import { buildMarkerElement } from "../../maplibre/MarkerFactory";
+import { animateConverge, animateEmerge } from "../../maplibre/MarkerAnimator";
+import { buildMarkerElement, wrapAnimatedMarker } from "../../maplibre/MarkerFactory";
 import type { HomeAssistant } from "../../types/home-assistant";
 
 export type EntityTapHandler = (entityId: string) => void;
@@ -29,14 +30,27 @@ export interface MapLibreGlLike {
  * live outside the MapLibre style, so — unlike sources/layers — nothing here
  * needs to be registered with StyleReattach; they survive setStyle() calls
  * for free. */
+/** A tracked marker: the maplibregl.Marker (whose element is the animation
+ * wrapper) plus a direct handle to the inner visual node — the wrapper is what
+ * addTo/remove mount, the inner node is what carries the click listener and the
+ * animation class toggle (see wrapAnimatedMarker / MarkerAnimator). */
+interface TrackedMarker {
+  marker: MarkerLike;
+  inner: HTMLElement;
+}
+
 export class EntitiesRenderService {
-  private readonly markers = new Map<string, MarkerLike>();
+  private readonly markers = new Map<string, TrackedMarker>();
   /** Entity ids whose marker is currently detached from the map because
    * ClusterRenderService considers them absorbed into a cluster bubble —
    * distinct from an entity dropped from config entirely (which deletes the
    * marker outright): a detached marker is kept around so it can be
    * reattached without rebuilding its DOM once it's no longer clustered. */
   private readonly detached = new Set<string>();
+  /** Cluster centroid (lng/lat) an entity was absorbed into, remembered at
+   * hide time so that when it's later released the marker can emerge FROM that
+   * same point — the split half of the spring animation. */
+  private readonly absorbedCentroid = new Map<string, [number, number]>();
 
   constructor(
     private readonly map: maplibregl.Map,
@@ -45,10 +59,17 @@ export class EntitiesRenderService {
   ) {}
 
   /** Creates/moves a marker per entity with a resolvable position, detaching
-   * (not removing) any entity id present in hiddenIds — e.g. absorbed into a
-   * cluster bubble — and reattaching it once it's no longer hidden. Returns
-   * bounds covering all positioned entities, or null if none were positioned. */
-  update(entities: EntityConfig[], hass: HomeAssistant, hiddenIds?: ReadonlySet<string>): LngLatBoundsLike | null {
+   * (not removing) any entity id present in `absorbed` — e.g. pulled into a
+   * cluster bubble at that centroid — and reattaching it once it's no longer
+   * absorbed. `absorbed` maps each hidden entity id to the lng/lat of the
+   * bubble it belongs to, so the marker can spring toward/away from it (see
+   * MarkerAnimator). Returns bounds covering all positioned entities, or null
+   * if none were positioned. */
+  update(
+    entities: EntityConfig[],
+    hass: HomeAssistant,
+    absorbed?: ReadonlyMap<string, [number, number]>,
+  ): LngLatBoundsLike | null {
     const seen = new Set<string>();
     const bounds = new this.gl.LngLatBounds();
     let any = false;
@@ -67,24 +88,39 @@ export class EntitiesRenderService {
       any = true;
       const lngLat: [number, number] = [lng as number, lat as number];
 
-      let marker = this.markers.get(ent.id);
-      if (!marker) {
-        const el = buildMarkerElement(ent, st);
-        el.addEventListener("click", () => this.onTap(ent.id));
-        marker = new this.gl.Marker({ element: el }).setLngLat(lngLat).addTo(this.map);
-        this.markers.set(ent.id, marker);
+      let tracked = this.markers.get(ent.id);
+      if (!tracked) {
+        const inner = buildMarkerElement(ent, st);
+        inner.addEventListener("click", () => this.onTap(ent.id));
+        const marker = new this.gl.Marker({ element: wrapAnimatedMarker(inner) })
+          .setLngLat(lngLat)
+          .addTo(this.map);
+        tracked = { marker, inner };
+        this.markers.set(ent.id, tracked);
       } else {
-        marker.setLngLat(lngLat);
+        tracked.marker.setLngLat(lngLat);
       }
       bounds.extend(lngLat);
 
-      const shouldHide = hiddenIds?.has(ent.id) ?? false;
+      const { marker, inner } = tracked;
+      const centroid = absorbed?.get(ent.id);
+      const shouldHide = centroid !== undefined;
       if (shouldHide && !this.detached.has(ent.id)) {
-        marker.remove();
         this.detached.add(ent.id);
+        this.absorbedCentroid.set(ent.id, centroid);
+        // Converge toward the bubble's centre, then unmount once it completes.
+        const [dx, dy] = this._offsetTo(lngLat, centroid);
+        animateConverge(inner, dx, dy, () => marker.remove());
       } else if (!shouldHide && this.detached.has(ent.id)) {
-        marker.addTo(this.map);
         this.detached.delete(ent.id);
+        // Emerge from wherever the entity was last absorbed. addTo() is safe
+        // even if animateConverge's pending remove() hasn't fired yet —
+        // Marker.addTo() calls remove() first (idempotent remount).
+        const from = this.absorbedCentroid.get(ent.id) ?? lngLat;
+        this.absorbedCentroid.delete(ent.id);
+        marker.addTo(this.map);
+        const [dx, dy] = this._offsetTo(lngLat, from);
+        animateEmerge(inner, dx, dy);
       }
     }
 
@@ -96,10 +132,19 @@ export class EntitiesRenderService {
     return any ? bounds : null;
   }
 
+  /** Pixel vector from `from` (a marker's own lng/lat) to `to` (the cluster
+   * centroid) at the current camera — the spring's travel offset. */
+  private _offsetTo(from: [number, number], to: [number, number]): [number, number] {
+    const a = this.map.project(from);
+    const b = this.map.project(to);
+    return [b.x - a.x, b.y - a.y];
+  }
+
   remove(entityId: string): void {
-    this.markers.get(entityId)?.remove();
+    this.markers.get(entityId)?.marker.remove();
     this.markers.delete(entityId);
     this.detached.delete(entityId);
+    this.absorbedCentroid.delete(entityId);
   }
 
   removeAll(): void {

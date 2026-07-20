@@ -27,8 +27,7 @@ describe("MapConfig", () => {
     expect(cfg.minZoom).toBeUndefined();
     expect(cfg.historyShowLines).toBe(true);
     expect(cfg.historyShowDots).toBe(false);
-    expect(cfg.clusterMarkers).toBe(false);
-    expect(cfg.clusterRadius).toBe(48);
+    expect(cfg.clusterMarkers).toBe(true);
     expect(cfg.clusterMaxZoom).toBe(14);
     expect(cfg.showAccuracyCircles).toBe(true);
   });
@@ -45,31 +44,14 @@ describe("MapConfig", () => {
     expect(cfg.historyShowDots).toBe(true);
   });
 
-  it("parses cluster_markers", () => {
-    const cfg = new MapConfig({ cluster_markers: true });
-    expect(cfg.clusterMarkers).toBe(true);
+  it("parses cluster_markers: false to disable the default-on clustering", () => {
+    const cfg = new MapConfig({ cluster_markers: false });
+    expect(cfg.clusterMarkers).toBe(false);
   });
 
-  it("parses cluster_radius/cluster_max_zoom", () => {
-    const cfg = new MapConfig({ cluster_radius: 30, cluster_max_zoom: 16 });
-    expect(cfg.clusterRadius).toBe(30);
+  it("parses cluster_max_zoom", () => {
+    const cfg = new MapConfig({ cluster_max_zoom: 16 });
     expect(cfg.clusterMaxZoom).toBe(16);
-  });
-
-  it("defaults cluster_radius to the largest configured entity size", () => {
-    const cfg = new MapConfig({
-      entities: [
-        { entity: "person.a", size: 32 },
-        { entity: "person.b", size: 80 },
-        { entity: "person.c" }, // default size (48)
-      ],
-    });
-    expect(cfg.clusterRadius).toBe(80);
-  });
-
-  it("an explicit cluster_radius overrides the size-derived default", () => {
-    const cfg = new MapConfig({ cluster_radius: 10, entities: [{ entity: "person.a", size: 80 }] });
-    expect(cfg.clusterRadius).toBe(10);
   });
 
   it("parses show_accuracy_circles: false", () => {
