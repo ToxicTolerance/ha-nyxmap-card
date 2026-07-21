@@ -6,14 +6,18 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    files: ["src/**/*.ts"],
-    plugins: { lit },
+    // Applies project-wide (src, test, dev, config files) — `npm run lint` is
+    // `eslint .`, matching what tsconfig type-checks.
     rules: {
-      ...lit.configs.recommended.rules,
-      "@typescript-eslint/no-unused-vars": ["warn", { argsIgnorePattern: "^_" }],
+      "@typescript-eslint/no-unused-vars": ["warn", { argsIgnorePattern: "^_", varsIgnorePattern: "^_" }],
     },
   },
   {
-    ignores: ["dist/**"],
+    files: ["src/**/*.ts"],
+    plugins: { lit },
+    rules: lit.configs.recommended.rules,
+  },
+  {
+    ignores: ["dist/**", "coverage/**", "node_modules/**"],
   },
 );

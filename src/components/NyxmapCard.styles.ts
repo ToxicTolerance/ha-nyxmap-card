@@ -141,6 +141,25 @@ export const nyxmapCardStyles = css`
   .nyxmap-marker--initials {
     background-color: var(--nyxmap-color);
   }
+  /* display: state renders an unbounded value ("Not home", "unavailable"),
+   * which a fixed-diameter disc clips. Grow horizontally into a pill instead:
+   * min-width keeps a short value ("21.5") circular like every other marker,
+   * max-width stops a pathological state from spanning the map, and the
+   * marker's own inline height still sets the pill height. */
+  .nyxmap-marker--state {
+    width: auto;
+    min-width: var(--nyxmap-marker-size, 48px);
+    max-width: 160px;
+    padding: 0 8px;
+    box-sizing: border-box;
+    border-radius: 999px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: block;
+    line-height: var(--nyxmap-marker-size, 48px);
+    text-align: center;
+  }
   .nyxmap-marker ha-icon {
     --mdc-icon-size: 60%;
   }

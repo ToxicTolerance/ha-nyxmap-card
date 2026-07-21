@@ -1,4 +1,3 @@
-/// <reference types="vitest/config" />
 import { defineConfig } from "vitest/config";
 import { fileURLToPath } from "node:url";
 
@@ -34,6 +33,22 @@ export default defineConfig({
     environment: "node",
     include: ["src/**/*.test.ts"],
     setupFiles: ["./test/setup.ts"],
-    passWithNoTests: true,
+    // Deliberately NOT passWithNoTests: a glob or config mistake that collects
+    // zero tests must fail, not report a silent green — release.yml gates on
+    // this job.
+    coverage: {
+      // Measure the source we ship, not the bundle or the test scaffolding —
+      // an `exclude` alone would drop vitest's own defaults and pull dist/ in.
+      include: ["src/**/*.ts"],
+      // src/index.ts is the window.customCards registration: side-effecting
+      // module scope with nothing worth asserting.
+      exclude: ["src/index.ts", "src/**/*.test.ts", "src/types/**", "src/vite-env.d.ts"],
+      thresholds: {
+        lines: 85,
+        functions: 85,
+        statements: 85,
+        branches: 80,
+      },
+    },
   },
 });

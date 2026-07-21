@@ -113,6 +113,30 @@ describe("display: 'state'", () => {
     expect(el.querySelector("ha-icon")).toBeNull();
   });
 
+  // A state value has no bounded length, so it gets the pill treatment rather
+  // than the fixed-diameter disc that would clip it.
+  it("clears the inline width so the marker can grow to fit the value", () => {
+    const cfg = EntityConfig.from({ entity: "person.alice", display: "state", size: 40 });
+    const el = buildMarkerElement(cfg, stateOf("person.alice", "Not home"));
+
+    expect(el.classList.contains("nyxmap-marker--state")).toBe(true);
+    expect(el.style.width).toBe("");
+    // Height still comes from `size`, so short values match other markers.
+    expect(el.style.height).toBe("40px");
+    expect(el.style.getPropertyValue("--nyxmap-marker-size")).toBe("40px");
+  });
+
+  it("drops the state pill again when the same node is redrawn as an icon", () => {
+    const el = buildMarkerElement(
+      EntityConfig.from({ entity: "person.alice", display: "state", size: 40 }),
+      stateOf("person.alice", "Not home"),
+    );
+    applyMarkerVisual(el, EntityConfig.from({ entity: "person.alice", icon: "mdi:car", size: 40 }));
+
+    expect(el.classList.contains("nyxmap-marker--state")).toBe(false);
+    expect(el.style.width).toBe("40px");
+  });
+
   it("falls back to label, then initials, when there is no state object", () => {
     expect(buildMarkerElement(EntityConfig.from({ entity: "sensor.x", display: "state", label: "L" })).textContent).toBe(
       "L",

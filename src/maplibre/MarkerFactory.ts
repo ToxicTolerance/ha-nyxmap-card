@@ -41,21 +41,34 @@ export function buildMarkerElement(entityCfg: EntityConfig, stateObj?: HassEntit
  * to it. Deliberately does not touch the `--nyxmap-anim-dx/dy` custom
  * properties or the `nyxmap-anim-out` class for that reason. */
 export function applyMarkerVisual(el: HTMLElement, entityCfg: EntityConfig, stateObj?: HassEntity): void {
-  el.classList.remove("nyxmap-marker--picture", "nyxmap-marker--icon", "nyxmap-marker--initials");
+  el.classList.remove(
+    "nyxmap-marker--picture",
+    "nyxmap-marker--icon",
+    "nyxmap-marker--initials",
+    "nyxmap-marker--state",
+  );
   el.replaceChildren();
   el.style.backgroundImage = "";
   el.style.width = el.style.height = `${entityCfg.size}px`;
+  // Also exposed as a custom property so CSS can reference the configured size
+  // in contexts where the inline width is cleared (see the state pill below).
+  el.style.setProperty("--nyxmap-marker-size", `${entityCfg.size}px`);
   el.style.setProperty("--nyxmap-color", entityCfg.color ?? colorFromString(entityCfg.id));
 
   const picture = entityCfg.picture ?? stateObj?.attributes?.entity_picture;
   if (entityCfg.display === "state") {
     // Upstream ha-map-card renders the entity's state value for this display
-    // mode. Reuses the initials treatment (solid disc + centered text) since
-    // that's the existing text-in-a-marker style; falls back to label/initials
-    // when the entity has no state object at all, so the marker never renders
-    // empty.
+    // mode. Falls back to label/initials when the entity has no state object at
+    // all, so the marker never renders empty.
+    //
+    // Unlike the other text treatment (initials), a state value has no bounded
+    // length — "Not home", "21.5", "unavailable" all land here — so this one
+    // grows into a pill instead of being clipped by the fixed-diameter disc.
+    // Width is cleared to let CSS size it to the text; `size` stays the height,
+    // which keeps a short value looking like every other marker.
     el.textContent = stateObj?.state ?? entityCfg.label ?? initials(entityCfg.id);
-    el.classList.add("nyxmap-marker--initials");
+    el.style.width = "";
+    el.classList.add("nyxmap-marker--initials", "nyxmap-marker--state");
   } else if (entityCfg.display !== "icon" && picture) {
     el.style.backgroundImage = `url("${picture}")`;
     el.classList.add("nyxmap-marker--picture");
