@@ -116,6 +116,12 @@ export class EntitiesRenderService {
         // state on this node survive — see applyMarkerVisual.
         if (tracked.visualKey !== visualKey) {
           applyMarkerVisual(tracked.inner, ent, st);
+          // z_index_offset lives on the positioning wrapper, not the visual
+          // node (see wrapAnimatedMarker), so applyMarkerVisual can't carry
+          // it — without this, a changed z_index_offset only ever took effect
+          // on a freshly created marker.
+          const wrapper = tracked.inner.parentElement;
+          if (wrapper) wrapper.style.zIndex = String(ent.zIndexOffset);
           tracked.visualKey = visualKey;
         }
       }

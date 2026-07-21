@@ -24,6 +24,9 @@ export function createFakeMaplibreMap() {
     flyTo: vi.fn(),
     addImage: vi.fn(),
     setLayoutProperty: vi.fn(),
+    // Render services re-apply changed paint (colour/opacity/width) to layers
+    // that already exist, rather than only setting it at addLayer() time.
+    setPaintProperty: vi.fn(),
     addControl: vi.fn(),
     removeControl: vi.fn(),
     querySourceFeatures: vi.fn((): unknown[] => []),

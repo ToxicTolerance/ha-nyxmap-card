@@ -41,13 +41,35 @@ export default defineConfig({
       // an `exclude` alone would drop vitest's own defaults and pull dist/ in.
       include: ["src/**/*.ts"],
       // src/index.ts is the window.customCards registration: side-effecting
-      // module scope with nothing worth asserting.
-      exclude: ["src/index.ts", "src/**/*.test.ts", "src/types/**", "src/vite-env.d.ts"],
+      // module scope with nothing worth asserting. MapLibreLoader.ts is a bare
+      // re-export of the bundled maplibregl + its CSS (no branches, no
+      // functions) that reports 0% because nothing imports it under `node`
+      // tests — excluded rather than left to trip the per-file floor below.
+      // MapSeamConformance.ts is type-only and emits no runtime code at all.
+      exclude: [
+        "src/index.ts",
+        "src/**/*.test.ts",
+        "src/types/**",
+        "src/vite-env.d.ts",
+        "src/maplibre/MapLibreLoader.ts",
+        "src/maplibre/MapSeamConformance.ts",
+      ],
+      // These are *per-file* floors, not aggregate gates: vitest applies
+      // `perFile` to every threshold set it resolves, so it is one or the
+      // other, and the per-file form is what closes the actual hole — with
+      // aggregate-only thresholds a single module can rot to 0% while the rest
+      // of the tree carries the average and the gate stays green. Actuals are
+      // far above this (~98% statements/lines, ~96% functions, ~91% branches
+      // overall); the weakest single file is LayerSwitcherControl.ts at ~80%
+      // lines / 75% functions / 76% branches, so the floors sit a few points
+      // under that rather than being pinned to today's numbers. Raise them when
+      // the weakest file improves; do not lower them to make a red run pass.
       thresholds: {
-        lines: 85,
-        functions: 85,
-        statements: 85,
-        branches: 80,
+        perFile: true,
+        lines: 70,
+        functions: 70,
+        statements: 70,
+        branches: 70,
       },
     },
   },

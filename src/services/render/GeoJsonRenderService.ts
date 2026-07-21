@@ -89,6 +89,15 @@ function toLayers(id: string, config: GeoJsonConfig, visible: boolean) {
   ];
 }
 
+/** Identity of every paint value toLayers() bakes in, as a single comparable
+ * string — same "store a visual key, redraw only when it changes" precedent as
+ * MarkerFactory.markerVisualKey. JSON rather than a delimiter join because a
+ * CSS colour can itself contain commas and spaces (`rgb(1, 2, 3)`), so two
+ * distinct field tuples could otherwise collide by concatenation. */
+function paintKey(config: GeoJsonConfig): string {
+  return JSON.stringify([config.color ?? DEFAULT_COLOR, config.fillOpacity, config.weight, config.opacity]);
+}
+
 /**
  * Renders an entity attribute containing GeoJSON (`geojson:` config) as a
  * native GeoJSON source with geometry-type-dispatched layers, keyed
@@ -103,6 +112,12 @@ export class GeoJsonRenderService {
   private readonly active = new Set<string>();
   private readonly visibility = new Map<string, boolean>();
   private readonly clickHandlers = new Map<string, () => void>();
+  /** Paint identity (see `paintKey`) each source's layers were last drawn
+   * with. Paint used to be applied only on the addLayer() path, so editing
+   * `geojson: {color, weight, opacity, fill_opacity}` left the existing shape
+   * drawn with the old values until a theme swap replayed the reattach
+   * factory. */
+  private readonly paintKeys = new Map<string, string>();
 
   constructor(
     private readonly map: GeoJsonMapLike,
@@ -138,15 +153,20 @@ export class GeoJsonRenderService {
     const id = sourceId(entityId);
     const isVisible = () => this.visibility.get(id) ?? true;
 
+    const paint = paintKey(config);
     const existingSource = this.map.getSource(id);
     if (existingSource) {
       existingSource.setData(data);
+      // setData() only carries geometry; the layers keep whatever paint they
+      // were added with, so a restyle has to be pushed onto them explicitly.
+      if (this.paintKeys.get(id) !== paint) this._applyPaint(id, config);
     } else {
       this.map.addSource(id, { type: "geojson", data });
       for (const layer of toLayers(id, config, isVisible())) this.map.addLayer(layer);
       this._wireClick(id, entityId);
       this.active.add(entityId);
     }
+    this.paintKeys.set(id, paint);
 
     // Re-registering on every update keeps the replayed geometry current — a
     // later style.load replays whatever was most recently upserted here.
@@ -171,6 +191,21 @@ export class GeoJsonRenderService {
     });
   }
 
+  /** Mirrors toLayers()' paint blocks for the fields that are config-driven
+   * (the fixed ones — circle-radius, circle-opacity — can't change). */
+  private _applyPaint(id: string, config: GeoJsonConfig): void {
+    const color = config.color ?? DEFAULT_COLOR;
+    this.map.setPaintProperty(fillLayerId(id), "fill-color", color);
+    this.map.setPaintProperty(fillLayerId(id), "fill-opacity", config.fillOpacity);
+    this.map.setPaintProperty(lineLayerId(id), "line-color", color);
+    this.map.setPaintProperty(lineLayerId(id), "line-width", config.weight);
+    this.map.setPaintProperty(lineLayerId(id), "line-opacity", config.opacity);
+    this.map.setPaintProperty(circleLayerId(id), "circle-color", color);
+    this.map.setPaintProperty(circleLayerId(id), "circle-stroke-color", color);
+    this.map.setPaintProperty(circleLayerId(id), "circle-stroke-width", config.weight);
+    this.map.setPaintProperty(circleLayerId(id), "circle-stroke-opacity", config.opacity);
+  }
+
   private _wireClick(id: string, entityId: string): void {
     const handler = () => this.onTap(entityId);
     for (const layerId of layerIds(id)) this.map.on("click", layerId, handler);
@@ -182,6 +217,7 @@ export class GeoJsonRenderService {
     this.reattach.unregister(id);
     this.layerRegistry.unregister(id);
     this.visibility.delete(id);
+    this.paintKeys.delete(id);
     this.active.delete(entityId);
 
     const handler = this.clickHandlers.get(id);

@@ -83,14 +83,22 @@ export function applyMarkerVisual(el: HTMLElement, entityCfg: EntityConfig, stat
   }
 }
 
-/** Identity of everything applyMarkerVisual() reads, as a single comparable
- * string. EntitiesRenderService stores it per marker and re-applies the visual
- * only when it changes, so the common case (a position-only update) still does
- * nothing but setLngLat(). */
+/** Identity of everything that decides how a marker looks, as a single
+ * comparable string. EntitiesRenderService stores it per marker and re-applies
+ * the visual only when it changes, so the common case (a position-only update)
+ * still does nothing but setLngLat().
+ *
+ * That is everything applyMarkerVisual() reads, plus `zIndexOffset` — which is
+ * written by wrapAnimatedMarker onto the *wrapper* rather than the visual node,
+ * and so is applied separately in the redraw branch. It's keyed here because it
+ * otherwise only ever took effect at marker-creation time: raising an entity's
+ * `z_index_offset` in the visual editor changed nothing until the card was
+ * rebuilt. */
 export function markerVisualKey(entityCfg: EntityConfig, stateObj?: HassEntity): string {
   return [
     entityCfg.display,
     entityCfg.size,
+    entityCfg.zIndexOffset,
     entityCfg.color ?? "",
     entityCfg.picture ?? "",
     entityCfg.icon ?? "",

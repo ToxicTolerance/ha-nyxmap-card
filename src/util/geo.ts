@@ -1,10 +1,33 @@
 import circle from "@turf/circle";
 
+/** A plain west/east/south/north box — this project's own bounds currency.
+ * Deliberately *not* the shape MapLibre hands back from `Map.getBounds()`:
+ * a real `maplibregl.LngLatBounds` exposes `_ne`/`_sw` plus accessor methods
+ * (`getWest()` and friends) and has no such properties at all. See
+ * `MapBoundsLike` / `boundsFromLngLatBounds()` for the adapter. */
 export interface BoundsLike {
   west: number;
   east: number;
   south: number;
   north: number;
+}
+
+/** The accessor surface `maplibregl.LngLatBounds` actually exposes. Kept
+ * separate from `BoundsLike` because the two are *not* interchangeable —
+ * reading `.west` off a real LngLatBounds yields `undefined`, which silently
+ * turns every numeric comparison in `boundsContains()` into `false`. That was
+ * a live defect: `focus_follow: "contains"` never short-circuited, so the
+ * camera re-fitted on every `hass` object (many times a second). */
+export interface MapBoundsLike {
+  getWest(): number;
+  getEast(): number;
+  getSouth(): number;
+  getNorth(): number;
+}
+
+/** Adapts MapLibre's accessor-style bounds into this project's plain box. */
+export function boundsFromLngLatBounds(b: MapBoundsLike): BoundsLike {
+  return { west: b.getWest(), east: b.getEast(), south: b.getSouth(), north: b.getNorth() };
 }
 
 /** Bounding box over a set of [lng, lat] points, or null if there are none. */

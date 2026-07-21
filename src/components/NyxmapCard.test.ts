@@ -24,7 +24,18 @@ vi.mock("../maplibre/MapLibreLoader", () => {
       this.currentStyle = url;
       this.styleLoaded = false;
     });
-    setMaxZoom = vi.fn();
+    // maplibre-gl 5.x clamps the current zoom synchronously inside
+    // setMaxZoom() and fires the whole zoomstart/zoom/zoomend/movestart/move/
+    // moveend burst right there (Map.setMaxZoom). ClusterRenderService listens
+    // for zoomend/moveend on the *Map*, so those keep firing straight through
+    // a setStyle() — which is what made a style switch recompute clusters
+    // against a style that isn't done loading.
+    setMaxZoom = vi.fn((maxZoom: number) => {
+      if (maxZoom >= this.zoom) return;
+      this.zoom = maxZoom;
+      this.fire("zoomend");
+      this.fire("moveend");
+    });
     setMinZoom = vi.fn();
     setProjection = vi.fn();
     getSource = vi.fn();
@@ -34,18 +45,33 @@ vi.mock("../maplibre/MapLibreLoader", () => {
     addLayer = vi.fn();
     removeLayer = vi.fn();
     removeSource = vi.fn();
-    setLayoutProperty = vi.fn();
+    // Style.setLayoutProperty is _checkLoaded()-guarded just like addSource,
+    // so toggling an overlay mid-swap throws in production too.
+    setLayoutProperty = vi.fn((..._args: unknown[]) => {
+      if (!this.styleLoaded) throw new Error("Style is not done loading.");
+    });
     resize = vi.fn();
     jumpTo = vi.fn();
     fitBounds = vi.fn();
     easeTo = vi.fn();
     querySourceFeatures = vi.fn(() => []);
-    getBounds = vi.fn(() => ({ west: -180, east: 180, south: -85, north: 85 }));
+    // Models the real maplibregl.LngLatBounds: _ne/_sw plus accessor methods,
+    // and deliberately NO west/east/south/north properties — the fake used to
+    // return a plain box, which let focus_follow: "contains" ship broken.
+    getBounds = vi.fn(() => ({
+      _sw: { lng: -180, lat: -85 },
+      _ne: { lng: 180, lat: 85 },
+      getWest: () => -180,
+      getEast: () => 180,
+      getSouth: () => -85,
+      getNorth: () => 85,
+    }));
     // Spread projected pixels far apart (×1e6) so distinct test entities never
     // accidentally cluster now that cluster_markers defaults on — tests that
     // exercise clustering override project to bring points together.
     project = vi.fn((ll: [number, number]) => ({ x: ll[0] * 1e6, y: ll[1] * 1e6 }));
-    getZoom = vi.fn(() => 10);
+    zoom = 10;
+    getZoom = vi.fn(() => this.zoom);
     getMaxZoom = vi.fn(() => 22);
     constructor(public options: { style?: string }) {
       this.currentStyle = options.style;
@@ -128,6 +154,7 @@ interface TestableNyxmapCard extends HTMLElement {
     getMaxZoom: ReturnType<typeof vi.fn>;
   };
   _entities?: EntitiesRenderService;
+  _cluster?: { getAbsorbed(): ReadonlyMap<string, [number, number]> };
   _clusterToggleControl?: IconButtonControl;
 }
 
@@ -898,6 +925,149 @@ describe("NyxmapCard", () => {
       await el.updateComplete;
       expect(el._entities?.has("device_tracker.phone")).toBe(true);
     });
+
+    it("re-applies a hidden overlay to the services rebuilt after a teardown", async () => {
+      // Regression: _teardown() drops every service but keeps
+      // _overlayVisibility, and every rebuilt service starts visible again
+      // (ClusterRenderService._enabled, HistoryRenderService.visibility, …).
+      // An overlay the user had unchecked came back visible after a reconnect
+      // while its checkbox still rendered unchecked — and had to be toggled
+      // twice to re-hide.
+      const clustered = [
+        { entity: "device_tracker.a", fixed_x: 1, fixed_y: 2 },
+        { entity: "device_tracker.b", fixed_x: 3, fixed_y: 4 },
+      ];
+      el.setConfig({ cluster_markers: true, entities: clustered });
+      await el.updateComplete;
+      el._map!.fire("style.load");
+      el.hass = hassWith({});
+      await el.updateComplete;
+
+      el._map!.project.mockReturnValue({ x: 0, y: 0 });
+      el._map!.fire("zoomend");
+      expect(el._cluster!.getAbsorbed().size).toBe(2);
+
+      // User switches grouping off, then the card is really torn down and
+      // re-added (HA re-parents cards; a slow enough round trip runs teardown).
+      el._clusterToggleControl!.options.onClick();
+      expect(el._cluster!.getAbsorbed().size).toBe(0);
+
+      el.remove();
+      await flushMicrotasks();
+      document.body.appendChild(el);
+      await el.updateComplete;
+      el._map!.fire("style.load");
+      el.hass = hassWith({});
+      await el.updateComplete;
+
+      el._map!.project.mockReturnValue({ x: 0, y: 0 });
+      el._map!.fire("zoomend");
+
+      expect(el._clusterToggleControl!.options.isPressed?.()).toBe(false);
+      expect(el._cluster!.getAbsorbed().size).toBe(0);
+    });
+  });
+
+  describe("theme_mode: auto", () => {
+    /** Installs a matchMedia whose "change" listeners can actually be fired —
+     * test/setup.ts's shared shim is a no-op stub (it only needs `.matches`),
+     * and extending it there would change every jsdom test's environment. */
+    function mockColorScheme() {
+      const listeners = new Set<EventListener>();
+      const state = { dark: false };
+      const original = window.matchMedia;
+      window.matchMedia = ((query: string) => ({
+        get matches() {
+          return state.dark;
+        },
+        media: query,
+        onchange: null,
+        addListener: () => {},
+        removeListener: () => {},
+        addEventListener: (_type: string, listener: EventListener) => listeners.add(listener),
+        removeEventListener: (_type: string, listener: EventListener) => listeners.delete(listener),
+        dispatchEvent: () => false,
+      })) as unknown as typeof window.matchMedia;
+      return {
+        listeners,
+        flipToDark() {
+          state.dark = true;
+          for (const l of [...listeners]) l(new Event("change"));
+        },
+        restore() {
+          window.matchMedia = original;
+        },
+      };
+    }
+
+    const STYLES = {
+      map_style: "https://example.com/light.json",
+      map_style_dark: "https://example.com/dark.json",
+    };
+
+    it("swaps the basemap when the OS colour scheme flips", async () => {
+      // Regression: _prefersDark() was only ever read from setConfig/_buildMap/
+      // the switcher's own controls. On a wall panel, sunset flipped the OS to
+      // dark and updated() restyled the *controls* (data-dark) while the
+      // basemap stayed light — a permanently half-dark card until reload.
+      const media = mockColorScheme();
+      try {
+        const card = asTestable(document.createElement("nyxmap-card") as InstanceType<typeof NyxmapCard>);
+        document.body.appendChild(card);
+        card.setConfig(STYLES);
+        await card.updateComplete;
+        expect(media.listeners.size).toBe(1);
+
+        media.flipToDark();
+        await card.updateComplete;
+
+        expect(card._map!.setStyle).toHaveBeenCalledWith("https://example.com/dark.json");
+        card.remove();
+        await flushMicrotasks();
+      } finally {
+        media.restore();
+      }
+    });
+
+    it("leaves an explicit theme_mode alone", async () => {
+      const media = mockColorScheme();
+      try {
+        const card = asTestable(document.createElement("nyxmap-card") as InstanceType<typeof NyxmapCard>);
+        document.body.appendChild(card);
+        card.setConfig({ ...STYLES, theme_mode: "light" });
+        await card.updateComplete;
+
+        media.flipToDark();
+        await card.updateComplete;
+
+        expect(card._map!.setStyle).not.toHaveBeenCalledWith("https://example.com/dark.json");
+        card.remove();
+        await flushMicrotasks();
+      } finally {
+        media.restore();
+      }
+    });
+
+    it("registers exactly one listener across a disconnect/reconnect cycle, and none once removed", async () => {
+      const media = mockColorScheme();
+      try {
+        const card = asTestable(document.createElement("nyxmap-card") as InstanceType<typeof NyxmapCard>);
+        document.body.appendChild(card);
+        card.setConfig(STYLES);
+        await card.updateComplete;
+
+        card.remove();
+        document.body.appendChild(card); // benign re-parent
+        await flushMicrotasks();
+        expect(media.listeners.size).toBe(1);
+
+        card.remove();
+        await flushMicrotasks();
+        expect(media.listeners.size).toBe(0);
+      } finally {
+        media.restore();
+      }
+    });
   });
 
   describe("history refresh", () => {
@@ -1083,6 +1253,109 @@ describe("NyxmapCard", () => {
       el._map!.fire("style.load");
       await el.updateComplete;
       expect(el._map!.addSource.mock.calls.length).toBeGreaterThan(addSourceCalls);
+    });
+
+    it("does not touch the circle sources when a cluster recompute lands mid-style-swap", async () => {
+      // Regression: ClusterRenderService's zoomend/moveend listeners are on the
+      // Map, not the style, so they fire straight through a setStyle().
+      // _onSelectBaseStyle() starts the swap and then calls setMaxZoom(), which
+      // MapLibre clamps synchronously — firing zoomend, recomputing clusters,
+      // and reaching CircleRenderService.update() → addSource() against a style
+      // that is not done loading. That throws uncaught out of a MapLibre event
+      // handler (a plain drag during the ~100–500ms style fetch does it too).
+      const clustered = [
+        { entity: "device_tracker.a", fixed_x: 1, fixed_y: 2, circle: { radius: 25, source: "config" } },
+        { entity: "device_tracker.b", fixed_x: 3, fixed_y: 4, circle: { radius: 25, source: "config" } },
+      ];
+      el.setConfig({
+        layer_switcher: true,
+        cluster_markers: true,
+        entities: clustered,
+        map_styles: [
+          { name: "Streets", map_style: "https://example.com/streets.json" },
+          { name: "Aerial", map_style: "https://example.com/aerial.json", max_zoom: 8 },
+        ],
+      });
+      await el.updateComplete;
+      el._map!.fire("style.load");
+      el.hass = hassWith({});
+      await el.updateComplete;
+      await flushMicrotasks();
+      await el.updateComplete;
+      expect(el._map!.addSource.mock.calls.length).toBeGreaterThan(0);
+
+      // Collapse both entities into one bubble (their circles go with their
+      // markers), then pull them apart again — so the recompute forced by the
+      // style switch below releases them and has to (re-)create their circle
+      // sources, which is the addSource() that lands on the unloaded style.
+      el._map!.project.mockReturnValue({ x: 0, y: 0 });
+      el._map!.fire("zoomend");
+      el._map!.project.mockImplementation((ll: [number, number]) => ({ x: ll[0] * 1e6, y: ll[1] * 1e6 }));
+      const before = el._map!.addSource.mock.calls.length;
+
+      const switcher = el.shadowRoot!.querySelector("nyxmap-layer-switcher") as unknown as {
+        onSelectBaseStyle: (id: string) => void;
+      };
+      expect(() => switcher.onSelectBaseStyle("custom:Aerial")).not.toThrow();
+      expect(el._map!.addSource.mock.calls.length).toBe(before);
+
+      // …and circles come back once the new style is loaded.
+      el._map!.fire("style.load");
+      await el.updateComplete;
+      expect(el._map!.addSource.mock.calls.length).toBeGreaterThan(before);
+    });
+
+    it("defers an overlay toggle clicked mid-style-swap instead of throwing and desyncing the switcher", async () => {
+      // Regression: _onToggleOverlay wrote _overlayVisibility first, then let
+      // setLayoutProperty's "Style is not done loading." throw escape — which
+      // skipped the button refresh and requestUpdate(). The checkbox then
+      // rendered checked while the state said hidden, and the style.load replay
+      // brought the trail back shown.
+      const historyEntity = {
+        entity: "device_tracker.phone",
+        fixed_x: 1,
+        fixed_y: 2,
+        history_start: "1 hour ago",
+      };
+      const baseConfig = { layer_switcher: true, cluster_markers: false, entities: [historyEntity] };
+      el.setConfig(baseConfig);
+      await el.updateComplete;
+      el._map!.fire("style.load");
+      el.hass = {
+        states: {},
+        language: "en",
+        callWS: vi.fn().mockResolvedValue({
+          "device_tracker.phone": [{ a: { latitude: 1, longitude: 2 } }, { a: { latitude: 3, longitude: 4 } }],
+        }),
+      };
+      await el.updateComplete;
+      await flushMicrotasks();
+      await flushMicrotasks();
+      await el.updateComplete;
+
+      const switcher = el.shadowRoot!.querySelector("nyxmap-layer-switcher") as unknown as {
+        overlays: Array<{ id: string; active: boolean }>;
+        onToggleOverlay: (id: string) => void;
+      };
+      const overlayId = switcher.overlays[0]!.id;
+
+      // Start a style swap — the new style stays unloaded until style.load.
+      el.setConfig({ ...baseConfig, map_style: "https://example.com/other.json" });
+      await el.updateComplete;
+      el._map!.setLayoutProperty.mockClear();
+
+      expect(() => switcher.onToggleOverlay(overlayId)).not.toThrow();
+      expect(el._map!.setLayoutProperty).not.toHaveBeenCalled();
+      await el.updateComplete;
+      const midSwap = el.shadowRoot!.querySelector("nyxmap-layer-switcher") as unknown as {
+        overlays: Array<{ id: string; active: boolean }>;
+      };
+      expect(midSwap.overlays.find((o) => o.id === overlayId)?.active).toBe(false);
+
+      // The click isn't lost: it's applied as soon as the style is loaded.
+      el._map!.fire("style.load");
+      await el.updateComplete;
+      expect(el._map!.setLayoutProperty).toHaveBeenCalledWith(overlayId, "visibility", "none");
     });
 
     it("re-runs the render services on a config change that leaves the style URL unchanged", async () => {

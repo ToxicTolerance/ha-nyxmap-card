@@ -78,6 +78,39 @@ function parseMapStyles(raw: MapStyleRaw[] | undefined): NamedMapStyle[] {
   return out;
 }
 
+/**
+ * `entity` is the one load-bearing key of an entity entry and EntityConfig's
+ * constructor throws without it, so an unusable entry is dropped here rather
+ * than propagated:
+ *
+ *  - No usable `entity` → `EntityConfig.from` throws, and because MapConfig is
+ *    built from setConfig the throw escapes the card entirely, replacing the
+ *    live preview (and, once saved, the dashboard card) with an HA error card
+ *    recoverable only through YAML mode. Trivially reachable from the visual
+ *    editor, which emits `entities: [..., { entity: "" }]` the instant
+ *    "+ Add entity" is clicked, and again whenever an entity picker is
+ *    cleared.
+ *
+ * Dropped entries are silent rather than console-warned for the same reason as
+ * parseMapStyles above: MapConfig is re-parsed on every setConfig, i.e. on
+ * every keystroke in the visual editor, where a half-filled row is the normal
+ * intermediate state. The feedback is the entity not appearing on the map
+ * until it's complete.
+ *
+ * Tolerance belongs here, at the parse boundary, and not in EntityConfig —
+ * throwing stays correct for a programmatic caller that hand-builds one.
+ */
+function parseEntities(raw: Array<string | EntityConfigRaw> | undefined): EntityConfig[] {
+  const out: EntityConfig[] = [];
+  for (const e of raw ?? []) {
+    if (!e) continue;
+    const id = typeof e === "string" ? e : typeof e.entity === "string" ? e.entity : "";
+    if (!id.trim()) continue;
+    out.push(EntityConfig.from(e));
+  }
+  return out;
+}
+
 export interface MapConfigRaw {
   x?: number;
   y?: number;
@@ -203,7 +236,7 @@ export class MapConfig {
     this.historyEnd = raw.history_end;
     this.historyShowLines = raw.history_show_lines ?? true;
     this.historyShowDots = raw.history_show_dots ?? false;
-    this.entities = (raw.entities ?? []).map(EntityConfig.from);
+    this.entities = parseEntities(raw.entities);
     this.clusterMarkers = raw.cluster_markers ?? true;
     this.clusterMaxZoom = raw.cluster_max_zoom ?? 14;
     this.showAccuracyCircles = raw.show_accuracy_circles ?? true;

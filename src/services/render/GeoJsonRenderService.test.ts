@@ -75,6 +75,53 @@ describe("GeoJsonRenderService", () => {
     expect(map.addSource).not.toHaveBeenCalled();
   });
 
+  // Regression: layers were only ever painted on the addLayer() path, so
+  // editing `geojson: {color, weight, opacity, fill_opacity}` left the shape
+  // drawn with its original styling until a theme swap replayed the reattach
+  // factory.
+  it("pushes changed paint onto an existing shape's layers", () => {
+    const map = createFakeMaplibreMap();
+    const service = new GeoJsonRenderService(map as never, new StyleReattach(), new LayerRegistry(), vi.fn());
+    const first = entityWithGeoJson(
+      "geo_location.demo",
+      { attribute: "geo_shape", color: "#ff0000", weight: 3 },
+      { geo_shape: POINT },
+    );
+
+    service.update([first.entity], first.hass);
+    map.getSource.mockReturnValue({ setData: vi.fn() }); // the source now exists
+    const second = entityWithGeoJson(
+      "geo_location.demo",
+      { attribute: "geo_shape", color: "#0000ff", weight: 8, opacity: 0.5, fill_opacity: 0.4 },
+      { geo_shape: POINT },
+    );
+    service.update([second.entity], second.hass);
+
+    expect(map.setPaintProperty).toHaveBeenCalledWith("geojson-geo_location.demo-fill", "fill-color", "#0000ff");
+    expect(map.setPaintProperty).toHaveBeenCalledWith("geojson-geo_location.demo-fill", "fill-opacity", 0.4);
+    expect(map.setPaintProperty).toHaveBeenCalledWith("geojson-geo_location.demo-line", "line-color", "#0000ff");
+    expect(map.setPaintProperty).toHaveBeenCalledWith("geojson-geo_location.demo-line", "line-width", 8);
+    expect(map.setPaintProperty).toHaveBeenCalledWith("geojson-geo_location.demo-line", "line-opacity", 0.5);
+    expect(map.setPaintProperty).toHaveBeenCalledWith("geojson-geo_location.demo-circle", "circle-color", "#0000ff");
+    expect(map.setPaintProperty).toHaveBeenCalledWith(
+      "geojson-geo_location.demo-circle",
+      "circle-stroke-width",
+      8,
+    );
+  });
+
+  it("leaves paint alone when only the geometry changed", () => {
+    const map = createFakeMaplibreMap();
+    const service = new GeoJsonRenderService(map as never, new StyleReattach(), new LayerRegistry(), vi.fn());
+    const { entity, hass } = entityWithGeoJson("geo_location.demo", "geo_shape", { geo_shape: POINT });
+
+    service.update([entity], hass);
+    map.getSource.mockReturnValue({ setData: vi.fn() });
+    service.update([entity], hass);
+
+    expect(map.setPaintProperty).not.toHaveBeenCalled();
+  });
+
   it("removes the source/layers, unregisters reattach + the layer switcher, and unwires clicks when a geojson drops out", () => {
     const map = createFakeMaplibreMap();
     const reattach = new StyleReattach();

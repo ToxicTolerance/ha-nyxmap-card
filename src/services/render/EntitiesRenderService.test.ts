@@ -244,6 +244,23 @@ describe("EntitiesRenderService", () => {
       expect(wrapper.className).toBe("nyxmap-marker-anchor");
       expect(wrapper.style.zIndex).toBe("5");
     });
+
+    // Regression: z_index_offset landed on the wrapper only at marker
+    // creation, and markerVisualKey didn't cover it, so the redraw branch never
+    // fired for it either — raising it in the visual editor changed nothing
+    // until the card was rebuilt.
+    it("updates the wrapper's z-index when z_index_offset changes on an existing marker", () => {
+      const service = new EntitiesRenderService(createFakeMaplibreMap() as never, createFakeMaplibreGl(), vi.fn());
+      const at = (zIndexOffset: number) =>
+        EntityConfig.from({ entity: "person.a", fixed_x: 1, fixed_y: 2, z_index_offset: zIndexOffset });
+      service.update([at(1)], hassWith({}));
+      const inner = trackedOf(service).inner;
+
+      service.update([at(10)], hassWith({}));
+
+      expect(trackedOf(service).inner).toBe(inner); // same marker, updated in place
+      expect(inner.parentElement!.style.zIndex).toBe("10");
+    });
   });
 
   it("removeAll() removes every tracked marker", () => {

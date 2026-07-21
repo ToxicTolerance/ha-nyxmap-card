@@ -5,6 +5,73 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-07-22
+
+First stable 0.10.0, promoting `0.10.0-rc.1`/`rc.2` after a third audit wave.
+Everything listed under those release candidates below ships here too.
+
+This wave fixed 10 defects, most of them things that only surface after the
+card has been running a while — a theme swap, an OS switching to dark at
+sunset, a dashboard re-parenting a card.
+
+### Fixed
+
+- **`focus_follow: contains` now works at all.** It was meant to re-fit the
+  camera only when an entity drifts out of view, but the check it relied on
+  silently compared against nothing, so it behaved like `refocus` and re-fit on
+  every Home Assistant state change — pinning the camera many times a second and
+  fighting your own pan/zoom. This is the same defect fixed for `refocus` in
+  0.10.0-rc.2; the sibling branch was missed because the test doubles described
+  MapLibre's bounds object incorrectly, so the suite confirmed the bug.
+- **Editing a colour now updates the accuracy circle, GeoJSON shape or history
+  trail**, not just the marker beside it. Colour, fill opacity, line weight and
+  opacity changes were applied only when a layer was first created, so an edit
+  left the map in a visibly half-updated state until the next theme swap or page
+  reload.
+- **Adding an entity in the visual editor no longer breaks the card.** Clicking
+  "+ Add entity" (or clearing an existing entity picker) produced a config the
+  card refused to parse, replacing the live preview with an error card — and if
+  saved that way, the dashboard card stayed an error card, fixable only through
+  the YAML editor.
+- **Clearing a text field in the entity editor no longer blanks the marker.**
+  Clearing a label rendered an empty coloured disc instead of falling back to
+  initials; clearing an icon rendered a blank icon for an entity that had a
+  perfectly good one of its own.
+- **`theme_mode: auto` now follows the operating system.** When the OS switched
+  to dark, the card's controls restyled but the basemap stayed light, leaving a
+  permanently mismatched card until the page was reloaded — most visible on
+  always-on wall-panel dashboards.
+- **Panning, zooming or toggling a layer while a style swap is in flight no
+  longer throws.** Marker grouping recomputes on camera movement, which reaches
+  the map directly and so bypassed the existing readiness gate; a drag during
+  the fraction of a second a new style is loading could throw out of MapLibre's
+  own event handler.
+- **The layer switcher no longer desyncs from the map.** Toggling an overlay
+  during a style swap could leave a layer hidden while its checkbox showed
+  checked. Toggles are now recorded immediately and applied once the style is
+  ready, so a click is never silently lost.
+- **Hidden layers stay hidden when a dashboard re-parents a card.** After a
+  disconnect/reconnect, layers you had switched off came back visible with their
+  checkboxes still unchecked, so hiding them again took two clicks.
+- **`z_index_offset` changes now apply to markers already on the map**,
+  completing the support added in 0.10.0-rc.2 — previously the new value only
+  took effect once the card was rebuilt.
+- Fixed a marker animation leak where a marker caught mid-transition between
+  grouped and ungrouped states could later be removed while legitimately
+  visible.
+
+### Changed
+
+- The lint and coverage CI gates are now able to fail. `lint` runs with
+  `--max-warnings 0` (ESLint exits successfully on warnings, so the job could
+  never fail before), and coverage thresholds became **per-file** floors instead
+  of a project-wide average that let any single module rot toward zero while the
+  rest of the tree carried it.
+- Added a compile-time conformance check tying the render services' narrow views
+  of MapLibre's `Map` to the real thing. The `focus_follow: contains` defect was
+  possible because a type assertion laundered the mismatch past the compiler;
+  that class of drift is now a build failure.
+
 ## [0.10.0-rc.2] - 2026-07-21
 
 Release candidate. Bundles the two audit fix waves (23 findings) for testing in a

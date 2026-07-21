@@ -195,6 +195,47 @@ describe("MapConfig", () => {
     expect(cfg.entities[1]?.color).toBe("#123456");
   });
 
+  describe("entities parsing tolerance", () => {
+    // The visual editor emits `{ entity: "" }` the instant "+ Add entity" is
+    // clicked (and again when an entity picker is cleared). EntityConfig's
+    // constructor throws on that, which used to escape setConfig and replace
+    // the whole card with an HA error card.
+    it("skips a half-filled entity row instead of throwing", () => {
+      const cfg = new MapConfig({
+        entities: [{ entity: "" }, { entity: "person.b" }],
+      });
+      expect(cfg.entities.map((e) => e.id)).toEqual(["person.b"]);
+    });
+
+    it("skips a whitespace-only or non-string entity id", () => {
+      const cfg = new MapConfig({
+        entities: [
+          { entity: "   " },
+          { entity: undefined as unknown as string },
+          { entity: 42 as unknown as string },
+          "",
+          "person.b",
+        ],
+      });
+      expect(cfg.entities.map((e) => e.id)).toEqual(["person.b"]);
+    });
+
+    it("ignores a null hole in the entities list instead of throwing", () => {
+      const cfg = new MapConfig({
+        entities: [null as unknown as string, "person.b"],
+      });
+      expect(cfg.entities.map((e) => e.id)).toEqual(["person.b"]);
+    });
+
+    it("keeps a usable entity id verbatim rather than trimming it", () => {
+      // Only the emptiness check trims; the id itself is whatever the config
+      // said, so it still matches hass.states.
+      const cfg = new MapConfig({ entities: [{ entity: "person.b", label: "B" }] });
+      expect(cfg.entities[0]?.id).toBe("person.b");
+      expect(cfg.entities[0]?.label).toBe("B");
+    });
+  });
+
   describe("mapHeight", () => {
     it("uses explicit height when set", () => {
       expect(new MapConfig({ height: 350 }).mapHeight).toBe(350);

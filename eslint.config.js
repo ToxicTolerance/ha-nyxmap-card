@@ -7,7 +7,13 @@ export default tseslint.config(
   ...tseslint.configs.recommended,
   {
     // Applies project-wide (src, test, dev, config files) — `npm run lint` is
-    // `eslint .`, matching what tsconfig type-checks.
+    // `eslint . --max-warnings 0`, matching what tsconfig type-checks. The
+    // severity below stays "warn" so an in-progress edit isn't screaming red in
+    // an editor, but `--max-warnings 0` means CI still fails on it: eslint exits
+    // 0 on warnings otherwise, which would leave release.yml's lint gate unable
+    // to fail. Same reasoning covers eslint 9's default-on
+    // `reportUnusedDisableDirectives` ("warn"): a stale eslint-disable is a
+    // build failure, not a suggestion.
     rules: {
       "@typescript-eslint/no-unused-vars": ["warn", { argsIgnorePattern: "^_", varsIgnorePattern: "^_" }],
     },

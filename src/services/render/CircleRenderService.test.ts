@@ -96,6 +96,42 @@ describe("CircleRenderService", () => {
     expect(map.addSource).not.toHaveBeenCalled();
   });
 
+  // Regression: layers were only ever painted on the addLayer() path, so an
+  // existing circle's colour/fill_opacity never changed — recolouring an
+  // entity in the visual editor turned its marker blue while the accuracy
+  // circle beside it stayed red until a theme swap or a reload.
+  it("pushes changed paint onto an existing circle's layers", () => {
+    const map = createFakeMaplibreMap();
+    const service = new CircleRenderService(map as never, new StyleReattach(), new LayerRegistry());
+    const red = entityWithCircle("person.alice", { radius: 25, source: "config", color: "#ff0000" });
+
+    service.update([red], hassWith({}), false);
+    map.getSource.mockReturnValue({ setData: vi.fn() }); // the source now exists
+    const blue = entityWithCircle("person.alice", {
+      radius: 25,
+      source: "config",
+      color: "#0000ff",
+      fill_opacity: 0.5,
+    });
+    service.update([blue], hassWith({}), false);
+
+    expect(map.setPaintProperty).toHaveBeenCalledWith("circle-person.alice-fill", "fill-color", "#0000ff");
+    expect(map.setPaintProperty).toHaveBeenCalledWith("circle-person.alice-fill", "fill-opacity", 0.5);
+    expect(map.setPaintProperty).toHaveBeenCalledWith("circle-person.alice-line", "line-color", "#0000ff");
+  });
+
+  it("leaves paint alone when only the geometry changed", () => {
+    const map = createFakeMaplibreMap();
+    const service = new CircleRenderService(map as never, new StyleReattach(), new LayerRegistry());
+    const entity = entityWithCircle("person.alice", { radius: 25, source: "config", color: "#ff0000" });
+
+    service.update([entity], hassWith({}), false);
+    map.getSource.mockReturnValue({ setData: vi.fn() });
+    service.update([entity], hassWith({}), false);
+
+    expect(map.setPaintProperty).not.toHaveBeenCalled();
+  });
+
   it("removes the source/layers and unregisters reattach + the layer switcher when a circle drops out", () => {
     const map = createFakeMaplibreMap();
     const reattach = new StyleReattach();

@@ -14,7 +14,7 @@ import { ClusterRenderService, type ClusterMapLike } from "../services/render/Cl
 import { EntitiesRenderService, type MapLibreGlLike } from "../services/render/EntitiesRenderService";
 import { GeoJsonRenderService, type GeoJsonMapLike } from "../services/render/GeoJsonRenderService";
 import { HistoryRenderService, type MapSourceLike } from "../services/render/HistoryRenderService";
-import { InitialViewRenderService, type MapViewLike } from "../services/render/InitialViewRenderService";
+import { InitialViewRenderService } from "../services/render/InitialViewRenderService";
 import { LayerRegistry } from "../services/render/LayerRegistry";
 import { TileLayersRenderService, type TileLayersMapLike } from "../services/render/TileLayersRenderService";
 import type { HomeAssistant } from "../types/home-assistant";
@@ -93,7 +93,18 @@ export class NyxmapCard extends LitElement {
   private readonly _historyManager = new EntityHistoryManager();
   private readonly _initialView = new InitialViewRenderService();
   private readonly _layerRegistry = new LayerRegistry();
+  /** The switcher's *desired* per-overlay visibility — the user's intent,
+   * which deliberately outlives both style swaps and a teardown/rebuild. */
   private readonly _overlayVisibility = new Map<string, boolean>();
+  /** What has actually been pushed into the live render services, so
+   * _syncOverlayVisibility() can tell "already applied" from "still owed".
+   * Cleared in _teardown() because the rebuilt services all start visible
+   * again (see that method), which is precisely the state this reconciles. */
+  private readonly _appliedOverlayVisibility = new Map<string, boolean>();
+  /** Live "(prefers-color-scheme: dark)" query, watched while connected so
+   * theme_mode: "auto" reacts to the OS flipping to dark — see
+   * _watchColorScheme(). */
+  private _colorSchemeQuery?: MediaQueryList;
 
   setConfig(config: MapConfigRaw): void {
     this._config = new MapConfig(config);
@@ -163,6 +174,7 @@ export class NyxmapCard extends LitElement {
 
   override connectedCallback(): void {
     super.connectedCallback();
+    this._watchColorScheme();
     // Cancel a teardown scheduled by a *benign* disconnect (see below) — the
     // element came back, so the map it still owns stays valid.
     if (this._teardownTimer !== undefined) {
@@ -197,6 +209,7 @@ export class NyxmapCard extends LitElement {
    * once the cap is hit. */
   override disconnectedCallback(): void {
     super.disconnectedCallback();
+    this._unwatchColorScheme();
     this._resizeObserver?.disconnect();
     if (this._resizeRaf !== undefined) {
       cancelAnimationFrame(this._resizeRaf);
@@ -239,6 +252,15 @@ export class NyxmapCard extends LitElement {
     for (const id of [...this._layerRegistry.getOverlays().keys()]) {
       this._layerRegistry.unregister(id);
     }
+    // _overlayVisibility (the user's intent) is deliberately kept, but every
+    // rebuilt service starts visible again — HistoryRenderService.visibility,
+    // CircleRenderService.visibility, TileLayersRenderService.visibility and
+    // ClusterRenderService._enabled are all fresh. Forgetting what we'd pushed
+    // into the old services makes _syncOverlayVisibility() re-push it into the
+    // new ones; without this, an overlay the user had unchecked came back
+    // visible after a reconnect while its checkbox still rendered unchecked,
+    // and had to be toggled twice to re-hide.
+    this._appliedOverlayVisibility.clear();
     this._built = false;
     this._ready = false;
     this._activeStyleUrl = undefined;
@@ -289,11 +311,11 @@ export class NyxmapCard extends LitElement {
     if (!this._built && this._config) {
       this._buildMap();
     }
-    if (changed.has("hass") && this._ready && this._config && this.hass) {
+    if (changed.has("hass") && this._ready && this._config && this.hass && this._map) {
       this._refreshOverlays();
       this._applyInitialViewIfNeeded();
       this._initialView.updateFit(
-        this._map as unknown as MapViewLike,
+        this._map,
         this._config.entities,
         this.hass,
         this._config.focusFollow,
@@ -342,6 +364,37 @@ export class NyxmapCard extends LitElement {
   private _prefersDark(): boolean {
     return matchMedia("(prefers-color-scheme: dark)").matches;
   }
+
+  /** theme_mode: "auto" resolves against the OS colour scheme — but that
+   * resolution only ever re-ran from setConfig/_buildMap/the switcher's own
+   * controls, so a wall panel left open through sunset kept its light basemap
+   * while updated()'s data-dark flag restyled the *controls* for dark: a
+   * permanently mismatched half-dark card until the page was reloaded.
+   * Watching the media query fixes that. Idempotent (Lit disconnects and
+   * reconnects the same element on a benign re-parent) and paired with
+   * _unwatchColorScheme() in disconnectedCallback()/_teardown(). */
+  private _watchColorScheme(): void {
+    if (this._colorSchemeQuery) return;
+    const query = matchMedia("(prefers-color-scheme: dark)");
+    query.addEventListener("change", this._onColorSchemeChange);
+    this._colorSchemeQuery = query;
+  }
+
+  private _unwatchColorScheme(): void {
+    this._colorSchemeQuery?.removeEventListener("change", this._onColorSchemeChange);
+    this._colorSchemeQuery = undefined;
+  }
+
+  /** Bound once (arrow field) so add/removeEventListener see the same
+   * reference across reconnects. Only the "auto" mode follows the OS; an
+   * explicit light/dark theme_mode — or a manual pick in the switcher's own
+   * Theme control — must stay where the user put it. */
+  private readonly _onColorSchemeChange = (): void => {
+    if (!this._map || !this._config) return;
+    if (this._effectiveThemeMode() !== "auto") return;
+    this._applyStyle(this._resolveActiveStyleUrl());
+    this.requestUpdate();
+  };
 
   /** The layer switcher's own Theme control (Auto/Light/Dark, shown
    * alongside map_styles) overrides the static config value at runtime,
@@ -412,16 +465,53 @@ export class NyxmapCard extends LitElement {
     this._map.setMinZoom(entry?.minZoom ?? this._config.minZoom ?? 0);
   }
 
+  /** Records the click as intent, then reconciles the live services with it.
+   * The write and the apply are deliberately separate: entry.setVisible()
+   * bottoms out in map.setLayoutProperty(), which MapLibre guards with
+   * _checkLoaded() and throws from while a setStyle() is still in flight.
+   * This used to write _overlayVisibility first and let that throw escape,
+   * skipping both the button refresh and requestUpdate() — the checkbox then
+   * rendered checked while the state said hidden, and the style.load replay
+   * (which honours the service's own visibility) brought the layer back
+   * *shown* while the UI insisted otherwise. Now the click is never lost: it
+   * lands in _overlayVisibility (so the UI is right immediately) and
+   * _syncOverlayVisibility() applies it as soon as the style is loaded. */
   private _onToggleOverlay(id: string): void {
-    const next = !(this._overlayVisibility.get(id) ?? true);
-    this._overlayVisibility.set(id, next);
-    const entry = this._layerRegistry.getOverlays().get(id);
-    if (entry && this._map) entry.setVisible(this._map, next);
+    this._overlayVisibility.set(id, !(this._overlayVisibility.get(id) ?? true));
+    this._syncOverlayVisibility();
+    this.requestUpdate();
+  }
+
+  /** Pushes any overlay whose desired visibility differs from what the live
+   * services were last told into those services. Deferred toggles (clicked
+   * mid-style-swap) and a post-teardown rebuild both land here — see
+   * _onToggleOverlay() and _teardown(). No-op once everything matches, so it's
+   * cheap to call from every refresh path. */
+  private _syncOverlayVisibility(): void {
+    const map = this._map;
+    // Mid-setStyle() the new style isn't loaded and setLayoutProperty() throws;
+    // the "style.load" handler calls this again once it is.
+    if (!map || !this._ready) return;
+    for (const [id, visible] of this._overlayVisibility) {
+      if ((this._appliedOverlayVisibility.get(id) ?? true) === visible) continue;
+      const entry = this._layerRegistry.getOverlays().get(id);
+      // Not registered (yet) — e.g. a history overlay whose fetch is still in
+      // flight. Left un-applied so a later refresh picks it up.
+      if (!entry) continue;
+      try {
+        entry.setVisible(map, visible);
+        this._appliedOverlayVisibility.set(id, visible);
+      } catch (err) {
+        // Left un-applied deliberately: the realistic cause is a style that
+        // isn't loaded after all, and retrying beats silently dropping the
+        // user's click.
+        console.warn("[nyxmap] could not apply overlay visibility", id, err);
+      }
+    }
     // Keeps the dedicated "Toggle grouping" map button's pressed state in
     // sync when clusters are toggled via the layer switcher's own checkbox
     // instead (both drive the same "entity-clusters" overlay id).
     this._clusterToggleControl?.refresh();
-    this.requestUpdate();
   }
 
   /** Registers/updates the layer switcher's base-style radio options from
@@ -664,6 +754,9 @@ export class NyxmapCard extends LitElement {
     // too (with the current absorbed set), so no separate circle update here.
     this._updateEntitiesAndClusters();
     this._geojson?.update(this._config.entities, this.hass);
+    // Overlays (re-)register themselves during the updates above, so this is
+    // the point at which a remembered "hidden" can actually be re-applied.
+    this._syncOverlayVisibility();
   }
 
   /** Starts the compact attribution control collapsed (just the ⓘ button)
@@ -733,9 +826,21 @@ export class NyxmapCard extends LitElement {
   }
 
   /** Draws accuracy circles for every entity except those currently absorbed
-   * into a cluster bubble (whose markers — and thus circles — are hidden). */
+   * into a cluster bubble (whose markers — and thus circles — are hidden).
+   *
+   * `_ready` is checked here and not only in updated()/setConfig() because
+   * this is also reached from ClusterRenderService's own zoomend/moveend
+   * listeners, which are attached to the *Map* (not the style) and therefore
+   * keep firing right through a setStyle(). _onSelectBaseStyle() makes that
+   * routine: it starts the swap and then calls setMaxZoom(), which MapLibre
+   * implements as a synchronous jumpTo() — firing zoomend/moveend immediately,
+   * recomputing clusters, and landing here with addSource() against a style
+   * that is not done loading (an uncaught throw out of a MapLibre event
+   * handler). A plain drag during the style fetch does it too. Markers are
+   * safe (they live outside the style) so the resync above still runs — only
+   * the source/layer-backed circles wait for the new style. */
   private _refreshCircles(): void {
-    if (!this._config || !this.hass) return;
+    if (!this._config || !this.hass || !this._ready) return;
     this._circles?.update(
       this._config.entities,
       this.hass,
@@ -765,7 +870,7 @@ export class NyxmapCard extends LitElement {
       this._map.jumpTo({ center, zoom: this._config.zoom });
     } else {
       this._initialView.fitAllEntities(
-        this._map as unknown as MapViewLike,
+        this._map,
         this._config.entities,
         this.hass,
         this._config.zoom,
@@ -804,6 +909,9 @@ export class NyxmapCard extends LitElement {
       .then((histories) => {
         if (generation !== this._historyGeneration || !this._ready) return;
         this._history?.update(histories);
+        // update() is also where a per-entity history overlay first registers,
+        // so a remembered "hidden" for it can only be applied now.
+        this._syncOverlayVisibility();
         // History overlays are registered as a side effect of update() —
         // re-render so the switcher (if enabled) picks up any new/removed
         // per-entity checkboxes.

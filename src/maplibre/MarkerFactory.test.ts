@@ -195,6 +195,17 @@ describe("markerVisualKey", () => {
     expect(markerVisualKey(cfg, stateOf("person.a", "home", { friendly_name: "Alice" }))).not.toBe(base);
   });
 
+  // Regression: zIndexOffset was only ever applied at marker creation
+  // (wrapAnimatedMarker), and wasn't keyed here either — so raising an
+  // entity's z_index_offset in the visual editor did nothing until the card
+  // was rebuilt.
+  it("changes when z_index_offset changes", () => {
+    const base = markerVisualKey(EntityConfig.from({ entity: "person.a" }));
+
+    expect(markerVisualKey(EntityConfig.from({ entity: "person.a", z_index_offset: 1 }))).toBe(base);
+    expect(markerVisualKey(EntityConfig.from({ entity: "person.a", z_index_offset: 10 }))).not.toBe(base);
+  });
+
   it("ignores a state change unless display is 'state' (a move must not rebuild the DOM)", () => {
     const marker = EntityConfig.from({ entity: "person.a" });
     expect(markerVisualKey(marker, stateOf("person.a", "home"))).toBe(

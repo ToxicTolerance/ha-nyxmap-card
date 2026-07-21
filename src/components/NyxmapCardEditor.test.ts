@@ -2,7 +2,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import "./NyxmapCardEditor";
 import type { NyxmapCardEditor } from "./NyxmapCardEditor";
-import type { MapConfigRaw } from "../configs/MapConfig";
+import { MapConfig, type MapConfigRaw } from "../configs/MapConfig";
 import type { NyxmapFormListEditor } from "./NyxmapFormListEditor";
 
 async function mount(): Promise<NyxmapCardEditor> {
@@ -204,7 +204,39 @@ describe("NyxmapCardEditor", () => {
 
     const detail = (spy.mock.calls[0]![0] as CustomEvent<{ config: MapConfigRaw }>).detail;
     const [, added] = detail.config.entities! as Array<Record<string, unknown>>;
+    // The blank row is emitted verbatim on purpose: `entity` is the row's
+    // identity key (EntityConfigRaw requires it, and the id-matching above is
+    // written against the "" sentinel). What used to break was the *parse*
+    // side, which threw on it — MapConfig now skips it, see below.
     expect(added).toEqual({ entity: "" });
+  });
+
+  it("emits a config that MapConfig can still parse while a blank row is half-filled", () => {
+    // Regression: "+ Add entity" emitted { entity: "" }, MapConfig mapped it
+    // eagerly through EntityConfig.from, which threw — replacing the live
+    // preview (and the saved card) with an HA error card.
+    const config: MapConfigRaw = { entities: [{ entity: "person.alice" }, { entity: "" }] };
+    expect(() => new MapConfig(config)).not.toThrow();
+    expect(new MapConfig(config).entities.map((e) => e.id)).toEqual(["person.alice"]);
+  });
+
+  it("drops a cleared text field from the emitted entity instead of writing an empty string", async () => {
+    el.setConfig({ entities: [{ entity: "person.alice", label: "Alice", icon: "mdi:account" }] });
+    await el.updateComplete;
+
+    const spy = onConfigChanged(el);
+    const [entitiesEditor] = listEditors(el);
+    entitiesEditor!.dispatchEvent(
+      new CustomEvent("items-changed", {
+        detail: { items: [{ entity: "person.alice", label: "", icon: "" }] },
+        bubbles: true,
+        composed: true,
+      }),
+    );
+
+    const detail = (spy.mock.calls[0]![0] as CustomEvent<{ config: MapConfigRaw }>).detail;
+    const [first] = detail.config.entities! as Array<Record<string, unknown>>;
+    expect(first).toEqual({ entity: "person.alice" });
   });
 
   it("keeps YAML-only keys through an entity id typed one character at a time", async () => {

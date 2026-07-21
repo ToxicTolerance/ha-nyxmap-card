@@ -18,14 +18,14 @@ from TypeScript sources in `src/` and shipped as a **single bundled ES module**,
 
 ### Toolchain
 
-`package.json` (v0.9.1) is the source of truth; all of these scripts exist and work:
+`package.json` (v0.10.0-rc.2) is the source of truth; all of these scripts exist and work:
 
 | Script | What it does |
 |---|---|
 | `npm run dev` | Vite dev server; `vite.config.ts` opens `dev/harness.html` |
 | `npm run build` | Vite lib build → `dist/nyxmap-card.js` (`build:watch` for the watch mode) |
 | `npm test` | `vitest run` (`test:watch`, `test:coverage` for the variants) |
-| `npm run lint` | `eslint .` — the whole project, matching what `tsconfig.json` type-checks (`src`, `test`, `dev`, `vite.config.ts`) |
+| `npm run lint` | `eslint . --max-warnings 0` — the whole project, matching what `tsconfig.json` type-checks (`src`, `test`, `dev`, `vite.config.ts`) |
 | `npm run typecheck` | `tsc --noEmit` |
 
 Vite 6 + vitest 2 + TypeScript 5.7 + eslint 9 (with `typescript-eslint` and `eslint-plugin-lit`).
@@ -33,10 +33,15 @@ Vite 6 + vitest 2 + TypeScript 5.7 + eslint 9 (with `typescript-eslint` and `esl
 and `isolatedModules` — assume new code has to clear that bar. Runtime dependencies are just
 `maplibre-gl`, `lit` and `@turf/circle`. `.github/workflows/test.yml` runs typecheck → lint →
 `test:coverage` → build on pushes to `main`/`master` and on every PR, and `release.yml` calls it as
-a required job so a `v*` tag can't publish without passing it. Coverage thresholds live in
-`vite.config.ts` (85% lines/statements/functions, 80% branches, currently ~98%/91%) and
-`passWithNoTests` is deliberately off, so a glob mistake that collects zero tests fails instead of
-reporting green.
+a required job so a `v*` tag can't publish without passing it. Two deliberate sharp edges in that
+gate: `lint` runs with `--max-warnings 0` (eslint exits 0 on warnings, so without it a lint job can
+never fail — `no-unused-vars` and unused `eslint-disable` directives are both warn-severity here),
+and `passWithNoTests` is off, so a glob mistake that collects zero tests fails instead of reporting
+green. Coverage thresholds live in `vite.config.ts` and are **per-file** floors (70% of each metric,
+`perFile: true`) rather than aggregate ones — an aggregate gate lets one module rot to 0% while the
+rest of the tree carries the average. Actuals are far above the floor (~98% statements/lines, ~96%
+functions, ~91% branches); `LayerSwitcherControl.ts` is the weakest file and sets the ceiling on how
+high the floor can go.
 
 ### Dev loop
 
@@ -130,8 +135,9 @@ the places nyxmap deliberately diverges:
   `projection: mercator` is a one-line opt-out for anyone who wants the classic flat view.
 - **`plugins`** gates nyxmap's own JS plugin hook. Upstream's Leaflet `plugins: []` array is
   intentionally *not* mirrored — see "JS plugin hook" below.
-- **`z_index_offset`** is parsed and round-trips for upstream compatibility but no render service
-  reads it.
+- **`z_index_offset`** matches upstream but defaults to `1`, not `0`, and is applied to the
+  marker's *positioning wrapper* — the outer node MapLibre transforms — rather than the marker DOM
+  itself (`MarkerFactory.ts`, via `wrapAnimatedMarker`).
 
 ### The one non-obvious invariant: markers vs. sources across theme swaps
 
@@ -142,15 +148,20 @@ Consequently:
 
 - Entity markers are created once and just get their `LngLat` updated — they survive style swaps
   for free.
-- Anything added as a source/layer (currently: history-trail `LineString`s, keyed
-  `history-${entityId}`) must be re-added after every style load. This is done in
-  `_reattachSources()`, called from the `"style.load"` map event handler — that handler fires both
-  on first load and after every subsequent `setStyle()`.
+- Anything added as a source/layer must be re-added after every style load. That is what
+  `StyleReattach` (`src/maplibre/StyleReattach.ts`) is for: a service calls
+  `reattach.register(id, map => …)` with a factory that re-adds its own source/layers, and
+  `NyxmapCard`'s `"style.load"` handler (in `_buildMap()`) calls `this._reattach.replayAll(this._map!)`
+  — that handler fires both on first load and after every subsequent `setStyle()`. Four render
+  services register today, each owning an id prefix: `HistoryRenderService` (`history-${entityId}`
+  trail `LineString`s), `CircleRenderService` (`circle-…`), `GeoJsonRenderService` (`geojson-…`) and
+  `TileLayersRenderService` (`tile-layer-…` / `wms-layer-…`), plus any plugin overlay registered
+  through `PluginHost`'s `registerOverlay`.
 
 Any new overlay type that uses MapLibre sources/layers rather than HTML markers needs to plug into
 this same re-attach path, or it will silently vanish on the next theme change. `CircleRenderService`
-(GPS-accuracy/radius circles) and `HistoryRenderService` (trail `LineString`s) follow it as
-examples. Note `ClusterRenderService` deliberately does *not*: its cluster bubbles are HTML
+(GPS-accuracy/radius circles) and `HistoryRenderService` (trail `LineString`s) are the smallest
+examples to copy. Note `ClusterRenderService` deliberately does *not*: its cluster bubbles are HTML
 `maplibregl.Marker`s (like entity markers), so they survive `setStyle()` for free and need no
 re-attach registration — that's also what lets them animate via CSS transitions.
 
@@ -263,9 +274,11 @@ when clustering is on (so a fixed offset would be wrong half the time). `IconBut
 its glyph as **inline SVG** (not `<ha-icon>`) so the buttons render in the dev harness and anywhere
 HA's `ha-icon` isn't registered — same rationale as `LayerSwitcherControl`'s inline layers icon.
 Every card-added control therefore lives in the **top-right**; the only other occupied corner is
-bottom-right, which holds MapLibre's own compact attribution. Nothing sits bottom-left (an earlier
-layout put the layer switcher there — some in-code comments still say so; the top-right stacking
-above is what ships as of v0.9.1).
+bottom-right, which holds MapLibre's own compact attribution. Nothing the card itself adds sits
+bottom-left; an earlier layout put the layer switcher there, but no code or comment claims that any
+more. (`bottom-left` still appears in `NyxmapCard.styles.ts`, in a margin rule that covers all four
+`.maplibregl-ctrl-*` corners, and in the plugin examples, where the author picks that corner for
+their own control — both correct.)
 The compact attribution is force-collapsed on the map's `idle` event (`_collapseAttribution`);
 MapLibre re-expands it when a style's attribution text loads *after* `style.load`, so collapsing
 only there wouldn't stick.
@@ -294,20 +307,3 @@ Already ported, despite older comments implying otherwise: `tile_layers`/WMS ras
 
 Deliberately *not* ported: upstream's Leaflet `plugins: []` array — MapLibre has no plugin registry
 to map it onto, and it's superseded by nyxmap's own JS plugin hook (see above).
-
-## Where older cross-references point
-
-Some source comments still cite section names from an earlier numbered/phased version of this
-document. Those numbers and phases are gone; this table maps them onto the sections that replaced
-them, so a pointer that says "§5" or "Phase 9" is not a dead end:
-
-| Old reference | Read instead |
-|---|---|
-| "§5", "§5 for keys that don't carry over 1:1" | [Config surface (relative to upstream `ha-map-card`)](#config-surface-relative-to-upstream-ha-map-card) |
-| "§5 'Open risk to flag'" | same section, the `map_style`/`map_style_dark` bullet |
-| "§5 'Layer switcher'" | same section, the `map_styles`/`layer_switcher` bullet |
-| "CLAUDE.md's globe decision" | same section, the `projection` bullet |
-| "the 'MapLibre bundling' decision" | [MapLibre bundling](#maplibre-bundling) |
-| "Phase 9", "the phase plan", "the Phase 9 backlog" | [Porting backlog](#porting-backlog-not-yet-ported-from-upstream-ha-map-card) |
-
-The comments themselves should be updated to the new names; until then, this table is the bridge.

@@ -9,11 +9,25 @@ function hassWith(states: HomeAssistant["states"]): HomeAssistant {
   return { states, callWS: vi.fn(), language: "en" };
 }
 
+/** Models the real `maplibregl.LngLatBounds` contract: accessor *methods*,
+ * no west/east/south/north properties. The fake used to return a plain box,
+ * which is what let `focus_follow: "contains"` ship broken — the production
+ * call compared numbers against `undefined` while the test happily confirmed
+ * the guard worked. */
+function lngLatBounds(b: BoundsLike) {
+  return {
+    getWest: () => b.west,
+    getEast: () => b.east,
+    getSouth: () => b.south,
+    getNorth: () => b.north,
+  };
+}
+
 function fakeMap(bounds: BoundsLike = { west: 0, east: 0, south: 0, north: 0 }) {
   return {
     jumpTo: vi.fn(),
     fitBounds: vi.fn(),
-    getBounds: vi.fn(() => bounds),
+    getBounds: vi.fn(() => lngLatBounds(bounds)),
   } satisfies MapViewLike;
 }
 
@@ -199,6 +213,26 @@ describe("InitialViewRenderService.updateFit", () => {
     const map = fakeMap({ west: -180, east: 180, south: -85, north: 85 });
     new InitialViewRenderService().updateFit(map, entities, hassWith({}), "contains");
     expect(map.fitBounds).not.toHaveBeenCalled();
+  });
+
+  it("'contains' keeps skipping across repeated updates while the entities stay in view", () => {
+    // Regression (camera pinning): MapViewLike declared getBounds() as a plain
+    // {west,east,south,north} box, but a real maplibregl.LngLatBounds only has
+    // accessor methods — so every comparison inside boundsContains() ran
+    // against `undefined`, the guard never short-circuited, and the camera
+    // re-fitted on *every* hass object (many per second on a real install).
+    // The card laundered the mismatch past tsc with `as unknown as
+    // MapViewLike`, and the fake above encoded the wrong contract, so nothing
+    // caught it. Both are fixed; this pins the behaviour.
+    const map = fakeMap({ west: -180, east: 180, south: -85, north: 85 });
+    const service = new InitialViewRenderService();
+    service.updateFit(map, entities, hassWith({}), "contains");
+    service.updateFit(map, entities, hassWith({}), "contains");
+    service.updateFit(map, entities, hassWith({}), "contains");
+
+    expect(map.getBounds).toHaveBeenCalledTimes(3);
+    expect(map.fitBounds).not.toHaveBeenCalled();
+    expect(map.jumpTo).not.toHaveBeenCalled();
   });
 
   it("'contains' fits when an entity has left the current view", () => {

@@ -23,6 +23,7 @@ GeoJSON/geometry rendering.
   - [Circle options](#circle-options-per-entity-circle)
   - [GeoJSON options](#geojson-options-per-entity-geojson)
   - [Tile/WMS layer options](#tilewms-layer-options-tile_layers--wms)
+- [Plugins](#plugins)
 - [Examples](#examples)
 - [Development](#development)
 - [Roadmap](#roadmap)
@@ -37,7 +38,7 @@ GeoJSON/geometry rendering.
   swaps
 - 🎯 Initial camera framing via `focus_entity`/`focus_follow`, or auto-fit to every entity
 - 🧭 An optional layer switcher panel — toggle between base map styles and show/hide overlays
-  (history trails, circles, GeoJSON shapes) independently
+  (history trails, circles, GeoJSON shapes, raster tile/WMS layers, cluster bubbles) independently
 - ⭕ Per-entity circles sized from `gps_accuracy`, a state attribute, or a fixed radius
 - 🧩 Native GeoJSON rendering from any entity attribute (points, lines, polygons)
 - 🛰️ Raster tile and WMS overlays (e.g. weather radar) layered on top of the vector base style,
@@ -89,10 +90,12 @@ framed, and optionally trail their recent history.
 Open **Edit card** on a NyxMap card and you'll get a visual form instead of
 raw YAML: every [card option](#card-options) above, plus a full entities list
 (add/remove/reorder, and every field in [Entity options](#entity-options)).
-`circle` gets a simple on/off checkbox ("Show accuracy circle"); `geojson`,
-`tile_layers`, and `wms` aren't in the visual editor yet, nor is customizing a
-circle's radius/color/opacity — switch to **Edit in YAML** (the toggle in the
-same dialog) to set those.
+`circle` gets a simple on/off checkbox ("Show accuracy circle"), and
+`map_styles` gets its own add/remove list. `geojson`, `tile_layers`, `wms` and
+`plugins` aren't in the visual editor yet, nor is customizing a circle's
+radius/color/opacity — switch to **Edit in YAML** (the toggle in the same
+dialog) to set those. Keys the form doesn't cover are preserved as-is when you
+save.
 
 ## Configuration reference
 
@@ -109,11 +112,11 @@ same dialog) to set those.
 | `theme_mode` | `auto` \| `light` \| `dark` | `auto` | `auto` follows the browser's `prefers-color-scheme`. |
 | `map_style` | string (style JSON URL) | a free [OpenFreeMap](https://openfreemap.org/) style | Light-mode base style. |
 | `map_style_dark` | string (style JSON URL) | a free [CARTO](https://carto.com/basemaps) dark style | Dark-mode base style. |
-| `map_styles` | list of `{name, map_style, map_style_dark, max_zoom, min_zoom}` | — | Named base styles offered in the [layer switcher](#layer_switcher). Once this is set, the switcher shows only these — the generic "Light"/"Dark" options are hidden, since they'd otherwise duplicate/conflict with your own named entries. In their place, the switcher gets a separate Auto/Light/Dark "Theme" control that swaps whichever named entry is active between its own `map_style`/`map_style_dark`, so an entry doesn't need separate light/dark-named siblings to offer both. `map_style`/`map_style_dark` still drive the initial theme-follow behavior either way. `max_zoom`/`min_zoom` on an entry cap the camera to that specific style's real coverage once it's selected (see `max_zoom` above) — useful when styles in the list have different actual zoom ranges. Both `name` and `map_style` are required: an entry missing either, or repeating a `name` already used earlier in the list, is ignored rather than offered in the switcher. |
+| `map_styles` | list of `{name, map_style, map_style_dark, max_zoom, min_zoom}` | — | Named base styles offered in the [layer switcher](#card-options). Once this is set, the switcher shows only these — the generic "Light"/"Dark" options are hidden, since they'd otherwise duplicate/conflict with your own named entries. In their place, the switcher gets a separate Auto/Light/Dark "Theme" control that swaps whichever named entry is active between its own `map_style`/`map_style_dark`, so an entry doesn't need separate light/dark-named siblings to offer both. `map_style`/`map_style_dark` still drive the initial theme-follow behavior either way. `max_zoom`/`min_zoom` on an entry cap the camera to that specific style's real coverage once it's selected (see `max_zoom` above) — useful when styles in the list have different actual zoom ranges. Both `name` and `map_style` are required: an entry missing either, or repeating a `name` already used earlier in the list, is ignored rather than offered in the switcher. |
 | `projection` | `globe` \| `mercator` | `globe` | MapLibre's 3D globe view, or the classic flat projection. |
 | `focus_entity` | entity id | — | Initial center, used when `x`/`y` aren't set. |
 | `focus_follow` | `none` \| `refocus` \| `contains` | `none` | Ongoing auto-fit over every entity with [`focus_on_fit`](#entity-options) (not just `focus_entity`). `refocus` re-fits whenever those entities' combined bounding box actually changes — it deliberately does *not* re-fit on every Home Assistant state update, so your own pan/zoom isn't undone milliseconds later by an unrelated sensor. `contains` is lazier still: it only re-fits once that box no longer fits inside the current view. When the box collapses to a single point (one entity, or several at the same position) the camera centers there at `zoom` instead of zooming all the way in. |
-| `layer_switcher` | boolean | `false` | Show a panel for switching base styles and toggling overlays (history, circles, GeoJSON, clusters) on/off. Its button sits in the top-right, stacked directly beneath the zoom/compass and Reset focus / Toggle grouping controls; the panel opens downward from it. |
+| `layer_switcher` | boolean | `false` | Show a panel for switching base styles and toggling overlays (history, circles, GeoJSON, raster `tile_layers`/`wms` layers, clusters) on/off. Its button sits in the top-right, stacked directly beneath the zoom/compass and Reset focus / Toggle grouping controls; the panel opens downward from it. |
 | `history_start` / `history_end` | string (relative or ISO) | — | Card-level default history window, inherited by entities that don't set their own. Trails refresh about once a minute, so a relative window (`6 hours ago`) keeps tracking real time on a dashboard left open all day rather than freezing at page load. |
 | `history_show_lines` | boolean | `true` | Draw the connecting trail line for each entity's history. |
 | `history_show_dots` | boolean | `false` | Draw a dot at each sampled history position, in addition to (or instead of) the connecting line. |
@@ -138,7 +141,7 @@ Each item in `entities:` is either a bare entity id string, or an object:
 | `label` | string | entity name initials | Used when there's neither picture nor icon. |
 | `color` | string (CSS color) | derived from the entity id | Marker color, and the default color for that entity's circle/history trail/geojson shape. |
 | `size` | number | `48` | Marker size in pixels. |
-| `z_index_offset` | number | `0` | Stacking order for overlapping markers — higher sits on top. |
+| `z_index_offset` | number | `1` | Stacking order for overlapping markers — higher sits on top. |
 | `fixed_x` / `fixed_y` | number | — | Pin the marker to a fixed longitude/latitude instead of reading `latitude`/`longitude` attributes. |
 | `focus_on_fit` | boolean | `true` | Whether this entity counts toward auto-fit-all-entities framing. |
 | `history_start` / `history_end` | string | card-level default | Per-entity history window. Set `history_start` to enable a trail. |
@@ -199,15 +202,14 @@ base style. Each entry:
 | Option | Type | Default | Description |
 |---|---|---|---|
 | `url` | string | *required* | For `tile_layers`, an XYZ template (`{z}/{x}/{y}`). For `wms`, the bare service endpoint — no query string. Supports `{{ states('entity_id') }}` templating, re-resolved live as that entity's state changes. |
-| `options` | object | `{}` | For `tile_layers`, passed straight through as extra raster-source fields — including `minzoom`/`maxzoom`, if this layer's provider doesn't have imagery past a certain level. For `wms`, WMS GetMap params: `layers`, `format` (default `image/png`), `transparent` (default `true`), `version` (default `1.1.1`), `styles` (`minzoom`/`maxzoom` work here too). |
+| `options` | object | `{}` | Extra per-layer settings. For both kinds, `minzoom`/`maxzoom` are lifted onto the MapLibre raster source — set them if this layer's provider doesn't have imagery past a certain level — as is `attribution` (the same value the top-level `attribution` key below sets). For `wms`, `options` additionally supplies the WMS GetMap params: `layers`, `format` (default `image/png`), `transparent` (default `true`), `version` (default `1.1.1`), `styles`. Keys other than these (plus `name` below) are ignored rather than forwarded to MapLibre. |
 | `options.name` | string | derived from `url` | Optional stable identity for this layer. Layer-switcher on/off state follows the layer by identity, so setting a `name` keeps a layer's visibility pinned to *it* rather than to its position when you reorder the list. |
 | `attribution` | string | — | Shown in the map's attribution control. |
 
 ```yaml
 tile_layers:
   url: https://tile.openstreetmap.org/{z}/{x}/{y}.png
-  options:
-    attribution: '&copy; OpenStreetMap contributors'
+  attribution: '&copy; OpenStreetMap contributors'
 wms:
   - url: https://mesonet.agron.iastate.edu/cgi-bin/wms/nexrad/n0r.cgi
     options:
@@ -244,7 +246,7 @@ The `ctx` (`NyxmapPluginContext`) gives you:
 | `maplibregl` | the exact bundled module — escape hatch for `addProtocol`, custom source types, etc. |
 | `card` | the `<nyxmap-card>` element |
 | `getHass()` / `getConfig()` | current Home Assistant object / parsed card config (getters — state changes over time) |
-| `registerOverlay(id, {label, group?, source, layers, visible?})` | add a custom overlay (one source + its layers); it survives theme swaps and shows up as a toggle in the [layer switcher](#layer_switcher) |
+| `registerOverlay(id, {label, group?, source, layers, visible?})` | add a custom overlay (one source + its layers); it survives theme swaps and shows up as a toggle in the [layer switcher](#card-options) |
 | `registerControl(control, position?)` | add a MapLibre `IControl` (thin wrapper over `map.addControl`) |
 | `injectStyle(cssOrUrl)` | inject a plugin's stylesheet **into the card's shadow root** — required for any plugin that ships its own CSS (compass, minimap, geocoder, …), see the note below |
 | `reattach` | advanced escape hatch for hand-rolled sources/layers that must be re-added after each theme swap |

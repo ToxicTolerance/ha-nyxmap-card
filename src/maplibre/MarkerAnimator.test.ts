@@ -122,6 +122,33 @@ describe("MarkerAnimator", () => {
       expect(el.classList.contains(OUT_CLASS)).toBe(false);
     });
 
+    // Regression: the deferred release frame wasn't cancellable, so a converge
+    // starting inside its window had its just-added class stripped by the
+    // queued callback (the marker popped instead of shrinking), and that
+    // callback's onceSettled replaced the converge's pending entry without
+    // clearing it — leaving the converge's listener attached for good, free to
+    // fire its onDone (marker.remove()) a second time on an unrelated later
+    // transitionend, unmounting a marker that was legitimately visible.
+    it("a converge starting inside the pending release frame cancels it and settles exactly once", () => {
+      const el = document.createElement("div");
+      const done = vi.fn();
+
+      animateEmerge(el, 10, 10);
+      animateConverge(el, 5, 5, done);
+      vi.advanceTimersByTime(1); // the release frame would have fired here
+
+      // The converge owns the element now: its collapsed state stands.
+      expect(el.classList.contains(OUT_CLASS)).toBe(true);
+      expect(el.style.getPropertyValue("--nyxmap-anim-dx")).toBe("5px");
+
+      vi.advanceTimersByTime(ANIM_MS + 60);
+      expect(done).toHaveBeenCalledTimes(1);
+
+      // No stale listener left over to re-fire onDone later.
+      el.dispatchEvent(new Event("transitionend"));
+      expect(done).toHaveBeenCalledTimes(1);
+    });
+
     it("clears the offset custom properties once the emerge settles", () => {
       const el = document.createElement("div");
       animateEmerge(el, 20, 30);

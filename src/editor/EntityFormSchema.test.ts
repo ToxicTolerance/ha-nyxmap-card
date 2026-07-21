@@ -93,6 +93,53 @@ describe("formDataToEntityRaw", () => {
     expect(next.circle).toBeUndefined();
   });
 
+  describe("clearing a field", () => {
+    // MarkerFactory falls back with `??`, so a "" written over label/icon
+    // renders an empty disc / blank glyph instead of the initials or the
+    // entity's own icon attribute.
+    it.each([
+      ["an empty string", ""],
+      ["undefined", undefined],
+      ["null", null],
+    ])("deletes a text key when ha-form reports it as %s", (_label, cleared) => {
+      const previous: EntityConfigRaw = { entity: "person.alice", label: "Alice", icon: "mdi:account" };
+      const next = formDataToEntityRaw({ entity: "person.alice", label: cleared, icon: cleared }, previous);
+      expect(next).not.toHaveProperty("label");
+      expect(next).not.toHaveProperty("icon");
+    });
+
+    it("deletes a cleared color rather than writing an empty string", () => {
+      const previous: EntityConfigRaw = { entity: "person.alice", color: "#123456" };
+      const next = formDataToEntityRaw({ entity: "person.alice", color: "" }, previous);
+      expect(next).not.toHaveProperty("color");
+    });
+
+    it("preserves false and 0 — they are values, not clears", () => {
+      const next = formDataToEntityRaw(
+        { entity: "person.alice", focus_on_fit: false, size: 0, fixed_x: 0 },
+        { entity: "person.alice" },
+      );
+      expect(next.focus_on_fit).toBe(false);
+      expect(next.size).toBe(0);
+      expect(next.fixed_x).toBe(0);
+    });
+
+    it("leaves an absent key alone rather than treating it as cleared", () => {
+      // Unlike the card-level form, absent ≠ cleared here: entityRawToFormData
+      // omits values it can't represent (a non-hex color).
+      const previous: EntityConfigRaw = { entity: "person.alice", label: "Alice" };
+      const next = formDataToEntityRaw({ entity: "person.alice" }, previous);
+      expect(next.label).toBe("Alice");
+    });
+
+    it("keeps entity as a blank-string sentinel rather than deleting the row's id key", () => {
+      const previous: EntityConfigRaw = { entity: "person.alice", geojson: "geo_location" };
+      const next = formDataToEntityRaw({ entity: "" }, previous);
+      expect(next.entity).toBe("");
+      expect(next.geojson).toBe("geo_location");
+    });
+  });
+
   it("checking the circle toggle preserves an existing advanced circle object untouched", () => {
     const previous: EntityConfigRaw = { entity: "person.alice", circle: { radius: 10, color: "#ff0000" } };
     const next = formDataToEntityRaw({ entity: "person.alice", circle: true }, previous);
