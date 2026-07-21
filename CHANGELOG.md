@@ -5,6 +5,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.10.0-rc.1] - 2026-07-21
+
+Release candidate. Bundles the two audit fix waves (23 findings) for testing in a
+real Home Assistant instance before a stable 0.10.0.
+
 ### Fixed
 
 - The card now **destroys its MapLibre map** when it is really removed from the

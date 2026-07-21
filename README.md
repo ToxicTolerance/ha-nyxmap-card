@@ -114,7 +114,7 @@ same dialog) to set those.
 | `focus_entity` | entity id | — | Initial center, used when `x`/`y` aren't set. |
 | `focus_follow` | `none` \| `refocus` \| `contains` | `none` | Ongoing auto-fit over every entity with [`focus_on_fit`](#entity-options) (not just `focus_entity`). `refocus` re-fits whenever those entities' combined bounding box actually changes — it deliberately does *not* re-fit on every Home Assistant state update, so your own pan/zoom isn't undone milliseconds later by an unrelated sensor. `contains` is lazier still: it only re-fits once that box no longer fits inside the current view. When the box collapses to a single point (one entity, or several at the same position) the camera centers there at `zoom` instead of zooming all the way in. |
 | `layer_switcher` | boolean | `false` | Show a panel for switching base styles and toggling overlays (history, circles, GeoJSON, clusters) on/off. Its button sits in the top-right, stacked directly beneath the zoom/compass and Reset focus / Toggle grouping controls; the panel opens downward from it. |
-| `history_start` / `history_end` | string (relative or ISO) | — | Card-level default history window, inherited by entities that don't set their own. |
+| `history_start` / `history_end` | string (relative or ISO) | — | Card-level default history window, inherited by entities that don't set their own. Trails refresh about once a minute, so a relative window (`6 hours ago`) keeps tracking real time on a dashboard left open all day rather than freezing at page load. |
 | `history_show_lines` | boolean | `true` | Draw the connecting trail line for each entity's history. |
 | `history_show_dots` | boolean | `false` | Draw a dot at each sampled history position, in addition to (or instead of) the connecting line. |
 | `cluster_markers` | boolean | `true` | Collapse entities into a numbered bubble **when their marker circles actually overlap on screen** (not a fixed radius), animating smoothly as they merge and split — matching Home Assistant's own built-in map, which also defaults clustering on. Click a bubble (or zoom in) to expand it. Individual entities keep their normal picture/icon marker look — only overlapping entities render as a bubble. Also adds a "Toggle grouping" map button for one-click on/off, in the top-right column directly beneath the zoom/compass and "Reset focus" buttons. Set `false` to disable. |
@@ -132,12 +132,13 @@ Each item in `entities:` is either a bare entity id string, or an object:
 | Option | Type | Default | Description |
 |---|---|---|---|
 | `entity` | entity id | *required* | |
-| `display` | `marker` \| `icon` | `marker` | `icon` skips the entity picture even if one is set. |
+| `display` | `marker` \| `icon` \| `state` | `marker` | `icon` skips the entity picture even if one is set. `state` renders the entity's current state value in the marker instead of a picture/icon/initials — keep an eye on long values, which can clip. |
 | `picture` | string (URL) | entity's `entity_picture` attribute | |
 | `icon` | string (mdi icon) | entity's `icon` attribute | Used when there's no picture. |
 | `label` | string | entity name initials | Used when there's neither picture nor icon. |
 | `color` | string (CSS color) | derived from the entity id | Marker color, and the default color for that entity's circle/history trail/geojson shape. |
 | `size` | number | `48` | Marker size in pixels. |
+| `z_index_offset` | number | `0` | Stacking order for overlapping markers — higher sits on top. |
 | `fixed_x` / `fixed_y` | number | — | Pin the marker to a fixed longitude/latitude instead of reading `latitude`/`longitude` attributes. |
 | `focus_on_fit` | boolean | `true` | Whether this entity counts toward auto-fit-all-entities framing. |
 | `history_start` / `history_end` | string | card-level default | Per-entity history window. Set `history_start` to enable a trail. |
@@ -199,6 +200,7 @@ base style. Each entry:
 |---|---|---|---|
 | `url` | string | *required* | For `tile_layers`, an XYZ template (`{z}/{x}/{y}`). For `wms`, the bare service endpoint — no query string. Supports `{{ states('entity_id') }}` templating, re-resolved live as that entity's state changes. |
 | `options` | object | `{}` | For `tile_layers`, passed straight through as extra raster-source fields — including `minzoom`/`maxzoom`, if this layer's provider doesn't have imagery past a certain level. For `wms`, WMS GetMap params: `layers`, `format` (default `image/png`), `transparent` (default `true`), `version` (default `1.1.1`), `styles` (`minzoom`/`maxzoom` work here too). |
+| `options.name` | string | derived from `url` | Optional stable identity for this layer. Layer-switcher on/off state follows the layer by identity, so setting a `name` keeps a layer's visibility pinned to *it* rather than to its position when you reorder the list. |
 | `attribution` | string | — | Shown in the map's attribution control. |
 
 ```yaml
