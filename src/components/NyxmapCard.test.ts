@@ -1325,6 +1325,63 @@ describe("NyxmapCard", () => {
       expect(el._map!.getSource).not.toHaveBeenCalled();
     });
 
+    // maplibre's _contextRestored calls setStyle() with the style it captured
+    // at loss time, unconditionally — so a theme change made during the outage
+    // is thrown away and the card's idea of the active style desyncs from what
+    // is actually on screen.
+    // _refreshCircles has a second trigger besides a hass update: cluster
+    // recomputation on zoomend/moveend, which fires straight through a lost
+    // context exactly as it does through a setStyle(). Covered here so a
+    // refactor that hoists the _ready check out of _refreshCircles into its
+    // callers can't pass CI while reintroducing the crash.
+    it("stops driving the render services on camera events too", async () => {
+      await buildLoadedCard();
+      el._map!.getSource.mockClear();
+
+      el._map!.fire("webglcontextlost");
+      el._map!.fire("zoomend");
+      el._map!.fire("moveend");
+
+      expect(el._map!.getSource).not.toHaveBeenCalled();
+    });
+
+    it("re-applies a style chosen while the context was lost", async () => {
+      el.setConfig({
+        entities,
+        theme_mode: "light",
+        map_style: "https://styles.test/light.json",
+        map_style_dark: "https://styles.test/dark.json",
+      });
+      await el.updateComplete;
+      el._map!.fire("style.load");
+      el._map!.setStyle.mockClear();
+
+      el._map!.fire("webglcontextlost");
+      // Theme flips to dark while the context is gone.
+      el.setConfig({
+        entities,
+        theme_mode: "dark",
+        map_style: "https://styles.test/light.json",
+        map_style_dark: "https://styles.test/dark.json",
+      });
+      await el.updateComplete;
+      el._map!.setStyle.mockClear();
+
+      el._map!.fire("webglcontextrestored");
+
+      expect(el._map!.setStyle).toHaveBeenCalledWith("https://styles.test/dark.json");
+    });
+
+    it("leaves the style alone when nothing changed during the outage", async () => {
+      await buildLoadedCard();
+      el._map!.fire("webglcontextlost");
+      el._map!.setStyle.mockClear();
+
+      el._map!.fire("webglcontextrestored");
+
+      expect(el._map!.setStyle).not.toHaveBeenCalled();
+    });
+
     it("resumes rendering after the context is restored and maplibre reloads the style", async () => {
       // maplibre's own _contextRestored re-runs setStyle(), which fires
       // "style.load" again — the card's existing handler is what re-arms it,

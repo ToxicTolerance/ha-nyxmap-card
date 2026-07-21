@@ -9,6 +9,7 @@ import { PluginHost } from "../maplibre/PluginHost";
 import { StyleReattach } from "../maplibre/StyleReattach";
 import "./NyxmapCardEditor";
 import { HaHistoryService } from "../services/HaHistoryService";
+import { HistoryRefreshController } from "../services/HistoryRefreshController";
 import { CircleRenderService } from "../services/render/CircleRenderService";
 import { ClusterRenderService, type ClusterMapLike } from "../services/render/ClusterRenderService";
 import { EntitiesRenderService, type MapLibreGlLike } from "../services/render/EntitiesRenderService";
@@ -30,17 +31,6 @@ const ICON_RESET_FOCUS =
   "M12,9A3,3 0 0,0 9,12A3,3 0 0,0 12,15A3,3 0 0,0 15,12A3,3 0 0,0 12,9M19,19H15V21H19A2,2 0 0,0 21,19V15H19M19,3H15V5H19V9H21V5A2,2 0 0,0 19,3M5,5H9V3H5A2,2 0 0,0 3,5V9H5M5,15H3V19A2,2 0 0,0 5,21H9V19H5V15Z";
 const ICON_TOGGLE_GROUPING =
   "M1,1V5H2V19H1V23H5V22H19V23H23V19H22V5H23V1H19V2H5V1M5,4H19V5H20V19H19V20H5V19H4V5H5M6,6V14H9V18H18V9H14V6M8,8H12V12H8M14,11H16V16H11V14H14";
-
-/** How often a card with history configured re-fetches its trails. History
- * used to be fetched exactly once per style load, so a long-lived dashboard
- * (`history_start: "5 hours ago"` on a wall panel) showed a trail frozen at
- * page-load time whose window drifted further out of date all day. A minute
- * is well under the resolution of any usable trail while staying far cheaper
- * than re-fetching per `hass` update — HA replaces the whole `hass` object on
- * every state change anywhere in the instance, which would mean many history
- * WebSocket round-trips per second. Not a config key: adding one means
- * touching MapConfig, which this change deliberately doesn't own. */
-const HISTORY_REFRESH_MS = 60_000;
 
 @customElement("nyxmap-card")
 export class NyxmapCard extends LitElement {
@@ -70,16 +60,29 @@ export class NyxmapCard extends LitElement {
   private _pluginHost?: PluginHost;
   private _clusterToggleControl?: IconButtonControl;
   private _initialViewApplied = false;
-  private _historyCatchUpDone = false;
-  /** Repeating history re-fetch — see HISTORY_REFRESH_MS and
-   * _syncHistoryTimer(). Cleared in _teardown(). */
-  private _historyTimer?: ReturnType<typeof setInterval>;
-  /** Monotonic token identifying the newest in-flight history request. A
-   * response whose token no longer matches is discarded: it either raced a
-   * newer request or landed after teardown/a style swap, and applying it would
-   * call addSource() on a style that has since been replaced. */
-  private _historyGeneration = 0;
-  private _historyInFlight = false;
+  /** Owns the history poll, its in-flight/generation guards and the one-shot
+   * startup catch-up — see HistoryRefreshController. Stopped in _teardown(). */
+  private readonly _historyRefresh = new HistoryRefreshController({
+    hasHistoryConfigured: () => this._hasHistoryConfigured(),
+    isReady: () => this._ready,
+    fetchHistories: () => {
+      if (!this._config || !this.hass || !this._history) return undefined;
+      const historyService = new HaHistoryService(this.hass);
+      return this._historyManager.refresh(this._config.entities, this._config, (entityId, start, end) =>
+        historyService.fetchPath(entityId, start, end),
+      );
+    },
+    onHistories: (histories) => {
+      this._history?.update(histories);
+      // update() is also where a per-entity history overlay first registers,
+      // so a remembered "hidden" for it can only be applied now.
+      this._syncOverlayVisibility();
+      // History overlays are registered as a side effect of update() —
+      // re-render so the switcher (if enabled) picks up any new/removed
+      // per-entity checkboxes.
+      this.requestUpdate();
+    },
+  });
   private _resizeObserver?: ResizeObserver;
   private _resizeRaf?: number;
   /** Pending deferred teardown — see disconnectedCallback(). */
@@ -89,6 +92,10 @@ export class NyxmapCard extends LitElement {
    * "style.load", replaying everything) from a config edit that leaves the
    * style alone (which won't — see setConfig). */
   private _activeStyleUrl?: string;
+  /** The style the map was showing when the WebGL context was lost — i.e. the
+   * one maplibre will unconditionally restore to. Set only while a context is
+   * lost; see the "webglcontextrestored" handler in _buildMap(). */
+  private _styleUrlAtContextLoss?: string;
   private readonly _reattach = new StyleReattach();
   private readonly _historyManager = new EntityHistoryManager();
   private readonly _initialView = new InitialViewRenderService();
@@ -134,8 +141,8 @@ export class NyxmapCard extends LitElement {
       // history_start/entities may well be what changed.
       if (!styleChanged && this._ready && this.hass) {
         this._refreshOverlays();
-        this._historyCatchUpDone = false;
-        this._refreshHistory();
+        this._historyRefresh.resetCatchUp();
+        this._historyRefresh.refresh();
       }
     }
   }
@@ -226,12 +233,7 @@ export class NyxmapCard extends LitElement {
     // Stop the history poll and invalidate anything already in flight before
     // the map goes away — a late response would otherwise call addSource() on
     // a destroyed map.
-    if (this._historyTimer !== undefined) {
-      clearInterval(this._historyTimer);
-      this._historyTimer = undefined;
-    }
-    this._historyGeneration++;
-    this._historyInFlight = false;
+    this._historyRefresh.stop();
     this._map?.remove();
     this._map = undefined;
     this._resizeObserver = undefined;
@@ -265,7 +267,6 @@ export class NyxmapCard extends LitElement {
     this._ready = false;
     this._activeStyleUrl = undefined;
     this._initialViewApplied = false;
-    this._historyCatchUpDone = false;
   }
 
   /** Idempotent: ResizeObserver.observe() on an already-observed element is a
@@ -323,8 +324,8 @@ export class NyxmapCard extends LitElement {
       );
       // Catch-up for the (uncommon but possible) case where hass wasn't set
       // yet when "style.load" first fired, so the refresh below never ran.
-      // Guarded so it only ever fires once — see _refreshHistory().
-      if (!this._historyCatchUpDone) this._refreshHistory();
+      // Guarded so it only ever fires once — see HistoryRefreshController.
+      if (this._historyRefresh.catchUpPending) this._historyRefresh.refresh();
     }
   }
 
@@ -710,12 +711,31 @@ export class NyxmapCard extends LitElement {
     // `this.style.<x>()` forwarder. Without clearing _ready here the next hass
     // update walked straight into the render services and threw "Cannot read
     // properties of null (reading 'getSource')" out of updated(), aborting the
-    // rest of the refresh. No matching "webglcontextrestored" handler is
-    // needed: maplibre restores by calling setStyle() itself, which re-fires
-    // "style.load" below — that re-arms _ready and replays the reattach
-    // registry, which is exactly the recovery this needs.
+    // rest of the refresh.
     this._map.on("webglcontextlost", () => {
       this._ready = false;
+      this._styleUrlAtContextLoss = this._activeStyleUrl;
+    });
+
+    // maplibre recovers on its own — _contextRestored() calls setStyle() with
+    // the style it captured *at loss time*, which re-fires "style.load" below
+    // and re-arms _ready. That restore is unconditional, though, so a style
+    // change made during the outage is silently thrown away: the OS flipping
+    // to dark mid-outage left _activeStyleUrl (and the switcher's radio)
+    // saying dark while the map came back light — permanently, until some
+    // later action happened to call setStyle() again.
+    //
+    // The comparison has to be against the style maplibre reverted *to*, not
+    // against _activeStyleUrl: _applyStyle() already moved that to the desired
+    // URL during the outage, so the two agree precisely in the broken case.
+    this._map.on("webglcontextrestored", () => {
+      const revertedTo = this._styleUrlAtContextLoss;
+      this._styleUrlAtContextLoss = undefined;
+      if (revertedTo === undefined || revertedTo === this._activeStyleUrl) return;
+      // _applyStyle() no-ops when the URL matches _activeStyleUrl, which it
+      // now does; clear it so the re-apply actually reaches setStyle().
+      this._activeStyleUrl = undefined;
+      this._applyStyle(this._resolveActiveStyleUrl());
     });
 
     // Fires on first load AND after every subsequent setStyle() (theme
@@ -743,7 +763,7 @@ export class NyxmapCard extends LitElement {
       this._pluginHost?.activate();
       if (this._config && this.hass) {
         this._refreshOverlays();
-        this._refreshHistory();
+        this._historyRefresh.refresh();
         this._applyInitialViewIfNeeded();
       }
     });
@@ -892,71 +912,6 @@ export class NyxmapCard extends LitElement {
         this.hass,
         this._config.zoom,
       );
-    }
-  }
-
-  /** Called from style.load (every reload, e.g. a theme swap), from setConfig()
-   * when the style URL didn't change, once as a startup catch-up from
-   * updated()'s hass branch if hass wasn't set yet when the first style.load
-   * fired (see _historyCatchUpDone), and from the HISTORY_REFRESH_MS poll it
-   * installs here.
-   *
-   * Two guards, both of which the audit's fix for the "fetched once, never
-   * refreshed" defect depends on:
-   * - `_historyInFlight` stops the poll (or a burst of catch-up calls) from
-   *   stacking overlapping WebSocket round-trips;
-   * - `_historyGeneration` discards a response that is no longer the newest,
-   *   which also covers the two ordering hazards this promise chain has always
-   *   had: a response landing mid-`setStyle()` (its `_history.update()` would
-   *   call addSource() on an unloaded style, which MapLibre throws on) and one
-   *   landing after teardown.
-   * The chain now also terminates in a `.catch` — it previously had none, so
-   * any rejection surfaced only as an unhandled-rejection warning. */
-  private _refreshHistory(): void {
-    if (!this._config || !this.hass || !this._history) return;
-    this._syncHistoryTimer();
-    if (this._historyInFlight) return;
-    this._historyInFlight = true;
-    const generation = ++this._historyGeneration;
-    const historyService = new HaHistoryService(this.hass);
-    void this._historyManager
-      .refresh(this._config.entities, this._config, (entityId, start, end) =>
-        historyService.fetchPath(entityId, start, end),
-      )
-      .then((histories) => {
-        if (generation !== this._historyGeneration || !this._ready) return;
-        this._history?.update(histories);
-        // update() is also where a per-entity history overlay first registers,
-        // so a remembered "hidden" for it can only be applied now.
-        this._syncOverlayVisibility();
-        // History overlays are registered as a side effect of update() —
-        // re-render so the switcher (if enabled) picks up any new/removed
-        // per-entity checkboxes.
-        this.requestUpdate();
-      })
-      .catch((err: unknown) => {
-        console.warn("[nyxmap] history refresh failed", err);
-      })
-      .finally(() => {
-        if (generation !== this._historyGeneration) return;
-        this._historyInFlight = false;
-        // Latched on *settle*, not before awaiting: latching it up front meant
-        // a first fetch that failed could never be retried by the catch-up
-        // path. (The poll below is the real retry mechanism; this just stops
-        // the catch-up from re-firing on every subsequent hass object.)
-        this._historyCatchUpDone = true;
-      });
-  }
-
-  /** Starts/stops the periodic re-fetch to match the current config, so a card
-   * with no `history_start` anywhere never installs a timer at all. */
-  private _syncHistoryTimer(): void {
-    const wanted = this._hasHistoryConfigured();
-    if (wanted && this._historyTimer === undefined) {
-      this._historyTimer = setInterval(() => this._refreshHistory(), HISTORY_REFRESH_MS);
-    } else if (!wanted && this._historyTimer !== undefined) {
-      clearInterval(this._historyTimer);
-      this._historyTimer = undefined;
     }
   }
 
