@@ -132,7 +132,7 @@ Each item in `entities:` is either a bare entity id string, or an object:
 | Option | Type | Default | Description |
 |---|---|---|---|
 | `entity` | entity id | *required* | |
-| `display` | `marker` \| `icon` \| `state` | `marker` | `icon` skips the entity picture even if one is set. `state` renders the entity's current state value in the marker instead of a picture/icon/initials — keep an eye on long values, which can clip. |
+| `display` | `marker` \| `icon` \| `state` | `marker` | `icon` skips the entity picture even if one is set. `state` renders the entity's current state value in the marker instead of a picture/icon/initials; the marker widens into a pill to fit longer values. |
 | `picture` | string (URL) | entity's `entity_picture` attribute | |
 | `icon` | string (mdi icon) | entity's `icon` attribute | Used when there's no picture. |
 | `label` | string | entity name initials | Used when there's neither picture nor icon. |
@@ -422,14 +422,16 @@ npm install
 npm run dev          # Vite dev server against dev/harness.html
 npm run build         # bundles dist/nyxmap-card.js (single ES module)
 npm test               # vitest
-npm run lint            # eslint
+npm run lint            # eslint (whole project)
 npm run typecheck       # tsc --noEmit
+npm run test:coverage   # vitest + enforced coverage thresholds
 ```
 
-Releases are cut by pushing a `v*` tag — `.github/workflows/release.yml`
-builds `dist/nyxmap-card.js`, attaches it to a GitHub Release, and pulls that
-version's notes from [`CHANGELOG.md`](CHANGELOG.md); `filename` in
-`hacs.json` points HACS at that release asset.
+Releases are cut by pushing a `v*` tag — `.github/workflows/release.yml` first
+runs the full test gate, then builds `dist/nyxmap-card.js`, attaches it to a
+GitHub Release, and pulls that version's notes from
+[`CHANGELOG.md`](CHANGELOG.md); `filename` in `hacs.json` points HACS at that
+release asset.
 
 ## Roadmap
 

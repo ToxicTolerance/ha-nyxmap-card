@@ -5,10 +5,24 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-## [0.10.0-rc.1] - 2026-07-21
+## [0.10.0-rc.2] - 2026-07-21
 
 Release candidate. Bundles the two audit fix waves (23 findings) for testing in a
 real Home Assistant instance before a stable 0.10.0.
+
+### Added
+
+- **`display: state`** now renders the entity's current state value in the
+  marker, matching upstream `ha-map-card`. It was previously offered in the
+  visual editor's dropdown and accepted in YAML, but rendered identically to
+  `display: marker` — a silent no-op. The marker grows into a pill so longer
+  values ("Not home", "unavailable") aren't clipped by the round marker.
+- **`z_index_offset`** is now honoured. Like `display: state`, it parsed and
+  round-tripped through the editor but was consumed by nothing; set it higher to
+  bring a marker above overlapping ones.
+- Tile/WMS layers accept an **`options.name`**, which pins that layer's
+  layer-switcher on/off state to the layer itself rather than to its position in
+  the list.
 
 ### Fixed
 
@@ -42,6 +56,20 @@ real Home Assistant instance before a stable 0.10.0.
 - **Card-level fields can now be cleared in the visual editor.** Emptying
   "Title" or "Focus entity" removes the key, instead of appearing empty in the
   form while the old value was quietly kept on save.
+- **History trails now refresh** (about once a minute) instead of being fetched
+  once at page load and then frozen. On a dashboard left open all day, a
+  relative window like `history_start: 6 hours ago` kept drifting further out of
+  date with nothing indicating the trail was stale.
+- **One entity's failing history fetch no longer discards every entity's
+  trail.** A single bad `history_start`, or one entity with no recorder data,
+  used to wipe the whole batch permanently.
+- **Marker pictures, icons and labels now update in place.** Marker DOM was
+  built once and never rebuilt, so a renamed entity, a state-templated icon, or
+  a refreshed `entity_picture` token would go stale until the card was rebuilt.
+- **Reordering `tile_layers`/`wms` no longer re-targets which layer a switcher
+  toggle controls** — overlay state was keyed by list position.
+- A marker being absorbed into a cluster **no longer pops out of existence
+  mid-animation** when its icon has its own CSS transition.
 
 ### Changed
 
@@ -53,6 +81,12 @@ real Home Assistant instance before a stable 0.10.0.
   uses a reserved `history-`/`circle-`/`geojson-`/`tile-layer-`/`wms-layer-`
   prefix — is now **rejected with a console warning** rather than half-replacing
   the built-in overlay. Namespace plugin ids (e.g. `plugin:quakes`).
+- **Release builds are now gated on the test suite.** Pushing a version tag went
+  straight to build-and-publish, so a tag cut from a commit that never passed CI
+  could ship to HACS users unverified. Coverage is enforced in CI too, and
+  linting covers the whole project rather than `src/` alone.
+- Removed `loadMapLibreFromCdn`, an unused escape hatch that would have loaded a
+  MapLibre major version behind the one bundled into the card.
 - Documentation accuracy pass: `CLAUDE.md`'s project/architecture preamble was
   rewritten against the real repository (Vite/vitest toolchain, `src/` module
   map) and the porting backlog was given a home there; `README.md`'s

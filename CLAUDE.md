@@ -25,14 +25,18 @@ from TypeScript sources in `src/` and shipped as a **single bundled ES module**,
 | `npm run dev` | Vite dev server; `vite.config.ts` opens `dev/harness.html` |
 | `npm run build` | Vite lib build → `dist/nyxmap-card.js` (`build:watch` for the watch mode) |
 | `npm test` | `vitest run` (`test:watch`, `test:coverage` for the variants) |
-| `npm run lint` | `eslint src` — note it covers **only `src`**, while `tsconfig.json` type-checks `src`, `test`, `dev` and `vite.config.ts` |
+| `npm run lint` | `eslint .` — the whole project, matching what `tsconfig.json` type-checks (`src`, `test`, `dev`, `vite.config.ts`) |
 | `npm run typecheck` | `tsc --noEmit` |
 
 Vite 6 + vitest 2 + TypeScript 5.7 + eslint 9 (with `typescript-eslint` and `eslint-plugin-lit`).
 `tsconfig.json` is `strict` **plus** `noUncheckedIndexedAccess`, `forceConsistentCasingInFileNames`
 and `isolatedModules` — assume new code has to clear that bar. Runtime dependencies are just
-`maplibre-gl`, `lit` and `@turf/circle`. `.github/workflows/test.yml` runs typecheck → lint → test
-→ build on pushes to `main`/`master` and on every PR.
+`maplibre-gl`, `lit` and `@turf/circle`. `.github/workflows/test.yml` runs typecheck → lint →
+`test:coverage` → build on pushes to `main`/`master` and on every PR, and `release.yml` calls it as
+a required job so a `v*` tag can't publish without passing it. Coverage thresholds live in
+`vite.config.ts` (85% lines/statements/functions, 80% branches, currently ~98%/91%) and
+`passWithNoTests` is deliberately off, so a glob mistake that collects zero tests fails instead of
+reporting green.
 
 ### Dev loop
 
@@ -52,8 +56,10 @@ lib build with `inlineDynamicImports: true` so the whole card — MapLibre inclu
 module (~1.7 MB raw / ~366 kB gzip; the size is essentially all `maplibre-gl` and is accepted
 deliberately). `src/maplibre/MapLibreLoader.ts` re-exports that bundled `maplibregl` plus its CSS
 (imported with Vite's `?raw` so it can be injected into the card's shadow root, where a global
-`<link>` wouldn't reach). The same module still carries a `loadMapLibreFromCdn()` escape hatch,
-which nothing calls.
+`<link>` wouldn't reach). There is deliberately **no** runtime-CDN escape hatch — an unused
+`loadMapLibreFromCdn()` existed until v0.10.0 and was removed as a version-skew trap (it defaulted
+to a MapLibre major behind the bundled one). Plugins that need the instance get this same bundled
+copy via the plugin hook's `ctx.maplibregl`.
 
 `dist/` is gitignored and not tracked. `.github/workflows/release.yml` builds it on a `v*` tag and
 attaches it to the GitHub Release; `hacs.json`'s `filename: nyxmap-card.js` points HACS at that
