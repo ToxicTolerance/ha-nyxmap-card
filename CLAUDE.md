@@ -197,15 +197,45 @@ plugin's `registerOverlay` can `addSource`/`addLayer` immediately against a load
 Plugins register two ways, both handed the same `NyxmapPluginContext` (public contract in
 `src/types/nyxmap-plugin.d.ts`, the plugin-author surface — same duck-typing precedent as
 `home-assistant.d.ts`): the `window.nyxmapPlugins` global array (mirrors HA's `window.customCards`)
-and a bubbling/composed `nyxmap-map-ready` `CustomEvent` on the card element. Each `setup(ctx)` runs
-in try/catch so a throwing plugin can't take the card down.
+and a bubbling/composed `nyxmap-map-ready` `CustomEvent` on the card element.
+
+#### Fault isolation: "a misbehaving plugin can't take the card down"
+
+Everything a plugin hands the card runs inside the map's `"style.load"` handler, which does the
+rest of its work (tile layers, entities/clusters, geojson, history, initial view) *after* the
+plugin pass. Four separate guards keep third-party code from reaching that work:
+
+- **`setup(ctx)`** — each `window.nyxmapPlugins` entry is called in its own try/catch
+  (`PluginHost.activate`), logging `console.error` and moving to the next plugin. The
+  `nyxmap-map-ready` path isn't wrapped by us and doesn't need to be: an exception thrown by a DOM
+  event listener is reported by the browser, not propagated back to `dispatchEvent`.
+- **`registerControl`** — wraps `map.addControl` in try/catch, because `addControl` synchronously
+  calls the control's `onAdd()`, which is third-party code at the same trust level as `setup`.
+- **`StyleReattach.replayAll`** — replays each factory in its own try/catch, so one bad overlay
+  (an invalid layer spec, a duplicate layer id) can't abort the remaining factories or the handler
+  downstream. This is what makes the guarantee hold *past the first style load*: a plugin's failing
+  `addSource`/`addLayer` is caught by `activate`'s try/catch on the first load, but its factory is
+  registered by then, so without this every subsequent theme swap would wipe tile layers, circles,
+  geojson and history. A throwing factory is deliberately **kept registered** (the usual cause is
+  transient) and the error names its id. `replayAll` also snapshots the registry before iterating,
+  so a factory that `register()`s mid-replay isn't visited in the same pass — otherwise a
+  self-registering factory loops forever.
+- **Overlay id collisions are rejected**, all-or-nothing, rather than half-registered — see below.
 
 The context's helpers reuse existing machinery rather than new paths:
 - `registerOverlay(id, {label, source, layers})` is a direct generalization of
   `GeoJsonRenderService._upsert`'s trio — `addSource`/`addLayer` **+** `StyleReattach.register`
   (survives theme swaps) **+** `LayerRegistry.registerOverlay` (appears in the layer switcher).
-- `registerControl(control, position?)` is a thin `map.addControl` wrapper (controls are DOM, so
-  they survive `setStyle` for free, like cluster bubbles).
+  Because those three registries are one flat string namespace shared with the card's own render
+  services, an id is rejected (with a `console.warn` suggesting `plugin:<id>`) when it either
+  already exists in `StyleReattach`/`LayerRegistry` **or** starts with one of the prefixes those
+  services own — `history-`, `circle-`, `geojson-`, `tile-layer-`, `wms-layer-`
+  (`RESERVED_OVERLAY_ID_PREFIXES`). Plugin authors must namespace around that list. The static
+  prefixes are not redundant with the dynamic check: `activate()` runs *before* the render
+  services' first `update()`, so at plugin-registration time a colliding id isn't in either
+  registry yet and would pass a purely dynamic test, only to be clobbered moments later.
+- `registerControl(control, position?)` is a thin, error-isolated `map.addControl` wrapper
+  (controls are DOM, so they survive `setStyle` for free, like cluster bubbles).
 - `injectStyle(cssOrUrl)` puts a plugin's stylesheet **inside the card's shadow root** — the load-
   bearing non-obvious bit: the card renders in a shadow root, so a plugin that ships its own CSS
   (compass/minimap/geocoder) attaches but renders **invisibly** (0×0) unless its CSS is injected

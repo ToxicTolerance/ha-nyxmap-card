@@ -118,6 +118,49 @@ describe("cardConfigToFormData / formDataToCardConfig", () => {
   it("renders a numeric height as a string for the form field", () => {
     expect(cardConfigToFormData({ height: 350 }).height).toBe("350");
   });
+
+  // Code-review §13/§15: every schema-covered field must be clearable. The old
+  // `if (!(key in data)) continue;` carried the previous value over whenever
+  // ha-form reported a cleared field by dropping the key, so the deleted title
+  // reappeared on save.
+  describe("clearing a field", () => {
+    it("removes a text field cleared to an empty string", () => {
+      const updated = formDataToCardConfig({ title: "" }, { title: "My Map" });
+      expect("title" in updated).toBe(false);
+    });
+
+    it("removes a field ha-form reports as undefined", () => {
+      const updated = formDataToCardConfig({ focus_entity: undefined }, { focus_entity: "person.alice" });
+      expect("focus_entity" in updated).toBe(false);
+    });
+
+    it("removes a field ha-form omits from the emitted value entirely", () => {
+      const updated = formDataToCardConfig({ title: "Kept" }, { title: "Kept", zoom: 10 });
+      expect("zoom" in updated).toBe(false);
+    });
+
+    it("keeps out-of-scope keys while clearing a schema-covered one", () => {
+      const previous: MapConfigRaw = {
+        title: "My Map",
+        entities: ["device_tracker.a"],
+        geojson: { attribute: "geo_shape" },
+      };
+      const updated = formDataToCardConfig({ title: "" }, previous);
+      expect("title" in updated).toBe(false);
+      expect(updated.entities).toEqual(["device_tracker.a"]);
+      expect(updated.geojson).toEqual({ attribute: "geo_shape" });
+    });
+
+    it("treats false and 0 as values, not clears", () => {
+      const updated = formDataToCardConfig(
+        { cluster_markers: false, zoom: 0, layer_switcher: false },
+        { cluster_markers: true, zoom: 10, layer_switcher: true },
+      );
+      expect(updated.cluster_markers).toBe(false);
+      expect(updated.zoom).toBe(0);
+      expect(updated.layer_switcher).toBe(false);
+    });
+  });
 });
 
 describe("buildStubConfig", () => {

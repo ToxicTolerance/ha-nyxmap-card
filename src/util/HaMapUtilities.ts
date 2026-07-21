@@ -63,7 +63,8 @@ const UNIT_MS: Record<string, number> = { minute: 6e4, hour: 36e5, day: 864e5, w
  * Resolves a `history_start`/`history_end`-style value ("5 hours ago", an
  * absolute ISO date, etc.) into a Date. Entity-value refs (e.g.
  * "input_number.example", interpreted as a number of hours by upstream)
- * need a hass state lookup and aren't resolved here — see CLAUDE.md Phase 9.
+ * need a hass state lookup and aren't resolved here — see CLAUDE.md's
+ * "Porting backlog".
  * Returns null for anything unresolvable so callers can skip that entity's
  * history rather than render against an Invalid Date.
  */

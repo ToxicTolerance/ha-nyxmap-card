@@ -31,6 +31,17 @@ const ICON_RESET_FOCUS =
 const ICON_TOGGLE_GROUPING =
   "M1,1V5H2V19H1V23H5V22H19V23H23V19H22V5H23V1H19V2H5V1M5,4H19V5H20V19H19V20H5V19H4V5H5M6,6V14H9V18H18V9H14V6M8,8H12V12H8M14,11H16V16H11V14H14";
 
+/** How often a card with history configured re-fetches its trails. History
+ * used to be fetched exactly once per style load, so a long-lived dashboard
+ * (`history_start: "5 hours ago"` on a wall panel) showed a trail frozen at
+ * page-load time whose window drifted further out of date all day. A minute
+ * is well under the resolution of any usable trail while staying far cheaper
+ * than re-fetching per `hass` update — HA replaces the whole `hass` object on
+ * every state change anywhere in the instance, which would mean many history
+ * WebSocket round-trips per second. Not a config key: adding one means
+ * touching MapConfig, which this change deliberately doesn't own. */
+const HISTORY_REFRESH_MS = 60_000;
+
 @customElement("nyxmap-card")
 export class NyxmapCard extends LitElement {
   static override styles = [unsafeCSS(maplibreCss), nyxmapCardStyles];
@@ -38,7 +49,7 @@ export class NyxmapCard extends LitElement {
   @property({ attribute: false }) hass?: HomeAssistant;
   @state() private _config?: MapConfig;
   /** Layer switcher's base-style radio selection; undefined means "no
-   * manual override, follow theme_mode" (the original Phase 1 behavior). */
+   * manual override, follow theme_mode" — the default behavior. */
   @state() private _manualStyleId?: string;
   /** Layer switcher's own Auto/Light/Dark override (shown only alongside
    * map_styles — see showThemeToggle); undefined means "no manual override,
@@ -60,6 +71,15 @@ export class NyxmapCard extends LitElement {
   private _clusterToggleControl?: IconButtonControl;
   private _initialViewApplied = false;
   private _historyCatchUpDone = false;
+  /** Repeating history re-fetch — see HISTORY_REFRESH_MS and
+   * _syncHistoryTimer(). Cleared in _teardown(). */
+  private _historyTimer?: ReturnType<typeof setInterval>;
+  /** Monotonic token identifying the newest in-flight history request. A
+   * response whose token no longer matches is discarded: it either raced a
+   * newer request or landed after teardown/a style swap, and applying it would
+   * call addSource() on a style that has since been replaced. */
+  private _historyGeneration = 0;
+  private _historyInFlight = false;
   private _resizeObserver?: ResizeObserver;
   private _resizeRaf?: number;
   /** Pending deferred teardown — see disconnectedCallback(). */
@@ -190,6 +210,15 @@ export class NyxmapCard extends LitElement {
   private _teardown(): void {
     this._teardownTimer = undefined;
     if (this.isConnected) return;
+    // Stop the history poll and invalidate anything already in flight before
+    // the map goes away — a late response would otherwise call addSource() on
+    // a destroyed map.
+    if (this._historyTimer !== undefined) {
+      clearInterval(this._historyTimer);
+      this._historyTimer = undefined;
+    }
+    this._historyGeneration++;
+    this._historyInFlight = false;
     this._map?.remove();
     this._map = undefined;
     this._resizeObserver = undefined;
@@ -487,8 +516,8 @@ export class NyxmapCard extends LitElement {
     // present, re-runs the same initial-view resolution _applyInitialView()
     // already uses (explicit x/y > focus_entity > fit all entities). Added to
     // top-right *after* NavigationControl so it stacks directly beneath the
-    // zoom/compass buttons; the layer switcher now lives bottom-left and
-    // attribution bottom-right, so this corner is theirs to share.
+    // zoom/compass buttons; the layer switcher's toggle stacks beneath this
+    // column (it measures against it), and attribution sits bottom-right.
     this._map.addControl(
       new IconButtonControl({
         iconPath: ICON_RESET_FOCUS,
@@ -744,24 +773,74 @@ export class NyxmapCard extends LitElement {
     }
   }
 
-  /** Called from style.load (every reload, e.g. a theme swap) and, once, as
-   * a startup catch-up from updated()'s hass branch if hass wasn't set yet
-   * when the first style.load fired — see _historyCatchUpDone above. */
+  /** Called from style.load (every reload, e.g. a theme swap), from setConfig()
+   * when the style URL didn't change, once as a startup catch-up from
+   * updated()'s hass branch if hass wasn't set yet when the first style.load
+   * fired (see _historyCatchUpDone), and from the HISTORY_REFRESH_MS poll it
+   * installs here.
+   *
+   * Two guards, both of which the audit's fix for the "fetched once, never
+   * refreshed" defect depends on:
+   * - `_historyInFlight` stops the poll (or a burst of catch-up calls) from
+   *   stacking overlapping WebSocket round-trips;
+   * - `_historyGeneration` discards a response that is no longer the newest,
+   *   which also covers the two ordering hazards this promise chain has always
+   *   had: a response landing mid-`setStyle()` (its `_history.update()` would
+   *   call addSource() on an unloaded style, which MapLibre throws on) and one
+   *   landing after teardown.
+   * The chain now also terminates in a `.catch` — it previously had none, so
+   * any rejection surfaced only as an unhandled-rejection warning. */
   private _refreshHistory(): void {
     if (!this._config || !this.hass || !this._history) return;
-    this._historyCatchUpDone = true;
+    this._syncHistoryTimer();
+    if (this._historyInFlight) return;
+    this._historyInFlight = true;
+    const generation = ++this._historyGeneration;
     const historyService = new HaHistoryService(this.hass);
     void this._historyManager
       .refresh(this._config.entities, this._config, (entityId, start, end) =>
         historyService.fetchPath(entityId, start, end),
       )
       .then((histories) => {
+        if (generation !== this._historyGeneration || !this._ready) return;
         this._history?.update(histories);
         // History overlays are registered as a side effect of update() —
         // re-render so the switcher (if enabled) picks up any new/removed
         // per-entity checkboxes.
         this.requestUpdate();
+      })
+      .catch((err: unknown) => {
+        console.warn("[nyxmap] history refresh failed", err);
+      })
+      .finally(() => {
+        if (generation !== this._historyGeneration) return;
+        this._historyInFlight = false;
+        // Latched on *settle*, not before awaiting: latching it up front meant
+        // a first fetch that failed could never be retried by the catch-up
+        // path. (The poll below is the real retry mechanism; this just stops
+        // the catch-up from re-firing on every subsequent hass object.)
+        this._historyCatchUpDone = true;
       });
+  }
+
+  /** Starts/stops the periodic re-fetch to match the current config, so a card
+   * with no `history_start` anywhere never installs a timer at all. */
+  private _syncHistoryTimer(): void {
+    const wanted = this._hasHistoryConfigured();
+    if (wanted && this._historyTimer === undefined) {
+      this._historyTimer = setInterval(() => this._refreshHistory(), HISTORY_REFRESH_MS);
+    } else if (!wanted && this._historyTimer !== undefined) {
+      clearInterval(this._historyTimer);
+      this._historyTimer = undefined;
+    }
+  }
+
+  /** Mirrors EntityHistoryManager's own opt-in rule: an entity has history
+   * only if it (or the card) supplies a history_start. */
+  private _hasHistoryConfigured(): boolean {
+    if (!this._config) return false;
+    if (this._config.historyStart) return this._config.entities.length > 0;
+    return this._config.entities.some((e) => e.historyStart);
   }
 
   private _fireMoreInfo(entityId: string): void {

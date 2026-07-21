@@ -24,10 +24,15 @@ export interface EntityConfigRaw {
 }
 
 /** Per-entity config. Mirrors upstream ha-map-card's entity-level YAML surface
- * (see CLAUDE.md §5 for keys that don't carry over 1:1). Only display/marker
- * fields are wired to rendering in Phase 1; history_start/history_end fall
- * back to MapConfig's card-level values when unset (see
- * EntityHistoryManager). */
+ * (see CLAUDE.md for keys that don't carry over 1:1). history_start/history_end
+ * fall back to MapConfig's card-level values when unset (see
+ * EntityHistoryManager).
+ *
+ * `display` and `zIndexOffset` are both consumed by MarkerFactory —
+ * `display: "state"` renders the entity's state value (applyMarkerVisual) and
+ * `zIndexOffset` lands on the marker's positioning wrapper
+ * (wrapAnimatedMarker). Both were parsed here and offered in the visual editor
+ * long before anything read them; that gap is closed. */
 export class EntityConfig {
   readonly id: string;
   readonly display: EntityDisplay;

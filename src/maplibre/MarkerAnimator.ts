@@ -29,7 +29,7 @@ const FALLBACK_BUFFER_MS = 60;
 
 interface AnimState {
   timer: ReturnType<typeof setTimeout>;
-  listener: () => void;
+  listener: (e: Event) => void;
 }
 
 const pending = new WeakMap<HTMLElement, AnimState>();
@@ -43,15 +43,28 @@ function clearPending(el: HTMLElement): void {
 }
 
 /** Runs `cb` exactly once when the current transition settles — via
- * `transitionend` or a fallback timer, whichever comes first. */
+ * `transitionend` or a fallback timer, whichever comes first.
+ *
+ * The `e.target !== el` guard is load-bearing: `transitionend` bubbles, and a
+ * marker element has children (the `<ha-icon>` buildMarkerElement appends,
+ * whose internal HA components transition on their own). Without it a
+ * descendant's unrelated transition settles the marker's animation early, so
+ * `onDone()` — `marker.remove()` — fires mid-flight and the marker pops out of
+ * existence instead of shrinking into the cluster bubble. Because the listener
+ * must survive those foreign events it can't use `{ once: true }`; it's
+ * removed explicitly by clearPending() instead. */
 function onceSettled(el: HTMLElement, cb: () => void): void {
-  const listener = () => {
+  const settle = () => {
     clearPending(el);
     cb();
   };
-  const timer = setTimeout(listener, ANIM_MS + FALLBACK_BUFFER_MS);
+  const listener = (e: Event) => {
+    if (e.target !== el) return;
+    settle();
+  };
+  const timer = setTimeout(settle, ANIM_MS + FALLBACK_BUFFER_MS);
   pending.set(el, { timer, listener });
-  el.addEventListener("transitionend", listener, { once: true });
+  el.addEventListener("transitionend", listener);
 }
 
 function setOffset(el: HTMLElement, dx: number, dy: number): void {

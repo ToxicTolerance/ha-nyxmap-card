@@ -5,6 +5,55 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- The card now **destroys its MapLibre map** when it is really removed from the
+  page, releasing the WebGL context, worker pool and listeners instead of
+  leaking one set per card. Teardown is deferred by a tick so that Home
+  Assistant's Sections/masonry layouts, which re-parent cards routinely, don't
+  trigger it; a card that comes back rebuilds its map and re-observes its
+  container, so resize tracking survives a re-parent too.
+- Updates that landed **while a light/dark or base-style swap was still
+  loading** no longer throw: the card now marks itself un-ready for the duration
+  of a `setStyle()` that actually changes the style URL, instead of calling
+  `addSource` on a style MapLibre hasn't finished loading.
+- `focus_follow: refocus` **no longer fights your own pan/zoom**. It used to
+  re-fit the camera on every Home Assistant state change anywhere in the
+  instance (many per second on a typical install); it now re-fits only when the
+  tracked entities' combined bounding box has actually changed.
+- Fitting the map to a **single entity** (or several at the same position) now
+  centers on it at the configured `zoom` instead of slamming to maximum zoom.
+  This hit the most common possible setup — one entity, no `x`/`y`/
+  `focus_entity` — including the card picker's default config.
+- A **config change that doesn't change the map style** (adding an entity,
+  editing a colour or a `tile_layers` URL) now refreshes overlays and history
+  immediately, rather than waiting for an unrelated state update — which, in the
+  Edit-card preview, could mean never.
+- A **map style whose `map_styles` entry is missing its `name` or `map_style`**
+  is now ignored instead of being offered in the layer switcher and blanking the
+  map when picked. Duplicate `name`s are de-duplicated, keeping the first.
+- **Renaming an entity in the visual editor** no longer drops the keys the
+  editor doesn't cover (`geojson`, a full `circle:` object, …).
+- **Card-level fields can now be cleared in the visual editor.** Emptying
+  "Title" or "Focus entity" removes the key, instead of appearing empty in the
+  form while the old value was quietly kept on save.
+
+### Changed
+
+- **Plugin failures are contained more tightly.** A plugin overlay that fails to
+  re-attach after a theme swap no longer aborts the rest of the swap (tile
+  layers, circles, GeoJSON shapes and history trails used to vanish with it),
+  and `registerControl` now isolates a throw from a third-party control's
+  `onAdd()`. A plugin overlay id that collides with the card's own overlays — or
+  uses a reserved `history-`/`circle-`/`geojson-`/`tile-layer-`/`wms-layer-`
+  prefix — is now **rejected with a console warning** rather than half-replacing
+  the built-in overlay. Namespace plugin ids (e.g. `plugin:quakes`).
+- Documentation accuracy pass: `CLAUDE.md`'s project/architecture preamble was
+  rewritten against the real repository (Vite/vitest toolchain, `src/` module
+  map) and the porting backlog was given a home there; `README.md`'s
+  `cluster_markers` control position, `focus_follow` semantics, `map_styles`
+  requirements and plugin overlay-id note were corrected to match what ships.
+
 ## [0.9.1] - 2026-07-21
 
 ### Changed

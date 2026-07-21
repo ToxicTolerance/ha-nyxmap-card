@@ -12,7 +12,7 @@ export interface LayerConfigRaw {
  * Mirrors upstream ha-map-card's LayerConfig, minus the `history` (WMS
  * TIME-parameter) sub-config — that's tightly coupled to the energy-
  * dashboard date-range linking this fork hasn't built yet (see CLAUDE.md's
- * Phase 9 backlog), so it's deferred alongside it rather than half-wired. */
+ * "Porting backlog"), so it's deferred alongside it rather than half-wired. */
 export class LayerConfig {
   readonly url: string;
   readonly options: Record<string, unknown>;

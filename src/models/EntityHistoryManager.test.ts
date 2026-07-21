@@ -129,4 +129,40 @@ describe("EntityHistoryManager.refresh", () => {
 
     expect(result.get("device_tracker.phone")!.lineColor).toBe(colorFromString("device_tracker.phone"));
   });
+
+  // Regression: the batch rode on a single Promise.all, so one entity HA can't
+  // serve history for (renamed, removed, recorder-excluded) rejected the
+  // aggregate and *every* trail was dropped — and the card's caller had no
+  // .catch, so the only symptom was an unhandled-rejection warning.
+  describe("per-entity failure isolation", () => {
+    const entities = ["a", "b", "c"].map((n) =>
+      EntityConfig.from({ entity: `device_tracker.${n}`, history_start: "1 hour ago" }),
+    );
+
+    it("keeps every other entity's trail when one fetch rejects", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const manager = new EntityHistoryManager();
+      const fetchPath = vi.fn(async (entityId: string) => {
+        if (entityId === "device_tracker.b") throw new Error("entity not found");
+        return [[1, 2]] as Array<[number, number]>;
+      });
+
+      const result = await manager.refresh(entities, new MapConfig({}), fetchPath, NOW);
+
+      expect([...result.keys()].sort()).toEqual(["device_tracker.a", "device_tracker.c"]);
+      expect(warn).toHaveBeenCalled();
+      warn.mockRestore();
+    });
+
+    it("resolves (never rejects) even when every fetch fails", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const manager = new EntityHistoryManager();
+      const fetchPath = vi.fn().mockRejectedValue(new Error("websocket closed"));
+
+      await expect(manager.refresh(entities, new MapConfig({}), fetchPath, NOW)).resolves.toEqual(new Map());
+
+      expect(warn).toHaveBeenCalledTimes(3);
+      warn.mockRestore();
+    });
+  });
 });

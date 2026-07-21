@@ -109,10 +109,10 @@ same dialog) to set those.
 | `theme_mode` | `auto` \| `light` \| `dark` | `auto` | `auto` follows the browser's `prefers-color-scheme`. |
 | `map_style` | string (style JSON URL) | a free [OpenFreeMap](https://openfreemap.org/) style | Light-mode base style. |
 | `map_style_dark` | string (style JSON URL) | a free [CARTO](https://carto.com/basemaps) dark style | Dark-mode base style. |
-| `map_styles` | list of `{name, map_style, map_style_dark, max_zoom, min_zoom}` | — | Named base styles offered in the [layer switcher](#layer_switcher). Once this is set, the switcher shows only these — the generic "Light"/"Dark" options are hidden, since they'd otherwise duplicate/conflict with your own named entries. In their place, the switcher gets a separate Auto/Light/Dark "Theme" control that swaps whichever named entry is active between its own `map_style`/`map_style_dark`, so an entry doesn't need separate light/dark-named siblings to offer both. `map_style`/`map_style_dark` still drive the initial theme-follow behavior either way. `max_zoom`/`min_zoom` on an entry cap the camera to that specific style's real coverage once it's selected (see `max_zoom` above) — useful when styles in the list have different actual zoom ranges. |
+| `map_styles` | list of `{name, map_style, map_style_dark, max_zoom, min_zoom}` | — | Named base styles offered in the [layer switcher](#layer_switcher). Once this is set, the switcher shows only these — the generic "Light"/"Dark" options are hidden, since they'd otherwise duplicate/conflict with your own named entries. In their place, the switcher gets a separate Auto/Light/Dark "Theme" control that swaps whichever named entry is active between its own `map_style`/`map_style_dark`, so an entry doesn't need separate light/dark-named siblings to offer both. `map_style`/`map_style_dark` still drive the initial theme-follow behavior either way. `max_zoom`/`min_zoom` on an entry cap the camera to that specific style's real coverage once it's selected (see `max_zoom` above) — useful when styles in the list have different actual zoom ranges. Both `name` and `map_style` are required: an entry missing either, or repeating a `name` already used earlier in the list, is ignored rather than offered in the switcher. |
 | `projection` | `globe` \| `mercator` | `globe` | MapLibre's 3D globe view, or the classic flat projection. |
 | `focus_entity` | entity id | — | Initial center, used when `x`/`y` aren't set. |
-| `focus_follow` | `none` \| `refocus` \| `contains` | `none` | `refocus` re-centers on every update; `contains` only re-fits when `focus_entity` leaves the current view. |
+| `focus_follow` | `none` \| `refocus` \| `contains` | `none` | Ongoing auto-fit over every entity with [`focus_on_fit`](#entity-options) (not just `focus_entity`). `refocus` re-fits whenever those entities' combined bounding box actually changes — it deliberately does *not* re-fit on every Home Assistant state update, so your own pan/zoom isn't undone milliseconds later by an unrelated sensor. `contains` is lazier still: it only re-fits once that box no longer fits inside the current view. When the box collapses to a single point (one entity, or several at the same position) the camera centers there at `zoom` instead of zooming all the way in. |
 | `layer_switcher` | boolean | `false` | Show a panel for switching base styles and toggling overlays (history, circles, GeoJSON, clusters) on/off. Its button sits in the top-right, stacked directly beneath the zoom/compass and Reset focus / Toggle grouping controls; the panel opens downward from it. |
 | `history_start` / `history_end` | string (relative or ISO) | — | Card-level default history window, inherited by entities that don't set their own. |
 | `history_show_lines` | boolean | `true` | Draw the connecting trail line for each entity's history. |
@@ -262,7 +262,9 @@ window.nyxmapPlugins.push({
     ctx.injectStyle("https://esm.sh/maplibre-compass-pro/dist/style.css");
     // 2) load the plugin (any ESM CDN works — no bundler needed) and attach it
     import("https://esm.sh/maplibre-compass-pro").then(({ Compass }) => {
-      ctx.map.addControl(new Compass({ size: "lg" }), "bottom-left");
+      // registerControl wraps map.addControl so a throw from the plugin's own
+      // onAdd() can't take the card down with it.
+      ctx.registerControl(new Compass({ size: "lg" }), "bottom-left");
     });
   },
 });
@@ -292,13 +294,17 @@ window.nyxmapPlugins.push({
     });
 
     // Any IControl-based MapLibre plugin:
-    // ctx.map.addControl(new SomeMapLibrePlugin(), "top-left");
+    // ctx.registerControl(new SomeMapLibrePlugin(), "top-left");
   },
 });
 ```
 
 > Give overlay ids a prefix (e.g. `plugin:`) so they don't collide with the
-> card's built-in overlays. Overlays and controls added through `ctx` survive
+> card's built-in overlays — a colliding id is **rejected** (with a console
+> warning) rather than silently taking over, so the overlay simply won't
+> appear. That covers ids already registered plus anything starting with
+> `history-`, `circle-`, `geojson-`, `tile-layer-` or `wms-layer-`, which the
+> card's own overlays own. Overlays and controls added through `ctx` survive
 > light/dark theme swaps automatically. Set `plugins: false` on the card to
 > disable the hook entirely. Custom **protocols/source types** aren't first-class
 > yet — use `ctx.maplibregl.addProtocol(...)` directly for those.

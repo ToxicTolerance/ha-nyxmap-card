@@ -59,6 +59,53 @@ describe("MarkerAnimator", () => {
       expect(first).not.toHaveBeenCalled();
       expect(second).toHaveBeenCalledTimes(1);
     });
+
+    // Regression: the listener was attached without a target check, and
+    // transitionend bubbles. A marker element has children — the <ha-icon>
+    // buildMarkerElement appends — whose own CSS transitions would settle the
+    // marker's animation early, firing onDone() (marker.remove()) mid-flight
+    // so the marker popped out of existence instead of shrinking away.
+    it("ignores a transitionend bubbling up from a descendant", () => {
+      const el = document.createElement("div");
+      const child = document.createElement("ha-icon");
+      el.appendChild(child);
+      const done = vi.fn();
+
+      animateConverge(el, 10, 10, done);
+      child.dispatchEvent(new Event("transitionend", { bubbles: true }));
+
+      expect(done).not.toHaveBeenCalled();
+      // The marker's own transitionend still settles it.
+      el.dispatchEvent(new Event("transitionend"));
+      expect(done).toHaveBeenCalledTimes(1);
+    });
+
+    it("still settles via the fallback timer after a descendant event was ignored", () => {
+      const el = document.createElement("div");
+      const child = document.createElement("span");
+      el.appendChild(child);
+      const done = vi.fn();
+
+      animateConverge(el, 0, 0, done);
+      child.dispatchEvent(new Event("transitionend", { bubbles: true }));
+      vi.advanceTimersByTime(ANIM_MS + 60);
+
+      expect(done).toHaveBeenCalledTimes(1);
+    });
+
+    it("removes its listener on settle, so a later descendant event can't re-fire it", () => {
+      const el = document.createElement("div");
+      const child = document.createElement("span");
+      el.appendChild(child);
+      const done = vi.fn();
+
+      animateConverge(el, 0, 0, done);
+      el.dispatchEvent(new Event("transitionend"));
+      child.dispatchEvent(new Event("transitionend", { bubbles: true }));
+      el.dispatchEvent(new Event("transitionend"));
+
+      expect(done).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe("animateEmerge", () => {

@@ -152,9 +152,52 @@ Ordered by value-per-effort, merging both lists:
    (code review §7, §9–18), then the test gaps in §19 — which are what let items
    3–7 stand in the first place.
 
-## Wave 2 — planned, not yet dispatched
+## Step 4 — Fix wave 2 complete ✅ (2026-07-21)
 
-Grouped again by disjoint file ownership:
+Two agents (not four — budget), again with disjoint file ownership:
+
+| Track | Findings fixed | Write-up |
+| --- | --- | --- |
+| D — render / marker / history | code review §7, §8, §9, §12, §16, §17, §18 · engineering §6.1, §6.2 | [track-d-render-history.md](fixes/track-d-render-history.md) |
+| E — editor + doc follow-ups | code review §13, §14, §15 · Track C's deferred doc items | [track-e-editor-docs.md](fixes/track-e-editor-docs.md) |
+
+The 13 stale `src/` comment cross-references from `track-c-docs.md` §3 were applied by
+hand afterwards (they spanned both agents' files, so no agent could own them).
+
+**Gate re-run on the settled tree:** typecheck clean, lint clean, **33 files / 382
+tests** (up from 332), build succeeds, and a proper NUL scan across `src/` is clean.
+
+Notes worth keeping:
+
+- The NUL byte was **two** bytes, not one — `pairKey()` used the separator in both
+  ternary branches. `git diff` keeps reporting `Bin` until the fixed blob is on both
+  sides of the comparison, i.e. it clears on commit.
+- The same NUL defect **recurred during the fixing session** in a fresh edit, so Track
+  D added a `source hygiene` test scanning all of `src/` rather than relying on
+  `.gitattributes`.
+- `display: "state"` and `z_index_offset` were both **implemented** rather than
+  removed (upstream parity; the keys already round-tripped through the editor, so
+  removal would have broken migrated configs).
+- All ten findings Track D checked were accurate — unlike wave 1, where three of the
+  audit's claims turned out wrong. Keep verifying, but the tail of the list held up.
+
+## Remaining / not done
+
+- **Engineering §2.1** — the `OverlaySource` extraction (deferred twice now; the
+  audit's own advice is to do it before a sixth overlay type is added).
+- **Engineering §4.2** — `loadMapLibreFromCdn` dead code; §4.3 CI/lint gates
+  (coverage not enforced, lint covers only `src`).
+- **Code review §19** — the remaining test gaps.
+- **The full `focus_follow` entity-state diff** — Track A memoized the fit instead, so
+  the O(n²) cluster rescan on every unrelated `hass` change is still there.
+- Track D's documented blockers: top-level `name:` for tile layers (`LayerConfig.ts`),
+  a `.nyxmap-marker--state` style for long state values, a configurable history
+  refresh interval, and README rows for `options.name` / `display: state` /
+  `z_index_offset`.
+
+### Original wave 2 plan (now done, kept for reference)
+
+Grouped by disjoint file ownership:
 
 - **Small isolated defects** — NUL byte in `ClusterRenderService.ts:58` (engineering
   §6.1, verified above), `colorFromString` negative hue (§17), `transitionend`

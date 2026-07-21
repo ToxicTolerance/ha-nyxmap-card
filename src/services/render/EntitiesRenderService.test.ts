@@ -164,6 +164,88 @@ describe("EntitiesRenderService", () => {
     expect(marker.addTo).toHaveBeenCalledTimes(2); // once on creation, once on reattach
   });
 
+  // Regression: buildMarkerElement() was called only in the "no tracked
+  // marker yet" branch, so a marker's DOM was built once and never refreshed —
+  // a rotated /api/image_proxy/ token, a state-templated icon or a rename left
+  // it frozen at first-render appearance until the whole card was rebuilt.
+  describe("marker DOM stays current", () => {
+    const cfg = () => EntityConfig.from("person.a");
+    const hassPictured = (picture: string) =>
+      hassWith({
+        "person.a": {
+          entity_id: "person.a",
+          state: "home",
+          last_changed: "",
+          last_updated: "",
+          attributes: { latitude: 1, longitude: 2, entity_picture: picture },
+        },
+      });
+
+    function trackedOf(service: EntitiesRenderService) {
+      return (service as unknown as { markers: Map<string, { inner: HTMLElement }> }).markers.get("person.a")!;
+    }
+
+    it("redraws the marker when entity_picture changes, reusing the same element", () => {
+      const service = new EntitiesRenderService(createFakeMaplibreMap() as never, createFakeMaplibreGl(), vi.fn());
+      service.update([cfg()], hassPictured("/api/image_proxy/x?tok=1"));
+      const inner = trackedOf(service).inner;
+      expect(inner.style.backgroundImage).toContain("tok=1");
+
+      service.update([cfg()], hassPictured("/api/image_proxy/x?tok=2"));
+
+      expect(trackedOf(service).inner).toBe(inner); // same node — listener/animation state kept
+      expect(inner.style.backgroundImage).toContain("tok=2");
+    });
+
+    it("keeps the click handler working after a redraw", () => {
+      const onTap = vi.fn();
+      const service = new EntitiesRenderService(createFakeMaplibreMap() as never, createFakeMaplibreGl(), onTap);
+      service.update([cfg()], hassPictured("/a.jpg"));
+      service.update([cfg()], hassPictured("/b.jpg"));
+
+      trackedOf(service).inner.dispatchEvent(new Event("click"));
+
+      expect(onTap).toHaveBeenCalledWith("person.a");
+    });
+
+    it("does not touch the DOM for a position-only update", () => {
+      const service = new EntitiesRenderService(createFakeMaplibreMap() as never, createFakeMaplibreGl(), vi.fn());
+      const moved = (lat: number) =>
+        hassWith({
+          "person.a": {
+            entity_id: "person.a",
+            state: "home",
+            last_changed: "",
+            last_updated: "",
+            attributes: { latitude: lat, longitude: 2, entity_picture: "/a.jpg" },
+          },
+        });
+      service.update([cfg()], moved(1));
+      const inner = trackedOf(service).inner;
+      inner.dataset.sentinel = "untouched";
+
+      service.update([cfg()], moved(9));
+
+      // applyMarkerVisual() would not clear a data attribute, but it does
+      // replaceChildren()/rewrite background-image — asserting the marker is
+      // still the same node with the same picture is the observable proxy.
+      expect(trackedOf(service).inner).toBe(inner);
+      expect(inner.dataset.sentinel).toBe("untouched");
+      expect(inner.style.backgroundImage).toContain("/a.jpg");
+    });
+
+    it("applies z_index_offset to the marker's positioning wrapper", () => {
+      const gl = createFakeMaplibreGl();
+      const service = new EntitiesRenderService(createFakeMaplibreMap() as never, gl, vi.fn());
+      service.update([EntityConfig.from({ entity: "person.a", fixed_x: 1, fixed_y: 2, z_index_offset: 5 })], hassWith({}));
+
+      const wrapper = (service as unknown as { markers: Map<string, { inner: HTMLElement }> }).markers.get("person.a")!
+        .inner.parentElement!;
+      expect(wrapper.className).toBe("nyxmap-marker-anchor");
+      expect(wrapper.style.zIndex).toBe("5");
+    });
+  });
+
   it("removeAll() removes every tracked marker", () => {
     const service = new EntitiesRenderService(
       createFakeMaplibreMap() as never,

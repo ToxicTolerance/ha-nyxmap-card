@@ -126,6 +126,111 @@ describe("NyxmapCardEditor", () => {
     expect(second).toMatchObject({ entity: "person.alice", circle: "auto" });
   });
 
+  // Code-review §14: matching previous rows by entity id alone meant a rename
+  // missed the lookup and fell back to an empty { entity }, dropping every key
+  // the visual editor doesn't cover.
+  it("keeps YAML-only keys when an entity is renamed in place", async () => {
+    el.setConfig({
+      entities: [
+        { entity: "person.alcie", circle: { radius: 500, color: "#f00" }, geojson: { attribute: "geo_shape" } },
+        { entity: "device_tracker.phone" },
+      ],
+    });
+    await el.updateComplete;
+
+    const spy = onConfigChanged(el);
+    const [entitiesEditor] = listEditors(el);
+    entitiesEditor!.dispatchEvent(
+      new CustomEvent("items-changed", {
+        detail: {
+          // Typo corrected in row 0; row 1 untouched.
+          items: [{ entity: "person.alice" }, { entity: "device_tracker.phone" }],
+        },
+        bubbles: true,
+        composed: true,
+      }),
+    );
+
+    const detail = (spy.mock.calls[0]![0] as CustomEvent<{ config: MapConfigRaw }>).detail;
+    const [first, second] = detail.config.entities! as Array<Record<string, unknown>>;
+    expect(first).toMatchObject({
+      entity: "person.alice",
+      circle: { radius: 500, color: "#f00" },
+      geojson: { attribute: "geo_shape" },
+    });
+    expect(second).toMatchObject({ entity: "device_tracker.phone" });
+  });
+
+  it("does not resurrect a removed entity's keys onto the rows that shift up", async () => {
+    // Removal changes the list length, so positional matching must stay off —
+    // otherwise row 1's config would slide onto row 0.
+    el.setConfig({
+      entities: [
+        { entity: "person.alice", circle: "auto" },
+        { entity: "device_tracker.phone", geojson: "geo_location" },
+      ],
+    });
+    await el.updateComplete;
+
+    const spy = onConfigChanged(el);
+    const [entitiesEditor] = listEditors(el);
+    entitiesEditor!.dispatchEvent(
+      new CustomEvent("items-changed", {
+        detail: { items: [{ entity: "device_tracker.phone" }] },
+        bubbles: true,
+        composed: true,
+      }),
+    );
+
+    const detail = (spy.mock.calls[0]![0] as CustomEvent<{ config: MapConfigRaw }>).detail;
+    expect(detail.config.entities).toHaveLength(1);
+    expect(detail.config.entities![0]).toMatchObject({ entity: "device_tracker.phone", geojson: "geo_location" });
+    expect(detail.config.entities![0]).not.toHaveProperty("circle");
+  });
+
+  it("gives a newly added blank row no inherited keys", async () => {
+    el.setConfig({ entities: [{ entity: "person.alice", circle: "auto" }] });
+    await el.updateComplete;
+
+    const spy = onConfigChanged(el);
+    const [entitiesEditor] = listEditors(el);
+    entitiesEditor!.dispatchEvent(
+      new CustomEvent("items-changed", {
+        detail: { items: [{ entity: "person.alice" }, { entity: "" }] },
+        bubbles: true,
+        composed: true,
+      }),
+    );
+
+    const detail = (spy.mock.calls[0]![0] as CustomEvent<{ config: MapConfigRaw }>).detail;
+    const [, added] = detail.config.entities! as Array<Record<string, unknown>>;
+    expect(added).toEqual({ entity: "" });
+  });
+
+  it("keeps YAML-only keys through an entity id typed one character at a time", async () => {
+    // The intermediate states of a rename are ids that match nothing at all.
+    el.setConfig({ entities: [{ entity: "person.alice", geojson: { attribute: "geo_shape" } }] });
+    await el.updateComplete;
+
+    const spy = onConfigChanged(el);
+    const [entitiesEditor] = listEditors(el);
+    for (const entity of ["person.alic", "person.ali", "person.bob"]) {
+      entitiesEditor!.dispatchEvent(
+        new CustomEvent("items-changed", {
+          detail: { items: [{ entity }] },
+          bubbles: true,
+          composed: true,
+        }),
+      );
+    }
+
+    const last = spy.mock.calls.at(-1)![0] as CustomEvent<{ config: MapConfigRaw }>;
+    expect(last.detail.config.entities![0]).toMatchObject({
+      entity: "person.bob",
+      geojson: { attribute: "geo_shape" },
+    });
+  });
+
   it("updates map_styles when the styles list editor emits items-changed", async () => {
     el.setConfig({});
     await el.updateComplete;

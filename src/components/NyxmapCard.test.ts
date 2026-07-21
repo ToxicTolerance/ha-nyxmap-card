@@ -332,7 +332,7 @@ describe("NyxmapCard", () => {
     // layers, so they sit above raster layers unconditionally and aren't part
     // of this ordering.)
     el.setConfig({
-      tile_layers: { url: "https://example.com/{z}/{x}/{y}.png" },
+      tile_layers: { url: "https://example.com/{z}/{x}/{y}.png", options: { name: "base" } },
       entities: [{ entity: "device_tracker.phone", fixed_x: 1, fixed_y: 2, circle: { radius: 25, source: "config" } }],
     });
     await el.updateComplete;
@@ -343,7 +343,7 @@ describe("NyxmapCard", () => {
     const layerIdAt = (id: string) =>
       el._map!.addLayer.mock.calls.findIndex((c) => (c[0] as { id: string }).id === id);
 
-    const tileLayerIndex = layerIdAt("tile-layer-0");
+    const tileLayerIndex = layerIdAt("tile-layer-base");
     expect(tileLayerIndex).toBeGreaterThanOrEqual(0);
     expect(tileLayerIndex).toBeLessThan(layerIdAt("circle-device_tracker.phone-fill"));
   });
@@ -897,6 +897,159 @@ describe("NyxmapCard", () => {
       el.hass = hassWith({});
       await el.updateComplete;
       expect(el._entities?.has("device_tracker.phone")).toBe(true);
+    });
+  });
+
+  describe("history refresh", () => {
+    const HISTORY_ENTITY = { entity: "device_tracker.phone", fixed_x: 1, fixed_y: 2, history_start: "1 hour ago" };
+
+    function hassFetching(callWS: ReturnType<typeof vi.fn>): HomeAssistant {
+      return { states: {}, language: "en", callWS };
+    }
+
+    async function bootWithHistory(callWS: ReturnType<typeof vi.fn>, config: Record<string, unknown> = {}) {
+      el.setConfig({ cluster_markers: false, entities: [HISTORY_ENTITY], ...config });
+      await el.updateComplete;
+      el._map!.fire("style.load");
+      el.hass = hassFetching(callWS);
+      await el.updateComplete;
+      await flushMicrotasks();
+      await flushMicrotasks();
+    }
+
+    it("re-fetches history on an interval instead of only once per style load", async () => {
+      // Regression: history was fetched exactly once per style load with no
+      // timer and no re-fetch on hass change, so a wall panel left open all day
+      // showed a trail frozen at page-load time whose window drifted ever
+      // further out of date.
+      vi.useFakeTimers();
+      try {
+        const callWS = vi.fn().mockResolvedValue({ "device_tracker.phone": [{ a: { latitude: 1, longitude: 2 } }, { a: { latitude: 3, longitude: 4 } }] });
+        el.setConfig({ cluster_markers: false, entities: [HISTORY_ENTITY] });
+        await el.updateComplete;
+        el._map!.fire("style.load");
+        el.hass = hassFetching(callWS);
+        await el.updateComplete;
+        await vi.advanceTimersByTimeAsync(0);
+        expect(callWS).toHaveBeenCalledTimes(1);
+
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect(callWS).toHaveBeenCalledTimes(2);
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect(callWS).toHaveBeenCalledTimes(3);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("installs no timer when nothing configures history", async () => {
+      vi.useFakeTimers();
+      try {
+        const callWS = vi.fn().mockResolvedValue({});
+        el.setConfig({ cluster_markers: false, entities: [{ entity: "device_tracker.phone", fixed_x: 1, fixed_y: 2 }] });
+        await el.updateComplete;
+        el._map!.fire("style.load");
+        el.hass = hassFetching(callWS);
+        await el.updateComplete;
+        await vi.advanceTimersByTimeAsync(5 * 60_000);
+
+        expect(callWS).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("clears the refresh timer on teardown, so a destroyed map is never touched again", async () => {
+      vi.useFakeTimers();
+      try {
+        const callWS = vi.fn().mockResolvedValue({ "device_tracker.phone": [{ a: { latitude: 1, longitude: 2 } }, { a: { latitude: 3, longitude: 4 } }] });
+        el.setConfig({ cluster_markers: false, entities: [HISTORY_ENTITY] });
+        await el.updateComplete;
+        el._map!.fire("style.load");
+        el.hass = hassFetching(callWS);
+        await el.updateComplete;
+        await vi.advanceTimersByTimeAsync(0);
+        const before = callWS.mock.calls.length;
+
+        el.remove();
+        await vi.advanceTimersByTimeAsync(5 * 60_000);
+
+        expect(callWS).toHaveBeenCalledTimes(before);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("does not stack overlapping fetches", async () => {
+      vi.useFakeTimers();
+      try {
+        // Never resolves — the first request stays in flight across several
+        // interval ticks.
+        const callWS = vi.fn().mockReturnValue(new Promise(() => {}));
+        el.setConfig({ cluster_markers: false, entities: [HISTORY_ENTITY] });
+        await el.updateComplete;
+        el._map!.fire("style.load");
+        el.hass = hassFetching(callWS);
+        await el.updateComplete;
+        await vi.advanceTimersByTimeAsync(3 * 60_000);
+
+        expect(callWS).toHaveBeenCalledTimes(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("survives a rejecting history fetch without an unhandled rejection, and retries later", async () => {
+      // Regression: _refreshHistory()'s chain had no .catch, and
+      // _historyCatchUpDone was latched *before* awaiting, so a failed first
+      // fetch was never retried.
+      vi.useFakeTimers();
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        const callWS = vi
+          .fn()
+          .mockRejectedValueOnce(new Error("entity not found"))
+          .mockResolvedValue({ "device_tracker.phone": [{ a: { latitude: 1, longitude: 2 } }, { a: { latitude: 3, longitude: 4 } }] });
+        el.setConfig({ cluster_markers: false, entities: [HISTORY_ENTITY] });
+        await el.updateComplete;
+        el._map!.fire("style.load");
+        el.hass = hassFetching(callWS);
+        await el.updateComplete;
+        await vi.advanceTimersByTimeAsync(0);
+
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect(callWS).toHaveBeenCalledTimes(2);
+        await vi.advanceTimersByTimeAsync(0);
+        await vi.advanceTimersByTimeAsync(0);
+        // The retry's trail did land — the source/layer was created.
+        expect(el._map!.addLayer.mock.calls.some((c) => String((c[0] as { id: string }).id).startsWith("history-"))).toBe(
+          true,
+        );
+      } finally {
+        warn.mockRestore();
+        vi.useRealTimers();
+      }
+    });
+
+    it("discards a history response that lost the race to a newer request", async () => {
+      let resolveFirst: (v: unknown) => void = () => {};
+      const first = new Promise((r) => {
+        resolveFirst = r;
+      });
+      const callWS = vi
+        .fn()
+        .mockReturnValueOnce(first)
+        .mockResolvedValue({ "device_tracker.phone": [{ a: { latitude: 9, longitude: 9 } }] });
+
+      await bootWithHistory(callWS);
+      // A style swap invalidates the in-flight request (a response applied
+      // mid-swap would call addSource() on an unloaded style, which the fake —
+      // like MapLibre — throws on).
+      el.setConfig({ cluster_markers: false, entities: [HISTORY_ENTITY], map_style: "https://example.com/other.json" });
+      await el.updateComplete;
+
+      resolveFirst({ "device_tracker.phone": [{ a: { latitude: 1, longitude: 2 } }] });
+      await expect(flushMicrotasks()).resolves.toBeUndefined(); // no throw escapes
     });
   });
 
