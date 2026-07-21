@@ -160,17 +160,23 @@ export const nyxmapCardStyles = css`
   .maplibregl-ctrl-bottom-left {
     margin: 8px;
   }
-  /* IconButtonControl (Reset focus / Toggle grouping): MapLibre's own
-   * .maplibregl-ctrl-group hardcodes a #fff background regardless of HA's
-   * theme, while .nyxmap-ctrl-button's icon color below follows the theme's
-   * --primary-text-color — fine together in light theme, but in dark theme
-   * that pairs a light icon with a background that never got any darker,
-   * gutting contrast. Matches LayerSwitcherControl.styles.ts's own
-   * .toggle button, which already themes both together for the same reason.
-   * Scoped to .nyxmap-ctrl-group (not plain .maplibregl-ctrl-group) so
-   * NavigationControl's own buttons are untouched. */
-  .nyxmap-ctrl-group {
+  /* MapLibre's own .maplibregl-ctrl-group hardcodes a #fff background
+   * regardless of HA's theme; theme it (this also covers our own
+   * IconButtonControls, which carry the same class) so every control matches
+   * the card surface. */
+  .maplibregl-ctrl-group {
     background: var(--card-background-color, #fff);
+  }
+  /* NavigationControl's zoom/compass icons are baked-in dark SVGs (background-
+   * image data-URIs, no CSS var to recolor), so on a dark card background they
+   * vanish. Invert them to light when the background is dark; hue-rotate keeps
+   * the compass needle's colour instead of flipping it. data-dark is set from
+   * the resolved --card-background-color in NyxmapCard.updated(). */
+  :host([data-dark]) .maplibregl-ctrl-icon {
+    filter: invert(1) hue-rotate(180deg);
+  }
+  :host([data-dark]) .maplibregl-ctrl-group button + button {
+    border-top-color: rgba(255, 255, 255, 0.14);
   }
   /* IconButtonControl (Reset focus / Toggle grouping): sized/centered to
    * match MapLibre's own NavigationControl buttons, which it stacks below

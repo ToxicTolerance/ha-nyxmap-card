@@ -5,6 +5,15 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.8.4] - 2026-07-21
+
+### Fixed
+
+- The MapLibre navigation control (zoom in/out and compass) now adapts to the
+  Home Assistant theme: its background matches the card surface and, on a dark
+  card background, its baked-in dark icons are inverted so they stay visible
+  instead of vanishing.
+
 ## [0.8.3] - 2026-07-20
 
 ### Changed

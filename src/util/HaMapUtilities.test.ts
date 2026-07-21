@@ -1,6 +1,31 @@
 import { describe, expect, it } from "vitest";
 import { MapConfig } from "../configs/MapConfig";
-import { resolveStyle, resolveStylePair, resolveThemeMode, resolveTime } from "./HaMapUtilities";
+import { isColorDark, resolveStyle, resolveStylePair, resolveThemeMode, resolveTime } from "./HaMapUtilities";
+
+describe("isColorDark", () => {
+  it("detects dark hex backgrounds", () => {
+    expect(isColorDark("#1c1c1c")).toBe(true);
+    expect(isColorDark("#000")).toBe(true);
+    expect(isColorDark("#212121")).toBe(true);
+  });
+
+  it("detects light hex backgrounds", () => {
+    expect(isColorDark("#ffffff")).toBe(false);
+    expect(isColorDark("#fff")).toBe(false);
+    expect(isColorDark("#fafafa")).toBe(false);
+  });
+
+  it("handles rgb()/rgba() forms", () => {
+    expect(isColorDark("rgb(28, 28, 28)")).toBe(true);
+    expect(isColorDark("rgba(255, 255, 255, 0.9)")).toBe(false);
+  });
+
+  it("treats an unset/unrecognised value as light", () => {
+    expect(isColorDark("")).toBe(false);
+    expect(isColorDark(undefined)).toBe(false);
+    expect(isColorDark("var(--x)")).toBe(false);
+  });
+});
 
 describe("resolveThemeMode", () => {
   it("follows the system preference when auto", () => {

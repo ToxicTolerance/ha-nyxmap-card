@@ -23,6 +23,38 @@ export function resolveStyle(config: MapConfig, prefersDark: boolean): string {
   return resolveStylePair(config, config.themeMode, prefersDark);
 }
 
+/**
+ * True when a CSS color reads as "dark" (perceived luminance below mid), used
+ * to decide whether the map controls sit on a dark background and therefore
+ * need their light-on-dark treatment. Parses hex (#rgb/#rrggbb) and
+ * rgb()/rgba() — the forms HA's --card-background-color takes — and treats
+ * anything unrecognised (or unset) as light, so controls keep their default
+ * light look unless we can positively tell the background is dark.
+ */
+export function isColorDark(color: string | undefined | null): boolean {
+  const c = (color ?? "").trim();
+  let r: number;
+  let g: number;
+  let b: number;
+  const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(c);
+  const rgb = /^rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)/i.exec(c);
+  if (hex) {
+    const h = hex[1]!.length === 3 ? hex[1]!.replace(/./g, "$&$&") : hex[1]!;
+    const n = parseInt(h, 16);
+    r = (n >> 16) & 255;
+    g = (n >> 8) & 255;
+    b = n & 255;
+  } else if (rgb) {
+    r = Number(rgb[1]);
+    g = Number(rgb[2]);
+    b = Number(rgb[3]);
+  } else {
+    return false;
+  }
+  // Perceived luminance (ITU-R BT.601); < 128 → dark.
+  return 0.299 * r + 0.587 * g + 0.114 * b < 128;
+}
+
 const RELATIVE_TIME_RE = /^(\d+)\s+(minute|hour|day|week)s?\s+ago$/i;
 const ENTITY_ID_RE = /^[a-z_]+\.[a-z0-9_]+$/;
 const UNIT_MS: Record<string, number> = { minute: 6e4, hour: 36e5, day: 864e5, week: 6048e5 };

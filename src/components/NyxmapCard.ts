@@ -17,7 +17,7 @@ import { InitialViewRenderService, type MapViewLike } from "../services/render/I
 import { LayerRegistry } from "../services/render/LayerRegistry";
 import { TileLayersRenderService, type TileLayersMapLike } from "../services/render/TileLayersRenderService";
 import type { HomeAssistant } from "../types/home-assistant";
-import { resolveStylePair, resolveThemeMode } from "../util/HaMapUtilities";
+import { isColorDark, resolveStylePair, resolveThemeMode } from "../util/HaMapUtilities";
 import "./LayerSwitcherControl";
 import type { SwitcherBaseStyleItem, SwitcherOverlayItem } from "./LayerSwitcherControl";
 import { nyxmapCardStyles } from "./NyxmapCard.styles";
@@ -111,6 +111,16 @@ export class NyxmapCard extends LitElement {
     // shrink to that external height instead of sizing to its content,
     // clipping the bottom of the map (and whatever control lived there)
     // even though nothing was actually configured to fill 100% of anything.
+    // Flag a dark control background so the map controls (MapLibre's own
+    // NavigationControl in particular, whose baked icons are dark) get their
+    // light-on-dark treatment — see NyxmapCard.styles.ts. Keyed off the actual
+    // resolved --card-background-color (HA's theme) rather than the map's
+    // light/dark style, so the controls always match the surface they sit on.
+    this.toggleAttribute(
+      "data-dark",
+      isColorDark(getComputedStyle(this).getPropertyValue("--card-background-color")),
+    );
+
     const usesCssLengthHeight = typeof this._config?.height === "string";
     this.style.height = usesCssLengthHeight ? "100%" : "";
     // A percentage/CSS-length height only resolves against an ancestor that
