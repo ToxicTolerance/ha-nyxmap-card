@@ -27,7 +27,29 @@ export class StyleReattach {
     this.factories.clear();
   }
 
+  /**
+   * Replays every registered factory. Two deliberate protections, because the
+   * card's "style.load" handler does the rest of its work *after* this call
+   * (plugin activation, tile layers, entities/clusters, geojson, history,
+   * initial view) and a factory can be arbitrary third-party code:
+   *
+   *  - The registry is snapshotted before iterating, so a factory that
+   *    register()s a fresh id mid-replay isn't visited in the same pass (a
+   *    self-registering factory would otherwise loop forever), and one that
+   *    unregister()s is still safe to iterate over.
+   *  - Each factory runs in its own try/catch, so one throwing overlay (a
+   *    plugin's invalid layer spec, a duplicate layer id) can't abort the
+   *    remaining factories or the handler downstream of them. This is what
+   *    makes PluginHost's "a misbehaving plugin can't take the card down"
+   *    guarantee hold past the first style load.
+   */
   replayAll(map: maplibregl.Map): void {
-    for (const factory of this.factories.values()) factory(map);
+    for (const [id, factory] of [...this.factories]) {
+      try {
+        factory(map);
+      } catch (err) {
+        console.error(`[nyxmap-card] style reattach failed for "${id}":`, err);
+      }
+    }
   }
 }

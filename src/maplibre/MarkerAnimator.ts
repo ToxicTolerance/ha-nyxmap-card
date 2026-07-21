@@ -27,9 +27,13 @@ const DY_PROP = "--nyxmap-anim-dy";
 export const ANIM_MS = 220;
 const FALLBACK_BUFFER_MS = 60;
 
+/** Whatever is currently outstanding for an element: animateEmerge's deferred
+ * release frame before it runs, then the settle timer + listener. All optional
+ * because those are two distinct phases of the same animation. */
 interface AnimState {
-  timer: ReturnType<typeof setTimeout>;
-  listener: () => void;
+  timer?: ReturnType<typeof setTimeout>;
+  listener?: (e: Event) => void;
+  raf?: number;
 }
 
 const pending = new WeakMap<HTMLElement, AnimState>();
@@ -37,21 +41,44 @@ const pending = new WeakMap<HTMLElement, AnimState>();
 function clearPending(el: HTMLElement): void {
   const s = pending.get(el);
   if (!s) return;
-  clearTimeout(s.timer);
-  el.removeEventListener("transitionend", s.listener);
+  if (s.timer !== undefined) clearTimeout(s.timer);
+  if (s.listener) el.removeEventListener("transitionend", s.listener);
+  // The emerge's release frame is cancellable for the same reason the timer
+  // is: a converge starting inside that frame's window would otherwise have
+  // its just-added class stripped by the queued callback, and the callback's
+  // onceSettled would overwrite the converge's pending entry without clearing
+  // it — leaving the converge's listener attached for good, free to fire its
+  // onDone (marker.remove()) again on some unrelated later transitionend.
+  if (s.raf !== undefined) cancelAnimationFrame(s.raf);
   pending.delete(el);
 }
 
 /** Runs `cb` exactly once when the current transition settles — via
- * `transitionend` or a fallback timer, whichever comes first. */
+ * `transitionend` or a fallback timer, whichever comes first.
+ *
+ * The `e.target !== el` guard is load-bearing: `transitionend` bubbles, and a
+ * marker element has children (the `<ha-icon>` buildMarkerElement appends,
+ * whose internal HA components transition on their own). Without it a
+ * descendant's unrelated transition settles the marker's animation early, so
+ * `onDone()` — `marker.remove()` — fires mid-flight and the marker pops out of
+ * existence instead of shrinking into the cluster bubble. Because the listener
+ * must survive those foreign events it can't use `{ once: true }`; it's
+ * removed explicitly by clearPending() instead. */
 function onceSettled(el: HTMLElement, cb: () => void): void {
-  const listener = () => {
+  // Never leave an earlier state behind: pending.set() below would replace it
+  // without stopping its timer or detaching its listener.
+  clearPending(el);
+  const settle = () => {
     clearPending(el);
     cb();
   };
-  const timer = setTimeout(listener, ANIM_MS + FALLBACK_BUFFER_MS);
+  const listener = (e: Event) => {
+    if (e.target !== el) return;
+    settle();
+  };
+  const timer = setTimeout(settle, ANIM_MS + FALLBACK_BUFFER_MS);
   pending.set(el, { timer, listener });
-  el.addEventListener("transitionend", listener, { once: true });
+  el.addEventListener("transitionend", listener);
 }
 
 function setOffset(el: HTMLElement, dx: number, dy: number): void {
@@ -100,8 +127,11 @@ export function animateEmerge(el: HTMLElement, dx: number, dy: number): void {
   el.classList.add(ANIM_CLASS);
   void el.offsetWidth; // force reflow so the snapped start state is committed
   el.style.transition = "";
-  requestAnimationFrame(() => {
+  // Tracked in `pending` so a converge starting before this frame runs can
+  // cancel it (see clearPending).
+  const raf = requestAnimationFrame(() => {
     el.classList.remove(ANIM_CLASS);
     onceSettled(el, () => clearOffset(el));
   });
+  pending.set(el, { raf });
 }

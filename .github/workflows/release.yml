@@ -6,7 +6,13 @@ on:
       - 'v*'
 
 jobs:
+  # A tag cut from a commit that never passed CI (or that regressed after it)
+  # must not ship to HACS users unverified.
+  gate:
+    uses: ./.github/workflows/test.yml
+
   release:
+    needs: gate
     runs-on: ubuntu-latest
     permissions:
       contents: write

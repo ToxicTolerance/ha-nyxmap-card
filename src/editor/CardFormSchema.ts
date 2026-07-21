@@ -93,15 +93,31 @@ export function cardConfigToFormData(config: MapConfigRaw): Record<string, unkno
   return data;
 }
 
+/**
+ * Merges a form snapshot back over the previous config. Only CARD_SCHEMA_KEYS
+ * are touched, so out-of-scope keys (`type`, `entities`, `map_styles`,
+ * `geojson`, `tile_layers`, `wms`) round-trip untouched.
+ *
+ * Clearing a field must actually clear it. `ha-form` reports a cleared field
+ * either as `undefined`, as `""` (text/entity selectors), or by dropping the
+ * key from `ev.detail.value` altogether, depending on the selector — so all
+ * three delete the key rather than leaving the stale value behind from
+ * `{ ...previous }`. Dropping a key that was never set is a harmless no-op,
+ * which is what makes the "absent" branch safe to treat as a clear: the form
+ * data we hand `ha-form` (cardConfigToFormData) contains every key the config
+ * has, so an absent key can only mean unset-or-just-cleared.
+ *
+ * `false` and `0` are values, not clears, and survive.
+ */
 export function formDataToCardConfig(data: Record<string, unknown>, previous: MapConfigRaw): MapConfigRaw {
   const next: MapConfigRaw = { ...previous };
   for (const key of CARD_SCHEMA_KEYS) {
-    if (!(key in data)) continue;
-    if (key === "height") {
-      next.height = parseHeight(data.height);
+    const value = key === "height" ? parseHeight(data.height) : data[key];
+    if (value === undefined || value === null || value === "") {
+      delete (next as Record<string, unknown>)[key];
       continue;
     }
-    (next as Record<string, unknown>)[key] = data[key];
+    (next as Record<string, unknown>)[key] = value;
   }
   return next;
 }

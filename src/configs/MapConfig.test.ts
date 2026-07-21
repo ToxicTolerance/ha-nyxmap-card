@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { TileLayerConfig } from "./TileLayerConfig";
 import { WmsLayerConfig } from "./WmsLayerConfig";
-import { DEFAULT_STYLE_DARK, DEFAULT_STYLE_LIGHT, MapConfig } from "./MapConfig";
+import { DEFAULT_STYLE_DARK, DEFAULT_STYLE_LIGHT, MapConfig, type MapStyleRaw } from "./MapConfig";
 
 describe("MapConfig", () => {
   it("throws on missing config", () => {
@@ -123,6 +123,69 @@ describe("MapConfig", () => {
     expect(cfg.mapStyles[0]?.minZoom).toBe(3);
   });
 
+  describe("map_styles validation", () => {
+    // A map_styles entry with no usable map_style used to yield
+    // `styleLight: undefined`, which reaches map.setStyle(undefined) — MapLibre
+    // reads that as "remove the style" and blanks the map. See code-review §13.
+    it("drops an entry with no map_style", () => {
+      const cfg = new MapConfig({
+        map_styles: [
+          { name: "Half-typed" } as unknown as MapStyleRaw,
+          { name: "Streets", map_style: "https://example.com/streets.json" },
+        ],
+      });
+      expect(cfg.mapStyles.map((s) => s.name)).toEqual(["Streets"]);
+      expect(cfg.mapStyles.every((s) => !!s.styleLight)).toBe(true);
+    });
+
+    it("drops the visual editor's freshly-added blank row", () => {
+      // "+ Add style" emits map_styles: [{ name: "" }] before anything is typed.
+      const cfg = new MapConfig({ map_styles: [{ name: "" } as unknown as MapStyleRaw] });
+      expect(cfg.mapStyles).toEqual([]);
+    });
+
+    it("drops an entry with no name (it would have no switcher label or id)", () => {
+      const cfg = new MapConfig({
+        map_styles: [{ name: "   ", map_style: "https://example.com/a.json" }],
+      });
+      expect(cfg.mapStyles).toEqual([]);
+    });
+
+    it("drops an entry whose map_style is blank/whitespace", () => {
+      const cfg = new MapConfig({ map_styles: [{ name: "Streets", map_style: "  " }] });
+      expect(cfg.mapStyles).toEqual([]);
+    });
+
+    it("de-duplicates entries by name, keeping the first", () => {
+      // Both would map to the same `custom:Streets` registry id, so the second
+      // silently replaced the first in the layer switcher.
+      const cfg = new MapConfig({
+        map_styles: [
+          { name: "Streets", map_style: "https://example.com/first.json" },
+          { name: "Streets", map_style: "https://example.com/second.json" },
+        ],
+      });
+      expect(cfg.mapStyles).toHaveLength(1);
+      expect(cfg.mapStyles[0]?.styleLight).toBe("https://example.com/first.json");
+    });
+
+    it("trims surrounding whitespace off name and style urls", () => {
+      const cfg = new MapConfig({
+        map_styles: [{ name: " Streets ", map_style: " https://example.com/streets.json " }],
+      });
+      expect(cfg.mapStyles[0]?.name).toBe("Streets");
+      expect(cfg.mapStyles[0]?.styleLight).toBe("https://example.com/streets.json");
+      expect(cfg.mapStyles[0]?.styleDark).toBe("https://example.com/streets.json");
+    });
+
+    it("ignores a null hole in the list instead of throwing", () => {
+      const cfg = new MapConfig({
+        map_styles: [null as unknown as MapStyleRaw, { name: "Streets", map_style: "https://example.com/s.json" }],
+      });
+      expect(cfg.mapStyles.map((s) => s.name)).toEqual(["Streets"]);
+    });
+  });
+
   it("parses entities as a mix of strings and objects", () => {
     const cfg = new MapConfig({
       entities: ["device_tracker.a", { entity: "person.b", color: "#123456" }],
@@ -130,6 +193,47 @@ describe("MapConfig", () => {
     expect(cfg.entities).toHaveLength(2);
     expect(cfg.entities[0]?.id).toBe("device_tracker.a");
     expect(cfg.entities[1]?.color).toBe("#123456");
+  });
+
+  describe("entities parsing tolerance", () => {
+    // The visual editor emits `{ entity: "" }` the instant "+ Add entity" is
+    // clicked (and again when an entity picker is cleared). EntityConfig's
+    // constructor throws on that, which used to escape setConfig and replace
+    // the whole card with an HA error card.
+    it("skips a half-filled entity row instead of throwing", () => {
+      const cfg = new MapConfig({
+        entities: [{ entity: "" }, { entity: "person.b" }],
+      });
+      expect(cfg.entities.map((e) => e.id)).toEqual(["person.b"]);
+    });
+
+    it("skips a whitespace-only or non-string entity id", () => {
+      const cfg = new MapConfig({
+        entities: [
+          { entity: "   " },
+          { entity: undefined as unknown as string },
+          { entity: 42 as unknown as string },
+          "",
+          "person.b",
+        ],
+      });
+      expect(cfg.entities.map((e) => e.id)).toEqual(["person.b"]);
+    });
+
+    it("ignores a null hole in the entities list instead of throwing", () => {
+      const cfg = new MapConfig({
+        entities: [null as unknown as string, "person.b"],
+      });
+      expect(cfg.entities.map((e) => e.id)).toEqual(["person.b"]);
+    });
+
+    it("keeps a usable entity id verbatim rather than trimming it", () => {
+      // Only the emptiness check trims; the id itself is whatever the config
+      // said, so it still matches hass.states.
+      const cfg = new MapConfig({ entities: [{ entity: "person.b", label: "B" }] });
+      expect(cfg.entities[0]?.id).toBe("person.b");
+      expect(cfg.entities[0]?.label).toBe("B");
+    });
   });
 
   describe("mapHeight", () => {

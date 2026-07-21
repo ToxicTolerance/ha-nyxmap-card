@@ -19,13 +19,38 @@ export interface TileLayersMapLike {
 
 type LayerKind = "tile" | "wms";
 
-function sourceId(kind: LayerKind, index: number): string {
-  return `${kind}-layer-${index}`;
+/** Stable per-layer identity token. Ids used to be `${kind}-layer-${index}`,
+ * which made every piece of per-layer state — the switcher's visibility map,
+ * the StyleReattach factory, the LayerRegistry entry — follow the *position*
+ * in the YAML list rather than the layer. Reordering `tile_layers:` therefore
+ * re-pointed a hidden layer's "hidden" flag at whichever layer had moved into
+ * that slot. Keyed off `options.name` when the user supplies one, else a hash
+ * of the layer's own (pre-template-resolution) URL, so identity survives both
+ * reordering and a `{{ states(...) }}` URL whose resolved value changes. The
+ * `tile-layer-`/`wms-layer-` prefixes are kept verbatim: they're part of the
+ * reserved-id namespace documented for plugin authors (see
+ * types/nyxmap-plugin.d.ts and PluginHost's RESERVED_OVERLAY_ID_PREFIXES). */
+function identityToken(cfg: { url: string; options: Record<string, unknown> }): string {
+  const name = typeof cfg.options.name === "string" ? cfg.options.name.trim() : "";
+  return name ? name.replace(/[^A-Za-z0-9_-]+/g, "-").toLowerCase() : hashToken(cfg.url);
+}
+
+/** djb2-ish string hash rendered base36 — short, stable, and collision-proof
+ * enough for the handful of raster layers a card carries (exact duplicates are
+ * disambiguated by the caller anyway). */
+function hashToken(s: string): string {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (Math.imul(h, 31) + s.charCodeAt(i)) | 0;
+  return (h >>> 0).toString(36);
+}
+
+function sourceId(kind: LayerKind, token: string): string {
+  return `${kind}-layer-${token}`;
 }
 
 /** Builds a WMS GetMap request as a MapLibre raster tile-URL template,
  * anchored on the `{bbox-epsg-3857}` token MapLibre substitutes per-tile —
- * deliberately not hand-rolled BBOX math (see CLAUDE.md / the phase plan).
+ * deliberately not hand-rolled BBOX math.
  * `options` supplies WMS params (layers/format/transparent/version/styles);
  * anything not WMS-specific (e.g. `attribution`) is harmless as an unused
  * query param here and is applied separately as the source's own
@@ -61,6 +86,16 @@ function extractZoomRange(options: Record<string, unknown>): { minzoom?: number;
   return range;
 }
 
+/** Switcher label: the user's own `options.name` when given (which is the
+ * point of supporting it — "Radar" beats "Tile layer 2"), else the positional
+ * fallback. Unlike the id this deliberately *does* track position, so the
+ * switcher list reads in config order after a reorder while each entry's
+ * visibility state stays with its own layer. */
+function layerLabel(cfg: { options: Record<string, unknown> }, fallbackPrefix: string, index: number): string {
+  const name = typeof cfg.options.name === "string" ? cfg.options.name.trim() : "";
+  return name || `${fallbackPrefix} ${index + 1}`;
+}
+
 function toRasterLayer(id: string, visible: boolean) {
   return {
     id,
@@ -72,8 +107,9 @@ function toRasterLayer(id: string, visible: boolean) {
 
 /**
  * Renders card-level `tile_layers:`/`wms:` config as MapLibre raster
- * sources/layers on top of the vector base style, keyed `tile-layer-${i}`/
- * `wms-layer-${i}`. Like history trails, circles, and GeoJSON shapes,
+ * sources/layers on top of the vector base style, keyed
+ * `tile-layer-${token}`/`wms-layer-${token}` where the token is a stable
+ * per-layer identity (see identityToken). Like history trails, circles, and GeoJSON shapes,
  * sources/layers are wiped by every map.setStyle() (theme swap), so each
  * layer's most recent resolved URL is registered with StyleReattach for
  * replay on "style.load", and registered with LayerRegistry as a toggleable
@@ -93,16 +129,31 @@ export class TileLayersRenderService {
   update(tileLayers: LayerConfig[], wmsLayers: LayerConfig[], hass: HomeAssistant): void {
     const resolver = new HaUrlResolveService(hass);
     const seen = new Set<string>();
+    // Two layers can legitimately share a url (and hence a hashed token) —
+    // disambiguated positionally, which is the one case where index-keying is
+    // unavoidable and also harmless (they're interchangeable by definition).
+    const used = new Map<string, number>();
+    const uniqueId = (kind: LayerKind, cfg: LayerConfig): string => {
+      const base = sourceId(kind, identityToken(cfg));
+      const n = used.get(base) ?? 0;
+      used.set(base, n + 1);
+      return n === 0 ? base : `${base}-${n}`;
+    };
 
     tileLayers.forEach((cfg, index) => {
-      const id = sourceId("tile", index);
+      const id = uniqueId("tile", cfg);
       seen.add(id);
-      this._upsert(id, resolver.resolveUrl(cfg.url), cfg.options, `Tile layer ${index + 1}`);
+      this._upsert(id, resolver.resolveUrl(cfg.url), cfg.options, layerLabel(cfg, "Tile layer", index));
     });
     wmsLayers.forEach((cfg, index) => {
-      const id = sourceId("wms", index);
+      const id = uniqueId("wms", cfg);
       seen.add(id);
-      this._upsert(id, buildWmsUrl(resolver.resolveUrl(cfg.url), cfg.options), cfg.options, `WMS layer ${index + 1}`);
+      this._upsert(
+        id,
+        buildWmsUrl(resolver.resolveUrl(cfg.url), cfg.options),
+        cfg.options,
+        layerLabel(cfg, "WMS layer", index),
+      );
     });
 
     for (const id of [...this.active]) {

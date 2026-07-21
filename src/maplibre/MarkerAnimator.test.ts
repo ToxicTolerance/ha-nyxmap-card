@@ -59,6 +59,53 @@ describe("MarkerAnimator", () => {
       expect(first).not.toHaveBeenCalled();
       expect(second).toHaveBeenCalledTimes(1);
     });
+
+    // Regression: the listener was attached without a target check, and
+    // transitionend bubbles. A marker element has children — the <ha-icon>
+    // buildMarkerElement appends — whose own CSS transitions would settle the
+    // marker's animation early, firing onDone() (marker.remove()) mid-flight
+    // so the marker popped out of existence instead of shrinking away.
+    it("ignores a transitionend bubbling up from a descendant", () => {
+      const el = document.createElement("div");
+      const child = document.createElement("ha-icon");
+      el.appendChild(child);
+      const done = vi.fn();
+
+      animateConverge(el, 10, 10, done);
+      child.dispatchEvent(new Event("transitionend", { bubbles: true }));
+
+      expect(done).not.toHaveBeenCalled();
+      // The marker's own transitionend still settles it.
+      el.dispatchEvent(new Event("transitionend"));
+      expect(done).toHaveBeenCalledTimes(1);
+    });
+
+    it("still settles via the fallback timer after a descendant event was ignored", () => {
+      const el = document.createElement("div");
+      const child = document.createElement("span");
+      el.appendChild(child);
+      const done = vi.fn();
+
+      animateConverge(el, 0, 0, done);
+      child.dispatchEvent(new Event("transitionend", { bubbles: true }));
+      vi.advanceTimersByTime(ANIM_MS + 60);
+
+      expect(done).toHaveBeenCalledTimes(1);
+    });
+
+    it("removes its listener on settle, so a later descendant event can't re-fire it", () => {
+      const el = document.createElement("div");
+      const child = document.createElement("span");
+      el.appendChild(child);
+      const done = vi.fn();
+
+      animateConverge(el, 0, 0, done);
+      el.dispatchEvent(new Event("transitionend"));
+      child.dispatchEvent(new Event("transitionend", { bubbles: true }));
+      el.dispatchEvent(new Event("transitionend"));
+
+      expect(done).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe("animateEmerge", () => {
@@ -73,6 +120,33 @@ describe("MarkerAnimator", () => {
       // The rAF (stubbed as setTimeout(0)) releases it back to the resting state.
       vi.runAllTimers();
       expect(el.classList.contains(OUT_CLASS)).toBe(false);
+    });
+
+    // Regression: the deferred release frame wasn't cancellable, so a converge
+    // starting inside its window had its just-added class stripped by the
+    // queued callback (the marker popped instead of shrinking), and that
+    // callback's onceSettled replaced the converge's pending entry without
+    // clearing it — leaving the converge's listener attached for good, free to
+    // fire its onDone (marker.remove()) a second time on an unrelated later
+    // transitionend, unmounting a marker that was legitimately visible.
+    it("a converge starting inside the pending release frame cancels it and settles exactly once", () => {
+      const el = document.createElement("div");
+      const done = vi.fn();
+
+      animateEmerge(el, 10, 10);
+      animateConverge(el, 5, 5, done);
+      vi.advanceTimersByTime(1); // the release frame would have fired here
+
+      // The converge owns the element now: its collapsed state stands.
+      expect(el.classList.contains(OUT_CLASS)).toBe(true);
+      expect(el.style.getPropertyValue("--nyxmap-anim-dx")).toBe("5px");
+
+      vi.advanceTimersByTime(ANIM_MS + 60);
+      expect(done).toHaveBeenCalledTimes(1);
+
+      // No stale listener left over to re-fire onDone later.
+      el.dispatchEvent(new Event("transitionend"));
+      expect(done).toHaveBeenCalledTimes(1);
     });
 
     it("clears the offset custom properties once the emerge settles", () => {

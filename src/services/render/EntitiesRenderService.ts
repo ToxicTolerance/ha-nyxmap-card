@@ -1,7 +1,12 @@
 import type maplibregl from "maplibre-gl";
 import type { EntityConfig } from "../../configs/EntityConfig";
 import { animateConverge, animateEmerge } from "../../maplibre/MarkerAnimator";
-import { buildMarkerElement, wrapAnimatedMarker } from "../../maplibre/MarkerFactory";
+import {
+  applyMarkerVisual,
+  buildMarkerElement,
+  markerVisualKey,
+  wrapAnimatedMarker,
+} from "../../maplibre/MarkerFactory";
 import type { HomeAssistant } from "../../types/home-assistant";
 
 export type EntityTapHandler = (entityId: string) => void;
@@ -37,6 +42,9 @@ export interface MapLibreGlLike {
 interface TrackedMarker {
   marker: MarkerLike;
   inner: HTMLElement;
+  /** markerVisualKey() of the config+state the inner element was last drawn
+   * from — see the rebuild branch in update(). */
+  visualKey: string;
 }
 
 export class EntitiesRenderService {
@@ -88,17 +96,34 @@ export class EntitiesRenderService {
       any = true;
       const lngLat: [number, number] = [lng as number, lat as number];
 
+      const visualKey = markerVisualKey(ent, st);
       let tracked = this.markers.get(ent.id);
       if (!tracked) {
         const inner = buildMarkerElement(ent, st);
         inner.addEventListener("click", () => this.onTap(ent.id));
-        const marker = new this.gl.Marker({ element: wrapAnimatedMarker(inner) })
+        const marker = new this.gl.Marker({ element: wrapAnimatedMarker(inner, ent.zIndexOffset) })
           .setLngLat(lngLat)
           .addTo(this.map);
-        tracked = { marker, inner };
+        tracked = { marker, inner, visualKey };
         this.markers.set(ent.id, tracked);
       } else {
         tracked.marker.setLngLat(lngLat);
+        // The marker DOM used to be built exactly once, so a rotated
+        // entity_picture token (HA's /api/image_proxy/ URLs expire), a
+        // state-templated `icon`, a rename, or a recolour all left the marker
+        // frozen at its first-render appearance. Redrawn in place (not
+        // replaced) so the click listener and any in-flight MarkerAnimator
+        // state on this node survive — see applyMarkerVisual.
+        if (tracked.visualKey !== visualKey) {
+          applyMarkerVisual(tracked.inner, ent, st);
+          // z_index_offset lives on the positioning wrapper, not the visual
+          // node (see wrapAnimatedMarker), so applyMarkerVisual can't carry
+          // it — without this, a changed z_index_offset only ever took effect
+          // on a freshly created marker.
+          const wrapper = tracked.inner.parentElement;
+          if (wrapper) wrapper.style.zIndex = String(ent.zIndexOffset);
+          tracked.visualKey = visualKey;
+        }
       }
       bounds.extend(lngLat);
 

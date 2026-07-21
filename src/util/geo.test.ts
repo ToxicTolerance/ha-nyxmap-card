@@ -1,5 +1,22 @@
 import { describe, expect, it } from "vitest";
-import { boundsContains, boundsFromPoints, padBounds } from "./geo";
+import { boundsContains, boundsFromLngLatBounds, boundsFromPoints, padBounds } from "./geo";
+
+describe("boundsFromLngLatBounds", () => {
+  it("reads MapLibre's accessor methods rather than (non-existent) properties", () => {
+    // A real maplibregl.LngLatBounds carries only _ne/_sw plus these getters —
+    // treating it as a plain {west,east,south,north} box yields `undefined`
+    // everywhere, which is what silently broke focus_follow: "contains".
+    const lngLatBounds = {
+      _sw: { lng: -1, lat: -2 },
+      _ne: { lng: 3, lat: 4 },
+      getWest: () => -1,
+      getEast: () => 3,
+      getSouth: () => -2,
+      getNorth: () => 4,
+    };
+    expect(boundsFromLngLatBounds(lngLatBounds)).toEqual({ west: -1, east: 3, south: -2, north: 4 });
+  });
+});
 
 describe("boundsFromPoints", () => {
   it("returns null for an empty list", () => {

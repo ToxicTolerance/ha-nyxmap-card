@@ -117,19 +117,48 @@ export class NyxmapCardEditor extends LitElement {
     this._configChanged(formDataToCardConfig(ev.detail.value, this._config!));
   };
 
-  /** Matches each edited row back to its previous raw entity by entity id
-   * (not array position) so reordering rows in the list editor doesn't
-   * cross-wire one entity's circle/geojson onto another entity that moved
-   * into its old slot. */
+  /**
+   * Matches each edited row back to its previous raw entity so the YAML-only
+   * keys the form doesn't cover (`geojson`, a rich `circle:` object, …) are
+   * carried across the edit.
+   *
+   * Two matching strategies, because neither is right on its own:
+   *
+   *  - **By entity id** for a reorder. Rows physically swap slots, so position
+   *    would cross-wire one entity's geojson/circle onto whichever entity moved
+   *    into its old slot.
+   *  - **By position** for an in-place edit. If the edit *was* to the entity id
+   *    itself (fixing a typo), an id lookup misses and falls back to an empty
+   *    `{ entity: id }` — silently dropping every key outside
+   *    ENTITY_SCHEMA_KEYS. See code-review §14.
+   *
+   * They're told apart by the id multiset: the list editor's move buttons
+   * permute ids without changing the set, while a rename changes it. Add and
+   * remove change the length, which rules positional matching out entirely
+   * (indices past the edit point have shifted) and leaves id matching — correct
+   * there, since add/remove never rename.
+   */
   private _entitiesChanged = (ev: ItemsChangedEvent): void => {
+    const previousList = this._config!.entities ?? [];
+    const items = ev.detail.items;
+    const idOf = (raw: string | EntityConfigRaw): string => (typeof raw === "string" ? raw : raw.entity) || "";
     const previousByEntityId = new Map<string, string | EntityConfigRaw>();
-    for (const raw of this._config!.entities ?? []) {
-      const id = typeof raw === "string" ? raw : raw.entity;
+    for (const raw of previousList) {
+      const id = idOf(raw);
       if (id) previousByEntityId.set(id, raw);
     }
-    const entities = ev.detail.items.map((item) => {
+
+    const sameIds =
+      items.length === previousList.length &&
+      JSON.stringify(items.map((i) => (i.entity as string | undefined) ?? "").sort()) ===
+        JSON.stringify(previousList.map(idOf).sort());
+    const byPosition = items.length === previousList.length && !sameIds;
+
+    const entities = items.map((item, i) => {
       const id = item.entity as string | undefined;
-      const previous = (id && previousByEntityId.get(id)) || { entity: id ?? "" };
+      const previous = (byPosition ? previousList[i] : id ? previousByEntityId.get(id) : undefined) ?? {
+        entity: id ?? "",
+      };
       return formDataToEntityRaw(item, previous);
     });
     this._configChanged({ ...this._config!, entities });

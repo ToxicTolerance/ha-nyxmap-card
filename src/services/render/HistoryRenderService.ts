@@ -10,6 +10,7 @@ export interface MapSourceLike {
   removeLayer(id: string): unknown;
   removeSource(id: string): unknown;
   setLayoutProperty(layerId: string, name: string, value: unknown): unknown;
+  setPaintProperty(layerId: string, name: string, value: unknown): unknown;
 }
 
 function sourceId(entityId: string): string {
@@ -74,6 +75,12 @@ function toDotsLayer(id: string, lineColor: string, visible: boolean) {
   };
 }
 
+/** Identity of every paint value the trail's layers are built from, as a
+ * single comparable string — mirrors MarkerFactory.markerVisualKey. */
+function paintKey(history: EntityHistory): string {
+  return history.lineColor;
+}
+
 /**
  * Renders per-entity history trails as GeoJSON LineString sources/layers.
  * Unlike markers, sources/layers are wiped by every map.setStyle() (theme
@@ -92,6 +99,13 @@ export class HistoryRenderService {
    * differ per update (e.g. a config edit), so layers are reconciled against
    * this rather than assumed to be exactly one fixed line layer. */
   private readonly layers = new Map<string, string[]>();
+  /** Paint identity (see `paintKey`) each source's layers were last drawn
+   * with — the same "store a visual key, redraw only when it changes"
+   * precedent EntitiesRenderService uses for markers (markerVisualKey). Paint
+   * used to be applied only on the addLayer() path, so changing
+   * `history_line_color` on an existing trail did nothing until a theme swap
+   * replayed the reattach factory with the fresh value. */
+  private readonly paintKeys = new Map<string, string>();
 
   constructor(
     private readonly map: MapSourceLike,
@@ -155,6 +169,18 @@ export class HistoryRenderService {
     }
     this.layers.set(id, desiredIds);
 
+    // Layers added just above already carry the current colour; only the ones
+    // that survived from the previous update need it pushed onto them.
+    const paint = paintKey(history);
+    if (this.paintKeys.get(id) !== paint) {
+      for (const layerId of desiredIds) {
+        if (!previousIds.includes(layerId)) continue;
+        if (layerId === id) this.map.setPaintProperty(layerId, "line-color", history.lineColor);
+        else this.map.setPaintProperty(layerId, "circle-color", history.lineColor);
+      }
+    }
+    this.paintKeys.set(id, paint);
+
     // Re-registering on every update keeps the replayed data current — a
     // later style.load replays whatever was most recently upserted here.
     this.reattach.register(id, (map) => {
@@ -188,5 +214,6 @@ export class HistoryRenderService {
       this.map.removeSource(id);
     }
     this.layers.delete(id);
+    this.paintKeys.delete(id);
   }
 }

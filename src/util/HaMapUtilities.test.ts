@@ -84,7 +84,7 @@ describe("resolveTime", () => {
     expect(resolveTime("2022-03-01T12:00:00Z", now)).toEqual(new Date("2022-03-01T12:00:00Z"));
   });
 
-  it("returns null for an entity-id reference (deferred to Phase 9)", () => {
+  it("returns null for an entity-id reference (deferred, see porting backlog)", () => {
     expect(resolveTime("input_number.history_hours", now)).toBeNull();
   });
 

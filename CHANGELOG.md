@@ -5,6 +5,161 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-07-22
+
+First stable 0.10.0, promoting `0.10.0-rc.1`/`rc.2` after a third audit wave.
+Everything listed under those release candidates below ships here too.
+
+This wave fixed 10 defects, most of them things that only surface after the
+card has been running a while — a theme swap, an OS switching to dark at
+sunset, a dashboard re-parenting a card.
+
+### Fixed
+
+- **`focus_follow: contains` now works at all.** It was meant to re-fit the
+  camera only when an entity drifts out of view, but the check it relied on
+  silently compared against nothing, so it behaved like `refocus` and re-fit on
+  every Home Assistant state change — pinning the camera many times a second and
+  fighting your own pan/zoom. This is the same defect fixed for `refocus` in
+  0.10.0-rc.2; the sibling branch was missed because the test doubles described
+  MapLibre's bounds object incorrectly, so the suite confirmed the bug.
+- **Editing a colour now updates the accuracy circle, GeoJSON shape or history
+  trail**, not just the marker beside it. Colour, fill opacity, line weight and
+  opacity changes were applied only when a layer was first created, so an edit
+  left the map in a visibly half-updated state until the next theme swap or page
+  reload.
+- **Adding an entity in the visual editor no longer breaks the card.** Clicking
+  "+ Add entity" (or clearing an existing entity picker) produced a config the
+  card refused to parse, replacing the live preview with an error card — and if
+  saved that way, the dashboard card stayed an error card, fixable only through
+  the YAML editor.
+- **Clearing a text field in the entity editor no longer blanks the marker.**
+  Clearing a label rendered an empty coloured disc instead of falling back to
+  initials; clearing an icon rendered a blank icon for an entity that had a
+  perfectly good one of its own.
+- **`theme_mode: auto` now follows the operating system.** When the OS switched
+  to dark, the card's controls restyled but the basemap stayed light, leaving a
+  permanently mismatched card until the page was reloaded — most visible on
+  always-on wall-panel dashboards.
+- **Panning, zooming or toggling a layer while a style swap is in flight no
+  longer throws.** Marker grouping recomputes on camera movement, which reaches
+  the map directly and so bypassed the existing readiness gate; a drag during
+  the fraction of a second a new style is loading could throw out of MapLibre's
+  own event handler.
+- **The layer switcher no longer desyncs from the map.** Toggling an overlay
+  during a style swap could leave a layer hidden while its checkbox showed
+  checked. Toggles are now recorded immediately and applied once the style is
+  ready, so a click is never silently lost.
+- **Hidden layers stay hidden when a dashboard re-parents a card.** After a
+  disconnect/reconnect, layers you had switched off came back visible with their
+  checkboxes still unchecked, so hiding them again took two clicks.
+- **`z_index_offset` changes now apply to markers already on the map**,
+  completing the support added in 0.10.0-rc.2 — previously the new value only
+  took effect once the card was rebuilt.
+- Fixed a marker animation leak where a marker caught mid-transition between
+  grouped and ungrouped states could later be removed while legitimately
+  visible.
+
+### Changed
+
+- The lint and coverage CI gates are now able to fail. `lint` runs with
+  `--max-warnings 0` (ESLint exits successfully on warnings, so the job could
+  never fail before), and coverage thresholds became **per-file** floors instead
+  of a project-wide average that let any single module rot toward zero while the
+  rest of the tree carried it.
+- Added a compile-time conformance check tying the render services' narrow views
+  of MapLibre's `Map` to the real thing. The `focus_follow: contains` defect was
+  possible because a type assertion laundered the mismatch past the compiler;
+  that class of drift is now a build failure.
+
+## [0.10.0-rc.2] - 2026-07-21
+
+Release candidate. Bundles the two audit fix waves (23 findings) for testing in a
+real Home Assistant instance before a stable 0.10.0.
+
+### Added
+
+- **`display: state`** now renders the entity's current state value in the
+  marker, matching upstream `ha-map-card`. It was previously offered in the
+  visual editor's dropdown and accepted in YAML, but rendered identically to
+  `display: marker` — a silent no-op. The marker grows into a pill so longer
+  values ("Not home", "unavailable") aren't clipped by the round marker.
+- **`z_index_offset`** is now honoured. Like `display: state`, it parsed and
+  round-tripped through the editor but was consumed by nothing; set it higher to
+  bring a marker above overlapping ones.
+- Tile/WMS layers accept an **`options.name`**, which pins that layer's
+  layer-switcher on/off state to the layer itself rather than to its position in
+  the list.
+
+### Fixed
+
+- The card now **destroys its MapLibre map** when it is really removed from the
+  page, releasing the WebGL context, worker pool and listeners instead of
+  leaking one set per card. Teardown is deferred by a tick so that Home
+  Assistant's Sections/masonry layouts, which re-parent cards routinely, don't
+  trigger it; a card that comes back rebuilds its map and re-observes its
+  container, so resize tracking survives a re-parent too.
+- Updates that landed **while a light/dark or base-style swap was still
+  loading** no longer throw: the card now marks itself un-ready for the duration
+  of a `setStyle()` that actually changes the style URL, instead of calling
+  `addSource` on a style MapLibre hasn't finished loading.
+- `focus_follow: refocus` **no longer fights your own pan/zoom**. It used to
+  re-fit the camera on every Home Assistant state change anywhere in the
+  instance (many per second on a typical install); it now re-fits only when the
+  tracked entities' combined bounding box has actually changed.
+- Fitting the map to a **single entity** (or several at the same position) now
+  centers on it at the configured `zoom` instead of slamming to maximum zoom.
+  This hit the most common possible setup — one entity, no `x`/`y`/
+  `focus_entity` — including the card picker's default config.
+- A **config change that doesn't change the map style** (adding an entity,
+  editing a colour or a `tile_layers` URL) now refreshes overlays and history
+  immediately, rather than waiting for an unrelated state update — which, in the
+  Edit-card preview, could mean never.
+- A **map style whose `map_styles` entry is missing its `name` or `map_style`**
+  is now ignored instead of being offered in the layer switcher and blanking the
+  map when picked. Duplicate `name`s are de-duplicated, keeping the first.
+- **Renaming an entity in the visual editor** no longer drops the keys the
+  editor doesn't cover (`geojson`, a full `circle:` object, …).
+- **Card-level fields can now be cleared in the visual editor.** Emptying
+  "Title" or "Focus entity" removes the key, instead of appearing empty in the
+  form while the old value was quietly kept on save.
+- **History trails now refresh** (about once a minute) instead of being fetched
+  once at page load and then frozen. On a dashboard left open all day, a
+  relative window like `history_start: 6 hours ago` kept drifting further out of
+  date with nothing indicating the trail was stale.
+- **One entity's failing history fetch no longer discards every entity's
+  trail.** A single bad `history_start`, or one entity with no recorder data,
+  used to wipe the whole batch permanently.
+- **Marker pictures, icons and labels now update in place.** Marker DOM was
+  built once and never rebuilt, so a renamed entity, a state-templated icon, or
+  a refreshed `entity_picture` token would go stale until the card was rebuilt.
+- **Reordering `tile_layers`/`wms` no longer re-targets which layer a switcher
+  toggle controls** — overlay state was keyed by list position.
+- A marker being absorbed into a cluster **no longer pops out of existence
+  mid-animation** when its icon has its own CSS transition.
+
+### Changed
+
+- **Plugin failures are contained more tightly.** A plugin overlay that fails to
+  re-attach after a theme swap no longer aborts the rest of the swap (tile
+  layers, circles, GeoJSON shapes and history trails used to vanish with it),
+  and `registerControl` now isolates a throw from a third-party control's
+  `onAdd()`. A plugin overlay id that collides with the card's own overlays — or
+  uses a reserved `history-`/`circle-`/`geojson-`/`tile-layer-`/`wms-layer-`
+  prefix — is now **rejected with a console warning** rather than half-replacing
+  the built-in overlay. Namespace plugin ids (e.g. `plugin:quakes`).
+- **Release builds are now gated on the test suite.** Pushing a version tag went
+  straight to build-and-publish, so a tag cut from a commit that never passed CI
+  could ship to HACS users unverified. Coverage is enforced in CI too, and
+  linting covers the whole project rather than `src/` alone.
+- Removed `loadMapLibreFromCdn`, an unused escape hatch that would have loaded a
+  MapLibre major version behind the one bundled into the card.
+- Documentation accuracy pass: `CLAUDE.md`'s project/architecture preamble was
+  rewritten against the real repository (Vite/vitest toolchain, `src/` module
+  map) and the porting backlog was given a home there; `README.md`'s
+  `cluster_markers` control position, `focus_follow` semantics, `map_styles`
+  requirements and plugin overlay-id note were corrected to match what ships.
+
 ## [0.9.1] - 2026-07-21
 
 ### Changed

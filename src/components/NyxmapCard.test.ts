@@ -8,31 +8,74 @@ import type { HomeAssistant } from "../types/home-assistant";
 vi.mock("../maplibre/MapLibreLoader", () => {
   class FakeMap {
     handlers = new Map<string, Array<() => void>>();
+    // Models MapLibre's Style._loaded: setStyle() to a *different* URL leaves
+    // the map with a fresh, unloaded style until "style.load" fires, and
+    // Style.addSource() throws "Style is not done loading." until then (an
+    // identical URL takes MapLibre's diff path, which keeps the old style
+    // loaded and doesn't re-fire "style.load"). Without this the fake made
+    // mid-swap updates look harmless.
+    styleLoaded = false;
+    currentStyle?: string;
     addControl = vi.fn();
     removeControl = vi.fn();
-    setStyle = vi.fn();
-    setMaxZoom = vi.fn();
+    remove = vi.fn();
+    setStyle = vi.fn((url: string) => {
+      if (url === this.currentStyle) return;
+      this.currentStyle = url;
+      this.styleLoaded = false;
+    });
+    // maplibre-gl 5.x clamps the current zoom synchronously inside
+    // setMaxZoom() and fires the whole zoomstart/zoom/zoomend/movestart/move/
+    // moveend burst right there (Map.setMaxZoom). ClusterRenderService listens
+    // for zoomend/moveend on the *Map*, so those keep firing straight through
+    // a setStyle() — which is what made a style switch recompute clusters
+    // against a style that isn't done loading.
+    setMaxZoom = vi.fn((maxZoom: number) => {
+      if (maxZoom >= this.zoom) return;
+      this.zoom = maxZoom;
+      this.fire("zoomend");
+      this.fire("moveend");
+    });
     setMinZoom = vi.fn();
     setProjection = vi.fn();
     getSource = vi.fn();
-    addSource = vi.fn();
+    addSource = vi.fn((..._args: unknown[]) => {
+      if (!this.styleLoaded) throw new Error("Style is not done loading.");
+    });
     addLayer = vi.fn();
     removeLayer = vi.fn();
     removeSource = vi.fn();
-    setLayoutProperty = vi.fn();
+    // Style.setLayoutProperty is _checkLoaded()-guarded just like addSource,
+    // so toggling an overlay mid-swap throws in production too.
+    setLayoutProperty = vi.fn((..._args: unknown[]) => {
+      if (!this.styleLoaded) throw new Error("Style is not done loading.");
+    });
     resize = vi.fn();
     jumpTo = vi.fn();
     fitBounds = vi.fn();
     easeTo = vi.fn();
     querySourceFeatures = vi.fn(() => []);
-    getBounds = vi.fn(() => ({ west: -180, east: 180, south: -85, north: 85 }));
+    // Models the real maplibregl.LngLatBounds: _ne/_sw plus accessor methods,
+    // and deliberately NO west/east/south/north properties — the fake used to
+    // return a plain box, which let focus_follow: "contains" ship broken.
+    getBounds = vi.fn(() => ({
+      _sw: { lng: -180, lat: -85 },
+      _ne: { lng: 180, lat: 85 },
+      getWest: () => -180,
+      getEast: () => 180,
+      getSouth: () => -85,
+      getNorth: () => 85,
+    }));
     // Spread projected pixels far apart (×1e6) so distinct test entities never
     // accidentally cluster now that cluster_markers defaults on — tests that
     // exercise clustering override project to bring points together.
     project = vi.fn((ll: [number, number]) => ({ x: ll[0] * 1e6, y: ll[1] * 1e6 }));
-    getZoom = vi.fn(() => 10);
+    zoom = 10;
+    getZoom = vi.fn(() => this.zoom);
     getMaxZoom = vi.fn(() => 22);
-    constructor(public options: unknown) {}
+    constructor(public options: { style?: string }) {
+      this.currentStyle = options.style;
+    }
     on(event: string, handler: () => void): void {
       const arr = this.handlers.get(event) ?? [];
       arr.push(handler);
@@ -46,6 +89,7 @@ vi.mock("../maplibre/MapLibreLoader", () => {
       this.on(event, wrapped);
     }
     fire(event: string): void {
+      if (event === "style.load") this.styleLoaded = true;
       for (const h of [...(this.handlers.get(event) ?? [])]) h();
     }
   }
@@ -93,6 +137,8 @@ interface TestableNyxmapCard extends HTMLElement {
     fire(event: string): void;
     options: { maxZoom?: number; minZoom?: number };
     setStyle: ReturnType<typeof vi.fn>;
+    remove: ReturnType<typeof vi.fn>;
+    addSource: ReturnType<typeof vi.fn>;
     setMaxZoom: ReturnType<typeof vi.fn>;
     setMinZoom: ReturnType<typeof vi.fn>;
     setLayoutProperty: ReturnType<typeof vi.fn>;
@@ -108,6 +154,7 @@ interface TestableNyxmapCard extends HTMLElement {
     getMaxZoom: ReturnType<typeof vi.fn>;
   };
   _entities?: EntitiesRenderService;
+  _cluster?: { getAbsorbed(): ReadonlyMap<string, [number, number]> };
   _clusterToggleControl?: IconButtonControl;
 }
 
@@ -312,7 +359,7 @@ describe("NyxmapCard", () => {
     // layers, so they sit above raster layers unconditionally and aren't part
     // of this ordering.)
     el.setConfig({
-      tile_layers: { url: "https://example.com/{z}/{x}/{y}.png" },
+      tile_layers: { url: "https://example.com/{z}/{x}/{y}.png", options: { name: "base" } },
       entities: [{ entity: "device_tracker.phone", fixed_x: 1, fixed_y: 2, circle: { radius: 25, source: "config" } }],
     });
     await el.updateComplete;
@@ -323,7 +370,7 @@ describe("NyxmapCard", () => {
     const layerIdAt = (id: string) =>
       el._map!.addLayer.mock.calls.findIndex((c) => (c[0] as { id: string }).id === id);
 
-    const tileLayerIndex = layerIdAt("tile-layer-0");
+    const tileLayerIndex = layerIdAt("tile-layer-base");
     expect(tileLayerIndex).toBeGreaterThanOrEqual(0);
     expect(tileLayerIndex).toBeLessThan(layerIdAt("circle-device_tracker.phone-fill"));
   });
@@ -359,7 +406,12 @@ describe("NyxmapCard", () => {
     });
 
     it("clicking 'Reset focus' fits all entities when no explicit x/y/focus_entity is configured", async () => {
-      el.setConfig({ entities: [{ entity: "device_tracker.phone", fixed_x: 1, fixed_y: 2 }] });
+      el.setConfig({
+        entities: [
+          { entity: "device_tracker.phone", fixed_x: 1, fixed_y: 2 },
+          { entity: "device_tracker.tablet", fixed_x: 4, fixed_y: 6 },
+        ],
+      });
       await el.updateComplete;
       el._map!.fire("style.load");
       el.hass = hassWith({});
@@ -370,6 +422,26 @@ describe("NyxmapCard", () => {
       control.options.onClick();
 
       expect(el._map!.fitBounds).toHaveBeenCalled();
+    });
+
+    it("clicking 'Reset focus' with a single entity centers it at the configured zoom instead of slamming to max zoom", async () => {
+      // The stub config (one entity, no x/y/focus_entity) produces a
+      // zero-area bounds; fitBounds() on that clamps to the map's maxZoom, so
+      // the most common possible card used to open at building level instead
+      // of the configured zoom. See InitialViewRenderService._fit().
+      el.setConfig({ zoom: 12, entities: [{ entity: "device_tracker.phone", fixed_x: 1, fixed_y: 2 }] });
+      await el.updateComplete;
+      el._map!.fire("style.load");
+      el.hass = hassWith({});
+      await el.updateComplete;
+
+      const control = findControl("Reset focus");
+      el._map!.fitBounds.mockClear();
+      el._map!.jumpTo.mockClear();
+      control.options.onClick();
+
+      expect(el._map!.fitBounds).not.toHaveBeenCalled();
+      expect(el._map!.jumpTo).toHaveBeenCalledWith({ center: [1, 2], zoom: 12 });
     });
 
     it("does not add a 'Toggle grouping' control when cluster_markers is disabled", async () => {
@@ -774,6 +846,537 @@ describe("NyxmapCard", () => {
       switcher.onToggleOverlay(overlayId);
 
       expect(el._map!.setLayoutProperty).toHaveBeenCalledWith(overlayId, "visibility", "none");
+    });
+  });
+
+  describe("lifecycle (teardown / reconnect)", () => {
+    it("destroys the map when the element is really removed", async () => {
+      // maplibregl.Map.remove() is what releases the WebGL context, the
+      // worker pool, MapLibre's own container ResizeObserver and its
+      // window/document listeners. Browsers cap simultaneous WebGL contexts,
+      // and HA's long-lived frontend builds a fresh card per dashboard view
+      // (and per keystroke in the "Edit card" preview), so leaking one Map
+      // per teardown eventually blanks previously-working maps.
+      el.setConfig({});
+      await el.updateComplete;
+      const map = el._map!;
+
+      el.remove();
+      await flushMicrotasks();
+
+      expect(map.remove).toHaveBeenCalledTimes(1);
+      expect(el._map).toBeUndefined();
+    });
+
+    it("does not destroy the map on a benign re-parent", async () => {
+      // Lit fires disconnectedCallback → connectedCallback on the *same*
+      // element when HA's Sections/masonry layout re-parents a card.
+      el.setConfig({});
+      await el.updateComplete;
+      const map = el._map!;
+
+      el.remove();
+      document.body.appendChild(el);
+      await flushMicrotasks();
+
+      expect(map.remove).not.toHaveBeenCalled();
+      expect(el._map).toBe(map);
+    });
+
+    it("re-observes the container after a re-parent, so resizes still reach the map", async () => {
+      // Regression: the observer is created once inside _buildMap() (guarded
+      // by _built) and disconnected on every disconnect, with nothing to
+      // re-observe it — after one re-parent the canvas stayed locked at its
+      // old pixel size through sidebar toggles and window resizes until a
+      // full page reload.
+      el.setConfig({});
+      await el.updateComplete;
+      const observe = vi.spyOn(window.ResizeObserver.prototype, "observe");
+      const map = el._map!;
+      map.resize.mockClear();
+
+      el.remove();
+      document.body.appendChild(el);
+
+      expect(observe).toHaveBeenCalled();
+      expect(map.resize).toHaveBeenCalled();
+      observe.mockRestore();
+    });
+
+    it("rebuilds the map when the element is re-added after a real teardown", async () => {
+      el.setConfig({ entities: [{ entity: "device_tracker.phone", fixed_x: 1, fixed_y: 2 }] });
+      await el.updateComplete;
+      const first = el._map!;
+
+      el.remove();
+      await flushMicrotasks();
+      expect(el._map).toBeUndefined();
+
+      document.body.appendChild(el);
+      await el.updateComplete;
+
+      expect(el._map).toBeDefined();
+      expect(el._map).not.toBe(first);
+
+      // And the rebuilt map is fully wired: style.load still drives the
+      // render services against the new map instance.
+      el._map!.fire("style.load");
+      el.hass = hassWith({});
+      await el.updateComplete;
+      expect(el._entities?.has("device_tracker.phone")).toBe(true);
+    });
+
+    it("re-applies a hidden overlay to the services rebuilt after a teardown", async () => {
+      // Regression: _teardown() drops every service but keeps
+      // _overlayVisibility, and every rebuilt service starts visible again
+      // (ClusterRenderService._enabled, HistoryRenderService.visibility, …).
+      // An overlay the user had unchecked came back visible after a reconnect
+      // while its checkbox still rendered unchecked — and had to be toggled
+      // twice to re-hide.
+      const clustered = [
+        { entity: "device_tracker.a", fixed_x: 1, fixed_y: 2 },
+        { entity: "device_tracker.b", fixed_x: 3, fixed_y: 4 },
+      ];
+      el.setConfig({ cluster_markers: true, entities: clustered });
+      await el.updateComplete;
+      el._map!.fire("style.load");
+      el.hass = hassWith({});
+      await el.updateComplete;
+
+      el._map!.project.mockReturnValue({ x: 0, y: 0 });
+      el._map!.fire("zoomend");
+      expect(el._cluster!.getAbsorbed().size).toBe(2);
+
+      // User switches grouping off, then the card is really torn down and
+      // re-added (HA re-parents cards; a slow enough round trip runs teardown).
+      el._clusterToggleControl!.options.onClick();
+      expect(el._cluster!.getAbsorbed().size).toBe(0);
+
+      el.remove();
+      await flushMicrotasks();
+      document.body.appendChild(el);
+      await el.updateComplete;
+      el._map!.fire("style.load");
+      el.hass = hassWith({});
+      await el.updateComplete;
+
+      el._map!.project.mockReturnValue({ x: 0, y: 0 });
+      el._map!.fire("zoomend");
+
+      expect(el._clusterToggleControl!.options.isPressed?.()).toBe(false);
+      expect(el._cluster!.getAbsorbed().size).toBe(0);
+    });
+  });
+
+  describe("theme_mode: auto", () => {
+    /** Installs a matchMedia whose "change" listeners can actually be fired —
+     * test/setup.ts's shared shim is a no-op stub (it only needs `.matches`),
+     * and extending it there would change every jsdom test's environment. */
+    function mockColorScheme() {
+      const listeners = new Set<EventListener>();
+      const state = { dark: false };
+      const original = window.matchMedia;
+      window.matchMedia = ((query: string) => ({
+        get matches() {
+          return state.dark;
+        },
+        media: query,
+        onchange: null,
+        addListener: () => {},
+        removeListener: () => {},
+        addEventListener: (_type: string, listener: EventListener) => listeners.add(listener),
+        removeEventListener: (_type: string, listener: EventListener) => listeners.delete(listener),
+        dispatchEvent: () => false,
+      })) as unknown as typeof window.matchMedia;
+      return {
+        listeners,
+        flipToDark() {
+          state.dark = true;
+          for (const l of [...listeners]) l(new Event("change"));
+        },
+        restore() {
+          window.matchMedia = original;
+        },
+      };
+    }
+
+    const STYLES = {
+      map_style: "https://example.com/light.json",
+      map_style_dark: "https://example.com/dark.json",
+    };
+
+    it("swaps the basemap when the OS colour scheme flips", async () => {
+      // Regression: _prefersDark() was only ever read from setConfig/_buildMap/
+      // the switcher's own controls. On a wall panel, sunset flipped the OS to
+      // dark and updated() restyled the *controls* (data-dark) while the
+      // basemap stayed light — a permanently half-dark card until reload.
+      const media = mockColorScheme();
+      try {
+        const card = asTestable(document.createElement("nyxmap-card") as InstanceType<typeof NyxmapCard>);
+        document.body.appendChild(card);
+        card.setConfig(STYLES);
+        await card.updateComplete;
+        expect(media.listeners.size).toBe(1);
+
+        media.flipToDark();
+        await card.updateComplete;
+
+        expect(card._map!.setStyle).toHaveBeenCalledWith("https://example.com/dark.json");
+        card.remove();
+        await flushMicrotasks();
+      } finally {
+        media.restore();
+      }
+    });
+
+    it("leaves an explicit theme_mode alone", async () => {
+      const media = mockColorScheme();
+      try {
+        const card = asTestable(document.createElement("nyxmap-card") as InstanceType<typeof NyxmapCard>);
+        document.body.appendChild(card);
+        card.setConfig({ ...STYLES, theme_mode: "light" });
+        await card.updateComplete;
+
+        media.flipToDark();
+        await card.updateComplete;
+
+        expect(card._map!.setStyle).not.toHaveBeenCalledWith("https://example.com/dark.json");
+        card.remove();
+        await flushMicrotasks();
+      } finally {
+        media.restore();
+      }
+    });
+
+    it("registers exactly one listener across a disconnect/reconnect cycle, and none once removed", async () => {
+      const media = mockColorScheme();
+      try {
+        const card = asTestable(document.createElement("nyxmap-card") as InstanceType<typeof NyxmapCard>);
+        document.body.appendChild(card);
+        card.setConfig(STYLES);
+        await card.updateComplete;
+
+        card.remove();
+        document.body.appendChild(card); // benign re-parent
+        await flushMicrotasks();
+        expect(media.listeners.size).toBe(1);
+
+        card.remove();
+        await flushMicrotasks();
+        expect(media.listeners.size).toBe(0);
+      } finally {
+        media.restore();
+      }
+    });
+  });
+
+  describe("history refresh", () => {
+    const HISTORY_ENTITY = { entity: "device_tracker.phone", fixed_x: 1, fixed_y: 2, history_start: "1 hour ago" };
+
+    function hassFetching(callWS: ReturnType<typeof vi.fn>): HomeAssistant {
+      return { states: {}, language: "en", callWS };
+    }
+
+    async function bootWithHistory(callWS: ReturnType<typeof vi.fn>, config: Record<string, unknown> = {}) {
+      el.setConfig({ cluster_markers: false, entities: [HISTORY_ENTITY], ...config });
+      await el.updateComplete;
+      el._map!.fire("style.load");
+      el.hass = hassFetching(callWS);
+      await el.updateComplete;
+      await flushMicrotasks();
+      await flushMicrotasks();
+    }
+
+    it("re-fetches history on an interval instead of only once per style load", async () => {
+      // Regression: history was fetched exactly once per style load with no
+      // timer and no re-fetch on hass change, so a wall panel left open all day
+      // showed a trail frozen at page-load time whose window drifted ever
+      // further out of date.
+      vi.useFakeTimers();
+      try {
+        const callWS = vi.fn().mockResolvedValue({ "device_tracker.phone": [{ a: { latitude: 1, longitude: 2 } }, { a: { latitude: 3, longitude: 4 } }] });
+        el.setConfig({ cluster_markers: false, entities: [HISTORY_ENTITY] });
+        await el.updateComplete;
+        el._map!.fire("style.load");
+        el.hass = hassFetching(callWS);
+        await el.updateComplete;
+        await vi.advanceTimersByTimeAsync(0);
+        expect(callWS).toHaveBeenCalledTimes(1);
+
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect(callWS).toHaveBeenCalledTimes(2);
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect(callWS).toHaveBeenCalledTimes(3);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("installs no timer when nothing configures history", async () => {
+      vi.useFakeTimers();
+      try {
+        const callWS = vi.fn().mockResolvedValue({});
+        el.setConfig({ cluster_markers: false, entities: [{ entity: "device_tracker.phone", fixed_x: 1, fixed_y: 2 }] });
+        await el.updateComplete;
+        el._map!.fire("style.load");
+        el.hass = hassFetching(callWS);
+        await el.updateComplete;
+        await vi.advanceTimersByTimeAsync(5 * 60_000);
+
+        expect(callWS).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("clears the refresh timer on teardown, so a destroyed map is never touched again", async () => {
+      vi.useFakeTimers();
+      try {
+        const callWS = vi.fn().mockResolvedValue({ "device_tracker.phone": [{ a: { latitude: 1, longitude: 2 } }, { a: { latitude: 3, longitude: 4 } }] });
+        el.setConfig({ cluster_markers: false, entities: [HISTORY_ENTITY] });
+        await el.updateComplete;
+        el._map!.fire("style.load");
+        el.hass = hassFetching(callWS);
+        await el.updateComplete;
+        await vi.advanceTimersByTimeAsync(0);
+        const before = callWS.mock.calls.length;
+
+        el.remove();
+        await vi.advanceTimersByTimeAsync(5 * 60_000);
+
+        expect(callWS).toHaveBeenCalledTimes(before);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("does not stack overlapping fetches", async () => {
+      vi.useFakeTimers();
+      try {
+        // Never resolves — the first request stays in flight across several
+        // interval ticks.
+        const callWS = vi.fn().mockReturnValue(new Promise(() => {}));
+        el.setConfig({ cluster_markers: false, entities: [HISTORY_ENTITY] });
+        await el.updateComplete;
+        el._map!.fire("style.load");
+        el.hass = hassFetching(callWS);
+        await el.updateComplete;
+        await vi.advanceTimersByTimeAsync(3 * 60_000);
+
+        expect(callWS).toHaveBeenCalledTimes(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("survives a rejecting history fetch without an unhandled rejection, and retries later", async () => {
+      // Regression: _refreshHistory()'s chain had no .catch, and
+      // _historyCatchUpDone was latched *before* awaiting, so a failed first
+      // fetch was never retried.
+      vi.useFakeTimers();
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        const callWS = vi
+          .fn()
+          .mockRejectedValueOnce(new Error("entity not found"))
+          .mockResolvedValue({ "device_tracker.phone": [{ a: { latitude: 1, longitude: 2 } }, { a: { latitude: 3, longitude: 4 } }] });
+        el.setConfig({ cluster_markers: false, entities: [HISTORY_ENTITY] });
+        await el.updateComplete;
+        el._map!.fire("style.load");
+        el.hass = hassFetching(callWS);
+        await el.updateComplete;
+        await vi.advanceTimersByTimeAsync(0);
+
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect(callWS).toHaveBeenCalledTimes(2);
+        await vi.advanceTimersByTimeAsync(0);
+        await vi.advanceTimersByTimeAsync(0);
+        // The retry's trail did land — the source/layer was created.
+        expect(el._map!.addLayer.mock.calls.some((c) => String((c[0] as { id: string }).id).startsWith("history-"))).toBe(
+          true,
+        );
+      } finally {
+        warn.mockRestore();
+        vi.useRealTimers();
+      }
+    });
+
+    it("discards a history response that lost the race to a newer request", async () => {
+      let resolveFirst: (v: unknown) => void = () => {};
+      const first = new Promise((r) => {
+        resolveFirst = r;
+      });
+      const callWS = vi
+        .fn()
+        .mockReturnValueOnce(first)
+        .mockResolvedValue({ "device_tracker.phone": [{ a: { latitude: 9, longitude: 9 } }] });
+
+      await bootWithHistory(callWS);
+      // A style swap invalidates the in-flight request (a response applied
+      // mid-swap would call addSource() on an unloaded style, which the fake —
+      // like MapLibre — throws on).
+      el.setConfig({ cluster_markers: false, entities: [HISTORY_ENTITY], map_style: "https://example.com/other.json" });
+      await el.updateComplete;
+
+      resolveFirst({ "device_tracker.phone": [{ a: { latitude: 1, longitude: 2 } }] });
+      await expect(flushMicrotasks()).resolves.toBeUndefined(); // no throw escapes
+    });
+  });
+
+  describe("style swaps", () => {
+    const entities = [
+      { entity: "device_tracker.phone", fixed_x: 1, fixed_y: 2, circle: { radius: 25, source: "config" } },
+    ];
+
+    it("does not touch the render services while a style swap is still loading", async () => {
+      // MapLibre's Style.addSource() throws "Style is not done loading."
+      // between setStyle() and the next style.load. _ready used to latch true
+      // on the first style.load and never clear, so a routine hass update
+      // landing in that window threw straight out of updated().
+      el.setConfig({ map_style: "https://example.com/a.json", entities });
+      await el.updateComplete;
+      el._map!.fire("style.load");
+      el.hass = hassWith({});
+      await el.updateComplete;
+      const addSourceCalls = el._map!.addSource.mock.calls.length;
+      expect(addSourceCalls).toBeGreaterThan(0);
+
+      el.setConfig({ map_style: "https://example.com/b.json", entities });
+      await el.updateComplete;
+      // A routine state update from anywhere in the instance, mid-swap.
+      el.hass = hassWith({});
+      await el.updateComplete;
+
+      expect(el._map!.addSource.mock.calls.length).toBe(addSourceCalls);
+
+      // …and everything comes back once the new style has loaded.
+      el._map!.fire("style.load");
+      await el.updateComplete;
+      expect(el._map!.addSource.mock.calls.length).toBeGreaterThan(addSourceCalls);
+    });
+
+    it("does not touch the circle sources when a cluster recompute lands mid-style-swap", async () => {
+      // Regression: ClusterRenderService's zoomend/moveend listeners are on the
+      // Map, not the style, so they fire straight through a setStyle().
+      // _onSelectBaseStyle() starts the swap and then calls setMaxZoom(), which
+      // MapLibre clamps synchronously — firing zoomend, recomputing clusters,
+      // and reaching CircleRenderService.update() → addSource() against a style
+      // that is not done loading. That throws uncaught out of a MapLibre event
+      // handler (a plain drag during the ~100–500ms style fetch does it too).
+      const clustered = [
+        { entity: "device_tracker.a", fixed_x: 1, fixed_y: 2, circle: { radius: 25, source: "config" } },
+        { entity: "device_tracker.b", fixed_x: 3, fixed_y: 4, circle: { radius: 25, source: "config" } },
+      ];
+      el.setConfig({
+        layer_switcher: true,
+        cluster_markers: true,
+        entities: clustered,
+        map_styles: [
+          { name: "Streets", map_style: "https://example.com/streets.json" },
+          { name: "Aerial", map_style: "https://example.com/aerial.json", max_zoom: 8 },
+        ],
+      });
+      await el.updateComplete;
+      el._map!.fire("style.load");
+      el.hass = hassWith({});
+      await el.updateComplete;
+      await flushMicrotasks();
+      await el.updateComplete;
+      expect(el._map!.addSource.mock.calls.length).toBeGreaterThan(0);
+
+      // Collapse both entities into one bubble (their circles go with their
+      // markers), then pull them apart again — so the recompute forced by the
+      // style switch below releases them and has to (re-)create their circle
+      // sources, which is the addSource() that lands on the unloaded style.
+      el._map!.project.mockReturnValue({ x: 0, y: 0 });
+      el._map!.fire("zoomend");
+      el._map!.project.mockImplementation((ll: [number, number]) => ({ x: ll[0] * 1e6, y: ll[1] * 1e6 }));
+      const before = el._map!.addSource.mock.calls.length;
+
+      const switcher = el.shadowRoot!.querySelector("nyxmap-layer-switcher") as unknown as {
+        onSelectBaseStyle: (id: string) => void;
+      };
+      expect(() => switcher.onSelectBaseStyle("custom:Aerial")).not.toThrow();
+      expect(el._map!.addSource.mock.calls.length).toBe(before);
+
+      // …and circles come back once the new style is loaded.
+      el._map!.fire("style.load");
+      await el.updateComplete;
+      expect(el._map!.addSource.mock.calls.length).toBeGreaterThan(before);
+    });
+
+    it("defers an overlay toggle clicked mid-style-swap instead of throwing and desyncing the switcher", async () => {
+      // Regression: _onToggleOverlay wrote _overlayVisibility first, then let
+      // setLayoutProperty's "Style is not done loading." throw escape — which
+      // skipped the button refresh and requestUpdate(). The checkbox then
+      // rendered checked while the state said hidden, and the style.load replay
+      // brought the trail back shown.
+      const historyEntity = {
+        entity: "device_tracker.phone",
+        fixed_x: 1,
+        fixed_y: 2,
+        history_start: "1 hour ago",
+      };
+      const baseConfig = { layer_switcher: true, cluster_markers: false, entities: [historyEntity] };
+      el.setConfig(baseConfig);
+      await el.updateComplete;
+      el._map!.fire("style.load");
+      el.hass = {
+        states: {},
+        language: "en",
+        callWS: vi.fn().mockResolvedValue({
+          "device_tracker.phone": [{ a: { latitude: 1, longitude: 2 } }, { a: { latitude: 3, longitude: 4 } }],
+        }),
+      };
+      await el.updateComplete;
+      await flushMicrotasks();
+      await flushMicrotasks();
+      await el.updateComplete;
+
+      const switcher = el.shadowRoot!.querySelector("nyxmap-layer-switcher") as unknown as {
+        overlays: Array<{ id: string; active: boolean }>;
+        onToggleOverlay: (id: string) => void;
+      };
+      const overlayId = switcher.overlays[0]!.id;
+
+      // Start a style swap — the new style stays unloaded until style.load.
+      el.setConfig({ ...baseConfig, map_style: "https://example.com/other.json" });
+      await el.updateComplete;
+      el._map!.setLayoutProperty.mockClear();
+
+      expect(() => switcher.onToggleOverlay(overlayId)).not.toThrow();
+      expect(el._map!.setLayoutProperty).not.toHaveBeenCalled();
+      await el.updateComplete;
+      const midSwap = el.shadowRoot!.querySelector("nyxmap-layer-switcher") as unknown as {
+        overlays: Array<{ id: string; active: boolean }>;
+      };
+      expect(midSwap.overlays.find((o) => o.id === overlayId)?.active).toBe(false);
+
+      // The click isn't lost: it's applied as soon as the style is loaded.
+      el._map!.fire("style.load");
+      await el.updateComplete;
+      expect(el._map!.setLayoutProperty).toHaveBeenCalledWith(overlayId, "visibility", "none");
+    });
+
+    it("re-runs the render services on a config change that leaves the style URL unchanged", async () => {
+      // setStyle() doesn't re-fire style.load when the resolved URL is
+      // unchanged, so nothing re-ran the render services — an entity added in
+      // the YAML/visual editor only appeared once some unrelated hass object
+      // arrived, i.e. never in HA's "Edit card" preview pane, which often
+      // holds a static hass.
+      const phone = { entity: "device_tracker.phone", fixed_x: 1, fixed_y: 2 };
+      el.setConfig({ entities: [phone] });
+      await el.updateComplete;
+      el._map!.fire("style.load");
+      el.hass = hassWith({});
+      await el.updateComplete;
+      expect(el._entities?.has("device_tracker.tablet")).toBe(false);
+
+      // No new hass object after this — only the config changes.
+      el.setConfig({ entities: [phone, { entity: "device_tracker.tablet", fixed_x: 3, fixed_y: 4 }] });
+      await el.updateComplete;
+
+      expect(el._entities?.has("device_tracker.tablet")).toBe(true);
     });
   });
 

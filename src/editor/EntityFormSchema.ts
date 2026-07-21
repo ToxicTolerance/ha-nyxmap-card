@@ -102,7 +102,27 @@ export function entityRawToFormData(e: string | EntityConfigRaw): Record<string,
  * `false` when unchecked; when checked, any previously configured `"auto"`/
  * object value is left untouched, and a previous `false` reverts to unset
  * (falling back to the card-level default) rather than being invented from
- * scratch. */
+ * scratch.
+ *
+ * Clearing a field must actually clear it — same rule as
+ * formDataToCardConfig: `ha-form` reports a cleared field as `undefined`, as
+ * `null`, or as `""` depending on the selector, and all three delete the key
+ * instead of writing a blank value over the config. `false` and `0` are
+ * values, not clears, and survive. Writing `""` through is what made a
+ * cleared `label` render an empty coloured disc and a cleared `icon` render a
+ * blank glyph (`""` is not nullish, so MarkerFactory's `??` fallbacks never
+ * fire).
+ *
+ * Unlike the card-level form, an *absent* key means "leave alone" rather than
+ * "cleared": entityRawToFormData deliberately omits values it can't represent
+ * (a non-hex `color` can't seed the color wheel), so absent doesn't imply
+ * unset here.
+ *
+ * `entity` is exempt: it's the row's identity rather than a value field,
+ * EntityConfigRaw requires it, and the editor's own row matching (`idOf`,
+ * `computeRowSummary`) is written against the blank-string sentinel. A row
+ * with no usable entity is dropped at the parse boundary anyway — see
+ * MapConfig's parseEntities. */
 export function formDataToEntityRaw(data: Record<string, unknown>, previous: string | EntityConfigRaw): EntityConfigRaw {
   const prevRaw: EntityConfigRaw = typeof previous === "string" ? { entity: previous } : previous;
   const next: EntityConfigRaw = { ...prevRaw };
@@ -112,15 +132,21 @@ export function formDataToEntityRaw(data: Record<string, unknown>, previous: str
       next.circle = data.circle === false ? false : prevRaw.circle === false ? undefined : prevRaw.circle;
       continue;
     }
-    if (COLOR_KEYS.has(key)) {
-      if (!(key in data)) continue;
-      const v = data[key];
-      // Picker value ([r,g,b]) → #rrggbb; an already-string color passes
-      // through untouched; a cleared field (undefined) unsets it.
-      (next as Record<string, unknown>)[key] = Array.isArray(v) ? rgbToHex(v) : v;
+    if (key === "entity") {
+      if (!("entity" in data)) continue;
+      next.entity = typeof data.entity === "string" ? data.entity : "";
       continue;
     }
-    if (key in data) (next as Record<string, unknown>)[key] = data[key];
+    if (!(key in data)) continue;
+    // Picker value ([r,g,b]) → #rrggbb; an already-string color passes
+    // through untouched.
+    const raw = data[key];
+    const value = COLOR_KEYS.has(key) && Array.isArray(raw) ? rgbToHex(raw) : raw;
+    if (value === undefined || value === null || value === "") {
+      delete (next as Record<string, unknown>)[key];
+      continue;
+    }
+    (next as Record<string, unknown>)[key] = value;
   }
   return next;
 }

@@ -49,15 +49,26 @@ export interface NyxmapPluginContext {
   getConfig(): MapConfig | undefined;
   /** Advanced escape hatch: register a factory replayed after every theme
    * swap (map.setStyle wipes sources/layers). registerOverlay already does
-   * this for you — reach for this only when hand-rolling sources/layers. */
+   * this for you — reach for this only when hand-rolling sources/layers.
+   * Ids here share one flat namespace with the card's own overlays, and this
+   * hatch does NOT check for collisions the way registerOverlay does — prefix
+   * your ids (see registerOverlay). A factory that throws is logged and
+   * skipped; the remaining overlays still replay. */
   reattach: StyleReattach;
   /** Add a custom overlay: its source + layers are added now, replayed on
    * every theme swap, and listed as a toggleable entry in the layer switcher.
-   * Prefer a namespaced `id` to avoid colliding with built-in overlays. */
+   *
+   * `id` MUST be namespaced (the `plugin:` prefix is the convention) — it is
+   * the key for the map source, the theme-swap replay registry and the layer
+   * switcher, all of which the card's own overlays share. A registration is
+   * **rejected** (warning on the console, nothing registered) when `id`
+   * already exists or starts with a reserved built-in prefix: `history-`,
+   * `circle-`, `geojson-`, `tile-layer-`, `wms-layer-`. */
   registerOverlay(id: string, overlay: NyxmapOverlaySpec): void;
   /** Add a MapLibre IControl to the map (e.g. a draw/minimap/geocoder
    * plugin). Controls live outside the style, so they survive theme swaps on
-   * their own. Thin wrapper over map.addControl. */
+   * their own. Thin wrapper over map.addControl; a throw from the control's
+   * onAdd is caught and logged rather than propagated into the card. */
   registerControl(control: IControl, position?: ControlPosition): void;
   /** Inject a plugin's stylesheet into the card's shadow root — required for
    * any plugin that ships its own CSS (compass, minimap, geocoder, …), since

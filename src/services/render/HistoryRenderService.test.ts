@@ -101,6 +101,37 @@ describe("HistoryRenderService", () => {
     expect(map.addSource).not.toHaveBeenCalled();
   });
 
+  // Regression: layers were only ever painted on the addLayer() path, so
+  // changing `history_line_color` (or the entity's `color` it falls back to)
+  // left an existing trail drawn in the old colour until a theme swap replayed
+  // the reattach factory with the fresh value.
+  it("pushes a changed line colour onto an existing trail's layers", () => {
+    const map = createFakeMaplibreMap();
+    const service = new HistoryRenderService(map as never, new StyleReattach(), new LayerRegistry());
+
+    service.update(historiesOf(twoPointHistory("device_tracker.phone", "#ff0000", true, true)));
+    map.getSource.mockReturnValue({ setData: vi.fn() }); // the source now exists
+    service.update(historiesOf(twoPointHistory("device_tracker.phone", "#0000ff", true, true)));
+
+    expect(map.setPaintProperty).toHaveBeenCalledWith("history-device_tracker.phone", "line-color", "#0000ff");
+    expect(map.setPaintProperty).toHaveBeenCalledWith(
+      "history-device_tracker.phone-dots",
+      "circle-color",
+      "#0000ff",
+    );
+  });
+
+  it("leaves paint alone when only the coordinates changed", () => {
+    const map = createFakeMaplibreMap();
+    const service = new HistoryRenderService(map as never, new StyleReattach(), new LayerRegistry());
+
+    service.update(historiesOf(twoPointHistory("device_tracker.phone")));
+    map.getSource.mockReturnValue({ setData: vi.fn() });
+    service.update(historiesOf(twoPointHistory("device_tracker.phone")));
+
+    expect(map.setPaintProperty).not.toHaveBeenCalled();
+  });
+
   it("removes the source/layer and unregisters reattach + the layer switcher when an entity drops out", () => {
     const map = createFakeMaplibreMap();
     const reattach = new StyleReattach();

@@ -1,9 +1,22 @@
 import type maplibregl from "maplibre-gl";
+import type { ControlPosition, IControl } from "maplibre-gl";
 import type { MapConfig } from "../configs/MapConfig";
 import type { HomeAssistant } from "../types/home-assistant";
 import type { NyxmapOverlaySpec, NyxmapPluginContext } from "../types/nyxmap-plugin";
 import type { LayerRegistry } from "../services/render/LayerRegistry";
 import type { StyleReattach } from "./StyleReattach";
+
+/**
+ * Source/overlay id prefixes owned by the card's own render services
+ * (HistoryRenderService, CircleRenderService, GeoJsonRenderService,
+ * TileLayersRenderService). StyleReattach and LayerRegistry are one flat
+ * string namespace shared with plugins, so a plugin id inside these ranges is
+ * rejected — a plain `reattach.has(id)` check isn't enough on its own because
+ * activate() runs *before* those services' first update() in the card's
+ * "style.load" handler, so a colliding plugin id would win the check and be
+ * clobbered moments later.
+ */
+const RESERVED_OVERLAY_ID_PREFIXES = ["history-", "circle-", "geojson-", "tile-layer-", "wms-layer-"];
 
 export interface PluginHostDeps {
   map: maplibregl.Map;
@@ -79,9 +92,24 @@ export class PluginHost {
       getConfig: () => this.deps.getConfig(),
       reattach: this.deps.reattach,
       registerOverlay: (id, overlay) => this._registerOverlay(id, overlay),
-      registerControl: (control, position) => this.deps.map.addControl(control, position),
+      registerControl: (control, position) => this._registerControl(control, position),
       injectStyle: (cssOrUrl) => this._injectStyle(cssOrUrl),
     };
+  }
+
+  /**
+   * map.addControl() synchronously calls the control's onAdd(), which is
+   * third-party code — same trust level as setup(), so it gets the same
+   * isolation. Without this a control throwing from onAdd escapes into
+   * MapLibre and (via the event path, where setup() itself isn't wrapped)
+   * can take the "style.load" handler down with it.
+   */
+  private _registerControl(control: IControl, position?: ControlPosition): void {
+    try {
+      this.deps.map.addControl(control, position);
+    } catch (err) {
+      console.error("[nyxmap-card] plugin registerControl() failed:", err);
+    }
   }
 
   /**
@@ -116,11 +144,28 @@ export class PluginHost {
     }
   }
 
+  /**
+   * Registering an overlay is all-or-nothing: on an id collision we reject
+   * outright rather than partially register. Registering anyway would leave
+   * the card in an unrecoverable split state — _addOverlay bails on the
+   * existing source while reattach/layerRegistry (plain Map.set) overwrite the
+   * internal service's entries, so after the next theme swap the internal
+   * overlay is never re-added and the switcher toggles layer ids that don't
+   * exist. See code-review finding 10.
+   */
   private _registerOverlay(id: string, overlay: NyxmapOverlaySpec): void {
-    if (this.deps.reattach.has(id)) {
+    const reserved = RESERVED_OVERLAY_ID_PREFIXES.find((prefix) => id.startsWith(prefix));
+    if (reserved) {
       console.warn(
-        `[nyxmap-card] plugin overlay id "${id}" collides with an existing overlay — namespace it to avoid clobbering.`,
+        `[nyxmap-card] plugin overlay id "${id}" uses the reserved "${reserved}" prefix (owned by the card's own overlays) — rejected. Namespace it, e.g. "plugin:${id}".`,
       );
+      return;
+    }
+    if (this.deps.reattach.has(id) || this.deps.layerRegistry.getOverlays().has(id)) {
+      console.warn(
+        `[nyxmap-card] plugin overlay id "${id}" collides with an existing overlay — rejected. Namespace it, e.g. "plugin:${id}".`,
+      );
+      return;
     }
     this._overlayVisible.set(id, overlay.visible ?? true);
 

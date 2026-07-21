@@ -242,3 +242,29 @@ describe("computeExpansionZoom", () => {
     expect(computeExpansionZoom(members, 21, 22)).toBe(22);
   });
 });
+
+// Not a behavioural test: a guard on the source itself. pairKey()'s separator
+// used to be a *literal* U+0000 byte pasted into the template literal rather
+// than an escape, which made git report "Binary files differ" for this module
+// (no diff, no blame, no GitHub PR view) and made ripgrep — and therefore the
+// repo's own search tooling — skip it entirely. Cheap to reintroduce by
+// accident, so it's pinned here rather than left to `.gitattributes`.
+describe("source hygiene", () => {
+  it("no tracked source file contains a raw NUL byte", async () => {
+    const { readFileSync, readdirSync } = await import("node:fs");
+    const { join } = await import("node:path");
+
+    const walk = (dir: string): string[] =>
+      readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+        const p = join(dir, e.name);
+        if (e.isDirectory()) return walk(p);
+        return /\.(ts|js|json|md|css)$/.test(e.name) ? [p] : [];
+      });
+
+    const offenders = walk(join(process.cwd(), "src")).filter((f) =>
+      readFileSync(f, "utf8").includes(String.fromCharCode(0)),
+    );
+
+    expect(offenders).toEqual([]);
+  });
+});

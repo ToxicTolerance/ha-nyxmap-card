@@ -48,6 +48,15 @@ function toLayers(id: string, color: string, fillOpacity: number, visible: boole
   ];
 }
 
+/** Identity of every paint value toLayers() bakes in, as a single comparable
+ * string — same "store a visual key, redraw only when it changes" precedent as
+ * MarkerFactory.markerVisualKey. JSON rather than a delimiter join because a
+ * CSS colour can itself contain commas and spaces (`rgb(1, 2, 3)`), so two
+ * distinct field tuples could otherwise collide by concatenation. */
+function paintKey(color: string, fillOpacity: number): string {
+  return JSON.stringify([color, fillOpacity]);
+}
+
 /**
  * Renders per-entity circles (`circle:` config) as GeoJSON Polygon sources
  * with a fill + outline layer, keyed `circle-${entityId}`. Like history
@@ -60,6 +69,11 @@ function toLayers(id: string, color: string, fillOpacity: number, visible: boole
 export class CircleRenderService {
   private readonly active = new Set<string>();
   private readonly visibility = new Map<string, boolean>();
+  /** Paint identity (see `paintKey`) each circle's layers were last drawn
+   * with. Paint used to be applied only on the addLayer() path, so recolouring
+   * an entity (or changing `fill_opacity`) left the existing circle drawn in
+   * the old colour until a theme swap replayed the reattach factory. */
+  private readonly paintKeys = new Map<string, string>();
 
   constructor(
     private readonly map: MapSourceLike,
@@ -121,14 +135,23 @@ export class CircleRenderService {
     const geojson = toGeoJson(center, radiusMeters);
     const isVisible = () => this.visibility.get(id) ?? true;
 
+    const paint = paintKey(color, fillOpacity);
     const existingSource = this.map.getSource(id);
     if (existingSource) {
       existingSource.setData(geojson);
+      // setData() only carries geometry; the layers keep whatever paint they
+      // were added with, so a recolour has to be pushed onto them explicitly.
+      if (this.paintKeys.get(id) !== paint) {
+        this.map.setPaintProperty(fillLayerId(id), "fill-color", color);
+        this.map.setPaintProperty(fillLayerId(id), "fill-opacity", fillOpacity);
+        this.map.setPaintProperty(lineLayerId(id), "line-color", color);
+      }
     } else {
       this.map.addSource(id, { type: "geojson", data: geojson });
       for (const layer of toLayers(id, color, fillOpacity, isVisible())) this.map.addLayer(layer);
       this.active.add(entityId);
     }
+    this.paintKeys.set(id, paint);
 
     // Re-registering on every update keeps the replayed geometry current — a
     // later style.load replays whatever was most recently upserted here.
@@ -157,6 +180,7 @@ export class CircleRenderService {
     this.reattach.unregister(id);
     this.layerRegistry.unregister(id);
     this.visibility.delete(id);
+    this.paintKeys.delete(id);
     this.active.delete(entityId);
     if (this.map.getSource(id)) {
       this.map.removeLayer(lineLayerId(id));

@@ -8,7 +8,7 @@ export type FocusFollow = "none" | "refocus" | "contains";
 export type MapProjection = "mercator" | "globe";
 
 // Free, keyless vector styles so a zero-config card renders on first run
-// (see CLAUDE.md §5 "Open risk to flag").
+// (see CLAUDE.md "Config surface", map_style bullet — the open risk to flag).
 export const DEFAULT_STYLE_LIGHT = "https://tiles.openfreemap.org/styles/positron";
 export const DEFAULT_STYLE_DARK =
   "https://tiles.basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json";
@@ -34,6 +34,81 @@ export interface NamedMapStyle {
   styleDark: string;
   maxZoom?: number;
   minZoom?: number;
+}
+
+/**
+ * Both fields of a map_styles entry are load-bearing and neither is validated
+ * by anything downstream, so an unusable entry is dropped here rather than
+ * propagated:
+ *
+ *  - No usable `map_style` → `styleLight` would be `undefined`, which reaches
+ *    `map.setStyle(undefined)` when the entry is picked in the layer switcher.
+ *    MapLibre reads that as "remove the style" and the map goes blank with no
+ *    error. Trivially reachable from the visual editor, which emits
+ *    `map_styles: [{ name: "" }]` the instant "+ Add style" is clicked.
+ *  - No usable `name` → the entry has no switcher label and (since ids are
+ *    built as `custom:${name}`) no distinguishable id.
+ *  - Duplicate `name` → both entries map to the same `custom:${name}` id, so
+ *    the second silently replaces the first in the registry. First wins here,
+ *    so this list matches what the switcher actually offers.
+ *
+ * Dropped entries are silent rather than console-warned on purpose: MapConfig
+ * is re-parsed on every setConfig, i.e. on every keystroke in the visual
+ * editor, where a half-typed entry is the normal intermediate state. The
+ * feedback is the entry not appearing in the switcher until it's complete.
+ */
+function parseMapStyles(raw: MapStyleRaw[] | undefined): NamedMapStyle[] {
+  const out: NamedMapStyle[] = [];
+  const seen = new Set<string>();
+  for (const s of raw ?? []) {
+    if (!s) continue;
+    const name = typeof s.name === "string" ? s.name.trim() : "";
+    const styleLight = typeof s.map_style === "string" ? s.map_style.trim() : "";
+    if (!name || !styleLight || seen.has(name)) continue;
+    seen.add(name);
+    const styleDark = typeof s.map_style_dark === "string" ? s.map_style_dark.trim() : "";
+    out.push({
+      name,
+      styleLight,
+      styleDark: styleDark || styleLight,
+      maxZoom: s.max_zoom,
+      minZoom: s.min_zoom,
+    });
+  }
+  return out;
+}
+
+/**
+ * `entity` is the one load-bearing key of an entity entry and EntityConfig's
+ * constructor throws without it, so an unusable entry is dropped here rather
+ * than propagated:
+ *
+ *  - No usable `entity` → `EntityConfig.from` throws, and because MapConfig is
+ *    built from setConfig the throw escapes the card entirely, replacing the
+ *    live preview (and, once saved, the dashboard card) with an HA error card
+ *    recoverable only through YAML mode. Trivially reachable from the visual
+ *    editor, which emits `entities: [..., { entity: "" }]` the instant
+ *    "+ Add entity" is clicked, and again whenever an entity picker is
+ *    cleared.
+ *
+ * Dropped entries are silent rather than console-warned for the same reason as
+ * parseMapStyles above: MapConfig is re-parsed on every setConfig, i.e. on
+ * every keystroke in the visual editor, where a half-filled row is the normal
+ * intermediate state. The feedback is the entity not appearing on the map
+ * until it's complete.
+ *
+ * Tolerance belongs here, at the parse boundary, and not in EntityConfig —
+ * throwing stays correct for a programmatic caller that hand-builds one.
+ */
+function parseEntities(raw: Array<string | EntityConfigRaw> | undefined): EntityConfig[] {
+  const out: EntityConfig[] = [];
+  for (const e of raw ?? []) {
+    if (!e) continue;
+    const id = typeof e === "string" ? e : typeof e.entity === "string" ? e.entity : "";
+    if (!id.trim()) continue;
+    out.push(EntityConfig.from(e));
+  }
+  return out;
 }
 
 export interface MapConfigRaw {
@@ -112,14 +187,15 @@ export class MapConfig {
   readonly styleLight: string;
   readonly styleDark: string;
   /** Additional named base-style options for the layer switcher, beyond the
-   * primary Light/Dark pair above. Not an upstream key — see CLAUDE.md §5
-   * "Layer switcher". */
+   * primary Light/Dark pair above. Not an upstream key — see CLAUDE.md
+   * "Config surface". */
   readonly mapStyles: NamedMapStyle[];
   /** Not an upstream ha-map-card key (Leaflet has no globe projection) —
-   * MapLibre-native, defaults to "globe" per CLAUDE.md's globe decision. */
+   * MapLibre-native, defaults to "globe" — see CLAUDE.md "Config surface",
+   * projection bullet. */
   readonly projection: MapProjection;
   /** Opt-in layer switcher UI (base-style radio group + overlay checkboxes).
-   * Not an upstream key — see CLAUDE.md §5 "Layer switcher". */
+   * Not an upstream key — see CLAUDE.md "Config surface". */
   readonly layerSwitcher: boolean;
   /** Whether the JS plugin hook is active (see MapConfigRaw.plugins). */
   readonly plugins: boolean;
@@ -152,13 +228,7 @@ export class MapConfig {
     this.focusFollow = raw.focus_follow ?? "none";
     this.styleLight = raw.map_style ?? DEFAULT_STYLE_LIGHT;
     this.styleDark = raw.map_style_dark ?? DEFAULT_STYLE_DARK;
-    this.mapStyles = (raw.map_styles ?? []).map((s) => ({
-      name: s.name,
-      styleLight: s.map_style,
-      styleDark: s.map_style_dark ?? s.map_style,
-      maxZoom: s.max_zoom,
-      minZoom: s.min_zoom,
-    }));
+    this.mapStyles = parseMapStyles(raw.map_styles);
     this.projection = raw.projection ?? "globe";
     this.layerSwitcher = raw.layer_switcher ?? false;
     this.plugins = raw.plugins ?? true;
@@ -166,7 +236,7 @@ export class MapConfig {
     this.historyEnd = raw.history_end;
     this.historyShowLines = raw.history_show_lines ?? true;
     this.historyShowDots = raw.history_show_dots ?? false;
-    this.entities = (raw.entities ?? []).map(EntityConfig.from);
+    this.entities = parseEntities(raw.entities);
     this.clusterMarkers = raw.cluster_markers ?? true;
     this.clusterMaxZoom = raw.cluster_max_zoom ?? 14;
     this.showAccuracyCircles = raw.show_accuracy_circles ?? true;

@@ -1,9 +1,14 @@
 name: Test
 
+permissions:
+  contents: read
+
 on:
   push:
     branches: [main, master]
   pull_request:
+  # Callable from release.yml so a tag can't ship without passing this gate.
+  workflow_call:
 
 jobs:
   test:
@@ -17,5 +22,5 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run lint
-      - run: npm test
+      - run: npm run test:coverage
       - run: npm run build
