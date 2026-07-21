@@ -2,6 +2,12 @@ import { LitElement, html, svg } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import type { ThemeMode } from "../configs/MapConfig";
 import { layerSwitcherStyles } from "./LayerSwitcherControl.styles";
+import {
+  computeMaxPanelHeight,
+  computeSwitcherOffsets,
+  groupOverlays,
+  SWITCHER_INSET_PX,
+} from "./LayerSwitcherLayout";
 
 // mdi:layers — inline (not ha-icon) so the button icon renders everywhere,
 // including the dev harness and any context without HA's ha-icon element.
@@ -59,17 +65,44 @@ export class LayerSwitcherControl extends LitElement {
    * bottom of MapLibre's top-right control column so the switcher sits just
    * beneath it. Re-measured on resize and whenever that column's height might
    * have changed (e.g. the Toggle grouping button appearing/disappearing). */
-  private _topOffset = 8;
-  private _rightOffset = 8;
+  private _topOffset = SWITCHER_INSET_PX;
+  private _rightOffset = SWITCHER_INSET_PX;
   private _resizeObserver?: ResizeObserver;
 
   override firstUpdated(): void {
+    this._observeParent();
+  }
+
+  /**
+   * Re-arms everything `disconnectedCallback()` tore down. HA's Sections and
+   * masonry layouts re-parent cards on a dashboard edit, which fires
+   * disconnect → connect on the *same* element: without this the resize
+   * observer stayed dead and, if the panel had been left open, `_open` was
+   * still true but the outside-pointerdown listener was gone, so tapping the
+   * map could no longer close the panel for the life of the page. NyxmapCard
+   * already re-observes its own container on reconnect; this is the same fix.
+   */
+  override connectedCallback(): void {
+    super.connectedCallback();
+    // firstUpdated() covers the initial mount; on a reconnect the element has
+    // already rendered once, so re-observe here instead.
+    if (this.hasUpdated) this._observeParent();
+    if (this._open) window.addEventListener("pointerdown", this._onOutsidePointerDown, true);
+  }
+
+  override disconnectedCallback(): void {
+    super.disconnectedCallback();
+    this._resizeObserver?.disconnect();
+    this._resizeObserver = undefined;
+    window.removeEventListener("pointerdown", this._onOutsidePointerDown, true);
+  }
+
+  private _observeParent(): void {
     this._measure();
     const parent = this.offsetParent as HTMLElement | null;
-    if (parent) {
-      this._resizeObserver = new ResizeObserver(() => this._measure());
-      this._resizeObserver.observe(parent);
-    }
+    if (!parent || this._resizeObserver) return;
+    this._resizeObserver = new ResizeObserver(() => this._measure());
+    this._resizeObserver.observe(parent);
   }
 
   protected override updated(): void {
@@ -79,34 +112,25 @@ export class LayerSwitcherControl extends LitElement {
     this._measure();
   }
 
-  /** Positions the toggle just below MapLibre's top-right control column, and
-   * aligned to the same right edge as the buttons in it — MapLibre insets each
-   * control from the column edge by its own margin, so measuring an actual
-   * control (not the column container) is what makes them line up. */
+  /** Reads the rendered rects and hands them to the DOM-free math in
+   * LayerSwitcherLayout, which is where the reasoning about *why* these
+   * particular edges lives. */
   private _measure(): void {
     const parent = this.offsetParent as HTMLElement | null;
     if (!parent) return;
     const column = parent.querySelector(".maplibregl-ctrl-top-right");
     const ctrl = column?.querySelector(".maplibregl-ctrl");
-    let top = 8;
-    let right = 8;
-    if (column && ctrl) {
-      const parentRect = parent.getBoundingClientRect();
-      top = Math.round(column.getBoundingClientRect().bottom - parentRect.top + 8);
-      right = Math.round(parentRect.right - ctrl.getBoundingClientRect().right);
-    }
+    const { top, right } = computeSwitcherOffsets(
+      parent.getBoundingClientRect(),
+      column?.getBoundingClientRect() ?? null,
+      ctrl?.getBoundingClientRect() ?? null,
+    );
     if (top !== this._topOffset || right !== this._rightOffset) {
       this._topOffset = top;
       this._rightOffset = right;
       this.style.top = `${top}px`;
       this.style.right = `${right}px`;
     }
-  }
-
-  override disconnectedCallback(): void {
-    super.disconnectedCallback();
-    this._resizeObserver?.disconnect();
-    window.removeEventListener("pointerdown", this._onOutsidePointerDown, true);
   }
 
   /** Closes the panel when a pointer goes down anywhere outside this control —
@@ -123,10 +147,7 @@ export class LayerSwitcherControl extends LitElement {
     this._open = open;
     if (open) {
       const parent = this.offsetParent as HTMLElement | null;
-      // Panel opens downward from the toggle: the room left is everything below
-      // it (map height − the toggle's own top offset − the 37px toggle+gap −
-      // an 8px bottom inset).
-      if (parent) this._maxPanelHeight = Math.max(120, parent.clientHeight - this._topOffset - 45);
+      if (parent) this._maxPanelHeight = computeMaxPanelHeight(parent.clientHeight, this._topOffset);
       window.addEventListener("pointerdown", this._onOutsidePointerDown, true);
     } else {
       window.removeEventListener("pointerdown", this._onOutsidePointerDown, true);
@@ -195,25 +216,25 @@ export class LayerSwitcherControl extends LitElement {
               </div>
             `
           : null}
-        ${this.overlays.length
-          ? html`
-              <div class="group">
-                <div class="group-label">Overlays</div>
-                ${this.overlays.map(
-                  (o) => html`
-                    <label class="overlay-row">
-                      <span class="overlay-label">${o.label}</span>
-                      <input
-                        type="checkbox"
-                        .checked=${o.active}
-                        @change=${() => this.onToggleOverlay?.(o.id)}
-                      /><span class="switch"></span>
-                    </label>
-                  `,
-                )}
-              </div>
-            `
-          : null}
+        ${groupOverlays(this.overlays).map(
+          (group) => html`
+            <div class="group">
+              <div class="group-label">${group.label}</div>
+              ${group.items.map(
+                (o) => html`
+                  <label class="overlay-row">
+                    <span class="overlay-label">${o.label}</span>
+                    <input
+                      type="checkbox"
+                      .checked=${o.active}
+                      @change=${() => this.onToggleOverlay?.(o.id)}
+                    /><span class="switch"></span>
+                  </label>
+                `,
+              )}
+            </div>
+          `,
+        )}
         </div>
       </div>
     `;

@@ -21,6 +21,54 @@ describe("LayerSwitcherControl", () => {
     el = await mount();
   });
 
+  // HA's Sections/masonry layouts re-parent cards on a dashboard edit, firing
+  // disconnect → connect on the *same* element. disconnectedCallback tears
+  // down the outside-click listener and the resize observer, and nothing used
+  // to put them back.
+  it("still closes on an outside pointerdown after being re-parented", async () => {
+    openPanel(el);
+    await el.updateComplete;
+    expect(el.shadowRoot!.querySelector(".panel")).not.toBeNull();
+
+    // Re-parent: same element, removed and re-added.
+    el.remove();
+    document.body.appendChild(el);
+    await el.updateComplete;
+    expect(el.shadowRoot!.querySelector(".panel")).not.toBeNull(); // still open
+
+    // jsdom has no PointerEvent constructor; the handler only reads
+    // composedPath(), which a plain composed Event provides.
+    document.body.dispatchEvent(new Event("pointerdown", { bubbles: true, composed: true }));
+    await el.updateComplete;
+
+    expect(el.shadowRoot!.querySelector(".panel")).toBeNull();
+  });
+
+  it("does not listen for outside pointerdowns while closed", async () => {
+    const addSpy = vi.spyOn(window, "addEventListener");
+    el.remove();
+    document.body.appendChild(el);
+    await el.updateComplete;
+
+    expect(addSpy.mock.calls.filter((c) => c[0] === "pointerdown")).toHaveLength(0);
+    addSpy.mockRestore();
+  });
+
+  it("groups overlays under their group headings", async () => {
+    el.overlays = [
+      { id: "history-a", label: "History: a", group: "history", active: true },
+      { id: "circle-a", label: "Circle: a", group: "circle", active: true },
+      { id: "history-b", label: "History: b", group: "history", active: true },
+    ];
+    await el.updateComplete;
+    openPanel(el);
+    await el.updateComplete;
+
+    const labels = [...el.shadowRoot!.querySelectorAll(".group-label")].map((n) => n.textContent);
+    expect(labels).toContain("History");
+    expect(labels).toContain("Accuracy circles");
+  });
+
   it("renders a closed toggle button with no panel by default", () => {
     expect(el.shadowRoot!.querySelector(".toggle")).not.toBeNull();
     expect(el.shadowRoot!.querySelector(".panel")).toBeNull();
