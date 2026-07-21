@@ -16,6 +16,12 @@ vi.mock("../maplibre/MapLibreLoader", () => {
     // mid-swap updates look harmless.
     styleLoaded = false;
     currentStyle?: string;
+    // Models maplibre-gl's _contextLost handler, which is the *only* place in
+    // the library that assigns `map.style = null` (every other teardown path
+    // deletes the property instead). Map.getSource/addSource/etc. are thin
+    // `this.style.<x>()` forwarders, so once the WebGL context is lost they
+    // throw a TypeError against null rather than failing gracefully.
+    styleNulled = false;
     addControl = vi.fn();
     removeControl = vi.fn();
     remove = vi.fn();
@@ -38,10 +44,21 @@ vi.mock("../maplibre/MapLibreLoader", () => {
     });
     setMinZoom = vi.fn();
     setProjection = vi.fn();
-    getSource = vi.fn();
+    getSource = vi.fn(() => {
+      this._assertStyle("getSource");
+      return undefined;
+    });
     addSource = vi.fn((..._args: unknown[]) => {
+      this._assertStyle("addSource");
       if (!this.styleLoaded) throw new Error("Style is not done loading.");
     });
+    /** Reproduces the exact shape of the real failure: a property access on a
+     * null `map.style`, not a thrown library error. */
+    _assertStyle(method: string): void {
+      if (this.styleNulled) {
+        throw new TypeError(`Cannot read properties of null (reading '${method}')`);
+      }
+    }
     addLayer = vi.fn();
     removeLayer = vi.fn();
     removeSource = vi.fn();
@@ -89,7 +106,11 @@ vi.mock("../maplibre/MapLibreLoader", () => {
       this.on(event, wrapped);
     }
     fire(event: string): void {
-      if (event === "style.load") this.styleLoaded = true;
+      if (event === "style.load") {
+        this.styleLoaded = true;
+        this.styleNulled = false;
+      }
+      if (event === "webglcontextlost") this.styleNulled = true;
       for (const h of [...(this.handlers.get(event) ?? [])]) h();
     }
   }
@@ -139,6 +160,7 @@ interface TestableNyxmapCard extends HTMLElement {
     setStyle: ReturnType<typeof vi.fn>;
     remove: ReturnType<typeof vi.fn>;
     addSource: ReturnType<typeof vi.fn>;
+    getSource: ReturnType<typeof vi.fn>;
     setMaxZoom: ReturnType<typeof vi.fn>;
     setMinZoom: ReturnType<typeof vi.fn>;
     setLayoutProperty: ReturnType<typeof vi.fn>;
@@ -1387,6 +1409,65 @@ describe("NyxmapCard", () => {
 
     it("getStubConfig returns a config that MapConfig can parse without throwing", () => {
       expect(() => new MapConfig(NyxmapCard.getStubConfig())).not.toThrow();
+    });
+  });
+
+  describe("WebGL context loss", () => {
+    // A lost context is routine in a Home Assistant dashboard: browsers cap the
+    // number of live WebGL contexts and drop the oldest, so switching dashboard
+    // tabs (or having a second map card) can kill this map's context at any
+    // moment. maplibre-gl responds by setting `map.style = null`, but the card
+    // kept both `_map` and `_ready` set, so the next hass update walked
+    // straight into the render services and threw
+    // "Cannot read properties of null (reading 'getSource')" out of updated().
+    const entities = [{ entity: "device_tracker.phone" }];
+
+    // gps_accuracy is what makes CircleRenderService actually reach
+    // map.getSource() — the crash in the wild came through _refreshCircles.
+    function trackedHass(): HomeAssistant {
+      return hassWith({
+        "device_tracker.phone": {
+          entity_id: "device_tracker.phone",
+          state: "home",
+          attributes: { latitude: 2, longitude: 1, gps_accuracy: 50 },
+        },
+      } as unknown as HomeAssistant["states"]);
+    }
+
+    async function buildLoadedCard(): Promise<void> {
+      el.setConfig({ entities });
+      await el.updateComplete;
+      el._map!.fire("style.load");
+      el.hass = trackedHass();
+      await el.updateComplete;
+    }
+
+    it("stops driving the render services once the WebGL context is lost", async () => {
+      await buildLoadedCard();
+      expect(el._map!.getSource).toHaveBeenCalled(); // guards the fixture itself
+      el._map!.getSource.mockClear();
+
+      el._map!.fire("webglcontextlost");
+      el.hass = trackedHass();
+
+      await expect(el.updateComplete).resolves.toBeDefined();
+      expect(el._map!.getSource).not.toHaveBeenCalled();
+    });
+
+    it("resumes rendering after the context is restored and maplibre reloads the style", async () => {
+      // maplibre's own _contextRestored re-runs setStyle(), which fires
+      // "style.load" again — the card's existing handler is what re-arms it,
+      // so recovery must not need any extra plumbing.
+      await buildLoadedCard();
+      el._map!.fire("webglcontextlost");
+      el.hass = trackedHass();
+      await el.updateComplete;
+      el._map!.getSource.mockClear();
+
+      el._map!.fire("style.load");
+      await el.updateComplete;
+
+      expect(el._map!.getSource).toHaveBeenCalled();
     });
   });
 });

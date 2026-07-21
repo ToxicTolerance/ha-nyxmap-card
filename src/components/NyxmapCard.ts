@@ -701,6 +701,23 @@ export class NyxmapCard extends LitElement {
       this.requestUpdate();
     });
 
+    // Losing the WebGL context is routine, not exceptional: browsers cap how
+    // many live contexts a page may hold and silently drop the oldest, so a
+    // second map card or a dashboard tab switch can kill this map's context at
+    // any time. maplibre-gl's own handler responds by setting `map.style =
+    // null` — the only place in the library that assigns null rather than
+    // deleting the property — and every Map source/layer method is a thin
+    // `this.style.<x>()` forwarder. Without clearing _ready here the next hass
+    // update walked straight into the render services and threw "Cannot read
+    // properties of null (reading 'getSource')" out of updated(), aborting the
+    // rest of the refresh. No matching "webglcontextrestored" handler is
+    // needed: maplibre restores by calling setStyle() itself, which re-fires
+    // "style.load" below — that re-arms _ready and replays the reattach
+    // registry, which is exactly the recovery this needs.
+    this._map.on("webglcontextlost", () => {
+      this._ready = false;
+    });
+
     // Fires on first load AND after every subsequent setStyle() (theme
     // swap). Sources/layers (history trails) get wiped by setStyle() and are
     // replayed here via _reattach; markers are unaffected and just get their
