@@ -8,14 +8,29 @@ import type { HomeAssistant } from "../types/home-assistant";
 vi.mock("../maplibre/MapLibreLoader", () => {
   class FakeMap {
     handlers = new Map<string, Array<() => void>>();
+    // Models MapLibre's Style._loaded: setStyle() to a *different* URL leaves
+    // the map with a fresh, unloaded style until "style.load" fires, and
+    // Style.addSource() throws "Style is not done loading." until then (an
+    // identical URL takes MapLibre's diff path, which keeps the old style
+    // loaded and doesn't re-fire "style.load"). Without this the fake made
+    // mid-swap updates look harmless.
+    styleLoaded = false;
+    currentStyle?: string;
     addControl = vi.fn();
     removeControl = vi.fn();
-    setStyle = vi.fn();
+    remove = vi.fn();
+    setStyle = vi.fn((url: string) => {
+      if (url === this.currentStyle) return;
+      this.currentStyle = url;
+      this.styleLoaded = false;
+    });
     setMaxZoom = vi.fn();
     setMinZoom = vi.fn();
     setProjection = vi.fn();
     getSource = vi.fn();
-    addSource = vi.fn();
+    addSource = vi.fn((..._args: unknown[]) => {
+      if (!this.styleLoaded) throw new Error("Style is not done loading.");
+    });
     addLayer = vi.fn();
     removeLayer = vi.fn();
     removeSource = vi.fn();
@@ -32,7 +47,9 @@ vi.mock("../maplibre/MapLibreLoader", () => {
     project = vi.fn((ll: [number, number]) => ({ x: ll[0] * 1e6, y: ll[1] * 1e6 }));
     getZoom = vi.fn(() => 10);
     getMaxZoom = vi.fn(() => 22);
-    constructor(public options: unknown) {}
+    constructor(public options: { style?: string }) {
+      this.currentStyle = options.style;
+    }
     on(event: string, handler: () => void): void {
       const arr = this.handlers.get(event) ?? [];
       arr.push(handler);
@@ -46,6 +63,7 @@ vi.mock("../maplibre/MapLibreLoader", () => {
       this.on(event, wrapped);
     }
     fire(event: string): void {
+      if (event === "style.load") this.styleLoaded = true;
       for (const h of [...(this.handlers.get(event) ?? [])]) h();
     }
   }
@@ -93,6 +111,8 @@ interface TestableNyxmapCard extends HTMLElement {
     fire(event: string): void;
     options: { maxZoom?: number; minZoom?: number };
     setStyle: ReturnType<typeof vi.fn>;
+    remove: ReturnType<typeof vi.fn>;
+    addSource: ReturnType<typeof vi.fn>;
     setMaxZoom: ReturnType<typeof vi.fn>;
     setMinZoom: ReturnType<typeof vi.fn>;
     setLayoutProperty: ReturnType<typeof vi.fn>;
@@ -359,7 +379,12 @@ describe("NyxmapCard", () => {
     });
 
     it("clicking 'Reset focus' fits all entities when no explicit x/y/focus_entity is configured", async () => {
-      el.setConfig({ entities: [{ entity: "device_tracker.phone", fixed_x: 1, fixed_y: 2 }] });
+      el.setConfig({
+        entities: [
+          { entity: "device_tracker.phone", fixed_x: 1, fixed_y: 2 },
+          { entity: "device_tracker.tablet", fixed_x: 4, fixed_y: 6 },
+        ],
+      });
       await el.updateComplete;
       el._map!.fire("style.load");
       el.hass = hassWith({});
@@ -370,6 +395,26 @@ describe("NyxmapCard", () => {
       control.options.onClick();
 
       expect(el._map!.fitBounds).toHaveBeenCalled();
+    });
+
+    it("clicking 'Reset focus' with a single entity centers it at the configured zoom instead of slamming to max zoom", async () => {
+      // The stub config (one entity, no x/y/focus_entity) produces a
+      // zero-area bounds; fitBounds() on that clamps to the map's maxZoom, so
+      // the most common possible card used to open at building level instead
+      // of the configured zoom. See InitialViewRenderService._fit().
+      el.setConfig({ zoom: 12, entities: [{ entity: "device_tracker.phone", fixed_x: 1, fixed_y: 2 }] });
+      await el.updateComplete;
+      el._map!.fire("style.load");
+      el.hass = hassWith({});
+      await el.updateComplete;
+
+      const control = findControl("Reset focus");
+      el._map!.fitBounds.mockClear();
+      el._map!.jumpTo.mockClear();
+      control.options.onClick();
+
+      expect(el._map!.fitBounds).not.toHaveBeenCalled();
+      expect(el._map!.jumpTo).toHaveBeenCalledWith({ center: [1, 2], zoom: 12 });
     });
 
     it("does not add a 'Toggle grouping' control when cluster_markers is disabled", async () => {
@@ -774,6 +819,138 @@ describe("NyxmapCard", () => {
       switcher.onToggleOverlay(overlayId);
 
       expect(el._map!.setLayoutProperty).toHaveBeenCalledWith(overlayId, "visibility", "none");
+    });
+  });
+
+  describe("lifecycle (teardown / reconnect)", () => {
+    it("destroys the map when the element is really removed", async () => {
+      // maplibregl.Map.remove() is what releases the WebGL context, the
+      // worker pool, MapLibre's own container ResizeObserver and its
+      // window/document listeners. Browsers cap simultaneous WebGL contexts,
+      // and HA's long-lived frontend builds a fresh card per dashboard view
+      // (and per keystroke in the "Edit card" preview), so leaking one Map
+      // per teardown eventually blanks previously-working maps.
+      el.setConfig({});
+      await el.updateComplete;
+      const map = el._map!;
+
+      el.remove();
+      await flushMicrotasks();
+
+      expect(map.remove).toHaveBeenCalledTimes(1);
+      expect(el._map).toBeUndefined();
+    });
+
+    it("does not destroy the map on a benign re-parent", async () => {
+      // Lit fires disconnectedCallback → connectedCallback on the *same*
+      // element when HA's Sections/masonry layout re-parents a card.
+      el.setConfig({});
+      await el.updateComplete;
+      const map = el._map!;
+
+      el.remove();
+      document.body.appendChild(el);
+      await flushMicrotasks();
+
+      expect(map.remove).not.toHaveBeenCalled();
+      expect(el._map).toBe(map);
+    });
+
+    it("re-observes the container after a re-parent, so resizes still reach the map", async () => {
+      // Regression: the observer is created once inside _buildMap() (guarded
+      // by _built) and disconnected on every disconnect, with nothing to
+      // re-observe it — after one re-parent the canvas stayed locked at its
+      // old pixel size through sidebar toggles and window resizes until a
+      // full page reload.
+      el.setConfig({});
+      await el.updateComplete;
+      const observe = vi.spyOn(window.ResizeObserver.prototype, "observe");
+      const map = el._map!;
+      map.resize.mockClear();
+
+      el.remove();
+      document.body.appendChild(el);
+
+      expect(observe).toHaveBeenCalled();
+      expect(map.resize).toHaveBeenCalled();
+      observe.mockRestore();
+    });
+
+    it("rebuilds the map when the element is re-added after a real teardown", async () => {
+      el.setConfig({ entities: [{ entity: "device_tracker.phone", fixed_x: 1, fixed_y: 2 }] });
+      await el.updateComplete;
+      const first = el._map!;
+
+      el.remove();
+      await flushMicrotasks();
+      expect(el._map).toBeUndefined();
+
+      document.body.appendChild(el);
+      await el.updateComplete;
+
+      expect(el._map).toBeDefined();
+      expect(el._map).not.toBe(first);
+
+      // And the rebuilt map is fully wired: style.load still drives the
+      // render services against the new map instance.
+      el._map!.fire("style.load");
+      el.hass = hassWith({});
+      await el.updateComplete;
+      expect(el._entities?.has("device_tracker.phone")).toBe(true);
+    });
+  });
+
+  describe("style swaps", () => {
+    const entities = [
+      { entity: "device_tracker.phone", fixed_x: 1, fixed_y: 2, circle: { radius: 25, source: "config" } },
+    ];
+
+    it("does not touch the render services while a style swap is still loading", async () => {
+      // MapLibre's Style.addSource() throws "Style is not done loading."
+      // between setStyle() and the next style.load. _ready used to latch true
+      // on the first style.load and never clear, so a routine hass update
+      // landing in that window threw straight out of updated().
+      el.setConfig({ map_style: "https://example.com/a.json", entities });
+      await el.updateComplete;
+      el._map!.fire("style.load");
+      el.hass = hassWith({});
+      await el.updateComplete;
+      const addSourceCalls = el._map!.addSource.mock.calls.length;
+      expect(addSourceCalls).toBeGreaterThan(0);
+
+      el.setConfig({ map_style: "https://example.com/b.json", entities });
+      await el.updateComplete;
+      // A routine state update from anywhere in the instance, mid-swap.
+      el.hass = hassWith({});
+      await el.updateComplete;
+
+      expect(el._map!.addSource.mock.calls.length).toBe(addSourceCalls);
+
+      // …and everything comes back once the new style has loaded.
+      el._map!.fire("style.load");
+      await el.updateComplete;
+      expect(el._map!.addSource.mock.calls.length).toBeGreaterThan(addSourceCalls);
+    });
+
+    it("re-runs the render services on a config change that leaves the style URL unchanged", async () => {
+      // setStyle() doesn't re-fire style.load when the resolved URL is
+      // unchanged, so nothing re-ran the render services — an entity added in
+      // the YAML/visual editor only appeared once some unrelated hass object
+      // arrived, i.e. never in HA's "Edit card" preview pane, which often
+      // holds a static hass.
+      const phone = { entity: "device_tracker.phone", fixed_x: 1, fixed_y: 2 };
+      el.setConfig({ entities: [phone] });
+      await el.updateComplete;
+      el._map!.fire("style.load");
+      el.hass = hassWith({});
+      await el.updateComplete;
+      expect(el._entities?.has("device_tracker.tablet")).toBe(false);
+
+      // No new hass object after this — only the config changes.
+      el.setConfig({ entities: [phone, { entity: "device_tracker.tablet", fixed_x: 3, fixed_y: 4 }] });
+      await el.updateComplete;
+
+      expect(el._entities?.has("device_tracker.tablet")).toBe(true);
     });
   });
 

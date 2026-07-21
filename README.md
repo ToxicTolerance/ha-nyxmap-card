@@ -117,7 +117,7 @@ same dialog) to set those.
 | `history_start` / `history_end` | string (relative or ISO) | — | Card-level default history window, inherited by entities that don't set their own. |
 | `history_show_lines` | boolean | `true` | Draw the connecting trail line for each entity's history. |
 | `history_show_dots` | boolean | `false` | Draw a dot at each sampled history position, in addition to (or instead of) the connecting line. |
-| `cluster_markers` | boolean | `true` | Collapse entities into a numbered bubble **when their marker circles actually overlap on screen** (not a fixed radius), animating smoothly as they merge and split — matching Home Assistant's own built-in map, which also defaults clustering on. Click a bubble (or zoom in) to expand it. Individual entities keep their normal picture/icon marker look — only overlapping entities render as a bubble. Also adds a bottom-left "Toggle grouping" map button for one-click on/off. Set `false` to disable. |
+| `cluster_markers` | boolean | `true` | Collapse entities into a numbered bubble **when their marker circles actually overlap on screen** (not a fixed radius), animating smoothly as they merge and split — matching Home Assistant's own built-in map, which also defaults clustering on. Click a bubble (or zoom in) to expand it. Individual entities keep their normal picture/icon marker look — only overlapping entities render as a bubble. Also adds a "Toggle grouping" map button for one-click on/off, in the top-right column directly beneath the zoom/compass and "Reset focus" buttons. Set `false` to disable. |
 | `cluster_max_zoom` | number | `14` | Zoom level at and above which clustering stops entirely, regardless of how close entities render. |
 | `show_accuracy_circles` | boolean | `true` | Automatically draw a [circle](#circle-options-per-entity-circle) around any entity with a `gps_accuracy`/`radius` attribute — matching Home Assistant's own built-in map. Set `false` to turn this off card-wide (an entity's own `circle: false` always opts just that entity out; an explicit per-entity `circle:` config always overrides both). |
 | `tile_layers` | one or a list of [layer objects](#tilewms-layer-options-tile_layers--wms) | — | Raster tile overlay(s), layered on top of the vector base style. |
@@ -427,6 +427,9 @@ version's notes from [`CHANGELOG.md`](CHANGELOG.md); `filename` in
 
 Not yet built, tracked as upstream `ha-map-card` feature parity:
 
-- Energy-dashboard date-range linking (`history_date_selection`)
+- Energy-dashboard date-range linking (`history_date_selection`), and with it the WMS `TIME`
+  parameter (`history` on a `wms:` entry)
+- `history_start`/`history_end` given as an entity id (e.g. `input_number.hours`); relative
+  ("5 hours ago") and absolute/ISO values work today
 
-See [`CLAUDE.md`](CLAUDE.md) for the full architecture notes and phased plan.
+See [`CLAUDE.md`](CLAUDE.md) for the full architecture notes and the porting backlog.

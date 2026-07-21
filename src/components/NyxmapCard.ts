@@ -62,6 +62,13 @@ export class NyxmapCard extends LitElement {
   private _historyCatchUpDone = false;
   private _resizeObserver?: ResizeObserver;
   private _resizeRaf?: number;
+  /** Pending deferred teardown — see disconnectedCallback(). */
+  private _teardownTimer?: ReturnType<typeof setTimeout>;
+  /** The style URL currently handed to the map. Compared against a freshly
+   * resolved one so setConfig() can tell a real style swap (which will re-fire
+   * "style.load", replaying everything) from a config edit that leaves the
+   * style alone (which won't — see setConfig). */
+  private _activeStyleUrl?: string;
   private readonly _reattach = new StyleReattach();
   private readonly _historyManager = new EntityHistoryManager();
   private readonly _initialView = new InitialViewRenderService();
@@ -77,7 +84,9 @@ export class NyxmapCard extends LitElement {
       // before that lookup runs, or a currently-selected entry falls back
       // silently to the card-level map_style/map_style_dark instead.
       this._syncBaseStyles();
-      this._map.setStyle(this._resolveActiveStyleUrl());
+      const url = this._resolveActiveStyleUrl();
+      const styleChanged = url !== this._activeStyleUrl;
+      this._applyStyle(url);
       // Called directly here too, not just from the style.load cycle:
       // MapLibre's setStyle() doesn't reliably re-fire "style.load" when the
       // resolved URL is unchanged from the currently active style (e.g.
@@ -85,7 +94,33 @@ export class NyxmapCard extends LitElement {
       // would otherwise leave the "Toggle grouping" button's presence stuck
       // until something else happened to trigger a reload.
       this._syncClusterToggleControl();
+      // Same reasoning, for everything else the style.load cycle drives: with
+      // no reload there is nothing to re-run the render services, so an edit
+      // that doesn't touch the style (adding an entity, recolouring one,
+      // editing tile_layers.url) wouldn't show up until the next unrelated
+      // hass object arrived — never, in HA's "Edit card" preview pane, which
+      // often holds a static hass. History is re-fetched too, since
+      // history_start/entities may well be what changed.
+      if (!styleChanged && this._ready && this.hass) {
+        this._refreshOverlays();
+        this._historyCatchUpDone = false;
+        this._refreshHistory();
+      }
     }
+  }
+
+  /** Single funnel for map.setStyle(). Clears _ready for the duration of a
+   * real swap: setStyle() replaces the map's Style with a fresh, *unloaded*
+   * one until the new JSON is fetched and parsed, and MapLibre's
+   * Style.addSource() throws "Style is not done loading." while that's true.
+   * Without this, a hass update landing mid-swap runs the render services
+   * against the unloaded style and throws out of updated(). _ready is
+   * restored by the "style.load" handler. */
+  private _applyStyle(url: string): void {
+    if (!this._map) return;
+    if (url !== this._activeStyleUrl) this._ready = false;
+    this._activeStyleUrl = url;
+    this._map.setStyle(url);
   }
 
   static getConfigElement(): HTMLElement {
@@ -106,10 +141,89 @@ export class NyxmapCard extends LitElement {
     return Math.max(1, Math.ceil((this._config?.mapHeight ?? 250) / 50));
   }
 
+  override connectedCallback(): void {
+    super.connectedCallback();
+    // Cancel a teardown scheduled by a *benign* disconnect (see below) — the
+    // element came back, so the map it still owns stays valid.
+    if (this._teardownTimer !== undefined) {
+      clearTimeout(this._teardownTimer);
+      this._teardownTimer = undefined;
+    }
+    if (this._built && this._map) {
+      // disconnectedCallback() disconnects the observer; nothing else ever
+      // re-observes, and _buildMap() (which created it) is guarded by _built
+      // and never runs twice. Without this, a re-parent — HA's Sections/
+      // masonry layouts do exactly that when a view is edited or reflowed —
+      // permanently kills the card's resize handling: the canvas then stays
+      // locked at its old pixel size through sidebar toggles and window
+      // resizes until a full page reload.
+      this._observeContainer();
+      this._map.resize();
+    } else if (this._config) {
+      // Torn down while away — rebuild from updated().
+      this.requestUpdate();
+    }
+  }
+
+  /** Lit elements are disconnected on benign re-parenting too, so teardown is
+   * deferred by a macrotask and cancelled from connectedCallback() if the
+   * element comes back. On a real removal the map must be destroyed:
+   * maplibregl.Map.remove() is what releases the WebGL context, terminates
+   * the worker pool, drops MapLibre's own container ResizeObserver and
+   * detaches its window/document listeners. Browsers cap simultaneous WebGL
+   * contexts (~8–16), and HA's frontend is a long-lived tab that constructs a
+   * fresh card per dashboard view — and per keystroke in the "Edit card"
+   * preview — so leaking one Map per teardown blanks previously-working maps
+   * once the cap is hit. */
   override disconnectedCallback(): void {
     super.disconnectedCallback();
     this._resizeObserver?.disconnect();
-    if (this._resizeRaf !== undefined) cancelAnimationFrame(this._resizeRaf);
+    if (this._resizeRaf !== undefined) {
+      cancelAnimationFrame(this._resizeRaf);
+      this._resizeRaf = undefined;
+    }
+    if (this._teardownTimer === undefined) {
+      this._teardownTimer = setTimeout(() => this._teardown(), 0);
+    }
+  }
+
+  private _teardown(): void {
+    this._teardownTimer = undefined;
+    if (this.isConnected) return;
+    this._map?.remove();
+    this._map = undefined;
+    this._resizeObserver = undefined;
+    // Everything below is bound to the destroyed map, so it must not be
+    // reused by a later rebuild: the render services hold it directly, the
+    // reattach factories close over it, the registered overlays' setVisible()
+    // targets its layer ids, and the control instances are already attached
+    // to it. _buildMap() recreates all of them.
+    this._entities = undefined;
+    this._history = undefined;
+    this._circles = undefined;
+    this._geojson = undefined;
+    this._cluster = undefined;
+    this._tileLayers = undefined;
+    this._pluginHost = undefined;
+    this._clusterToggleControl = undefined;
+    this._reattach.clear();
+    for (const id of [...this._layerRegistry.getOverlays().keys()]) {
+      this._layerRegistry.unregister(id);
+    }
+    this._built = false;
+    this._ready = false;
+    this._activeStyleUrl = undefined;
+    this._initialViewApplied = false;
+    this._historyCatchUpDone = false;
+  }
+
+  /** Idempotent: ResizeObserver.observe() on an already-observed element is a
+   * no-op, so this is safe to call from both _buildMap() and every reconnect. */
+  private _observeContainer(): void {
+    const container = this.renderRoot?.querySelector<HTMLDivElement>(".nyxmap-container");
+    if (!container) return;
+    this._resizeObserver ??= new ResizeObserver(() => this._scheduleResize());
+    this._resizeObserver.observe(container);
   }
 
   protected override updated(changed: PropertyValues): void {
@@ -147,25 +261,14 @@ export class NyxmapCard extends LitElement {
       this._buildMap();
     }
     if (changed.has("hass") && this._ready && this._config && this.hass) {
-      // tile_layers/wms first: MapLibre stacks layers in add order (later
-      // added = drawn on top), and raster overlays are documented as sitting
-      // "on top of the vector base style" — but not on top of our own entity
-      // overlays. Adding them before circles/geojson/clusters means those
-      // overlays' first-ever addLayer() call (which is what actually fixes
-      // z-order; setData()/setTiles() on an already-created layer doesn't
-      // move it) lands after the raster layer, keeping markers/shapes visible
-      // above it instead of hidden underneath.
-      this._tileLayers?.update(this._config.tileLayers, this._config.wms, this.hass);
-      // _updateEntitiesAndClusters() → _resyncEntityMarkers() refreshes circles
-      // too (with the current absorbed set), so no separate circle update here.
-      this._updateEntitiesAndClusters();
-      this._geojson?.update(this._config.entities, this.hass);
+      this._refreshOverlays();
       this._applyInitialViewIfNeeded();
       this._initialView.updateFit(
         this._map as unknown as MapViewLike,
         this._config.entities,
         this.hass,
         this._config.focusFollow,
+        this._config.zoom,
       );
       // Catch-up for the (uncommon but possible) case where hass wasn't set
       // yet when "style.load" first fired, so the refresh below never ran.
@@ -243,7 +346,7 @@ export class NyxmapCard extends LitElement {
   private _onSelectThemeMode(mode: ThemeMode): void {
     this._manualThemeMode = mode;
     if (!this._map || !this._config) return;
-    this._map.setStyle(this._resolveActiveStyleUrl());
+    this._applyStyle(this._resolveActiveStyleUrl());
   }
 
   private _baseStyleItems(): SwitcherBaseStyleItem[] {
@@ -267,7 +370,7 @@ export class NyxmapCard extends LitElement {
   private _onSelectBaseStyle(id: string): void {
     this._manualStyleId = id;
     if (!this._map || !this._config) return;
-    this._map.setStyle(this._resolveActiveStyleUrl());
+    this._applyStyle(this._resolveActiveStyleUrl());
     // Each base style can have its own real coverage limit (see
     // MapConfig.NamedMapStyle.maxZoom/minZoom) — e.g. a regional aerial
     // overlay topping out at z19 while a general vector style goes to z22.
@@ -368,9 +471,10 @@ export class NyxmapCard extends LitElement {
     );
 
     const initialCenter = this._initialView.getInitialCenter(config, this.hass) ?? [config.x ?? 0, config.y ?? 0];
+    this._activeStyleUrl = this._resolveActiveStyleUrl();
     this._map = new maplibregl.Map({
       container,
-      style: this._resolveActiveStyleUrl(),
+      style: this._activeStyleUrl,
       center: initialCenter,
       zoom: config.zoom,
       maxZoom: initialEntry?.maxZoom ?? config.maxZoom,
@@ -411,8 +515,7 @@ export class NyxmapCard extends LitElement {
     // a fresh layout pass (e.g. switching dashboard tabs and back). Our own
     // observer has no such skip, so it catches that corrective resize (and
     // any later one — sidebar toggle, window resize, editing the dashboard).
-    this._resizeObserver = new ResizeObserver(() => this._scheduleResize());
-    this._resizeObserver.observe(container);
+    this._observeContainer();
     // Also nudge once after layout has settled post-construction, for
     // engines/timings where even a second ResizeObserver tick doesn't land
     // before first paint.
@@ -503,20 +606,35 @@ export class NyxmapCard extends LitElement {
       // them without setup running again (activate() is idempotent).
       this._pluginHost?.activate();
       if (this._config && this.hass) {
-        // tile_layers/wms first — see the matching comment in updated()'s
-        // hass branch: this is what actually fixes the z-order, since this is
-        // the very first time (pre-_ready) any of these sources/layers get
-        // created via addLayer(), which is also what seeds StyleReattach's
-        // replay order for every later theme swap.
-        this._tileLayers?.update(this._config.tileLayers, this._config.wms, this.hass);
-        // _updateEntitiesAndClusters() → _resyncEntityMarkers() refreshes
-        // circles too (with the current absorbed set) — see the hass branch.
-        this._updateEntitiesAndClusters();
-        this._geojson?.update(this._config.entities, this.hass);
+        this._refreshOverlays();
         this._refreshHistory();
         this._applyInitialViewIfNeeded();
       }
     });
+  }
+
+  /** Re-runs every source/layer-backed render service against the current
+   * config + hass. Called from all three paths that can invalidate them: the
+   * "style.load" handler (first load and every theme/style swap, where this
+   * is also the very first addLayer() and so seeds StyleReattach's replay
+   * order), updated()'s hass branch, and setConfig() when the style URL
+   * didn't change.
+   *
+   * tile_layers/wms go first: MapLibre stacks layers in add order (later
+   * added = drawn on top), and raster overlays are documented as sitting "on
+   * top of the vector base style" — but not on top of our own entity
+   * overlays. Adding them before circles/geojson/clusters means those
+   * overlays' first-ever addLayer() call (which is what actually fixes
+   * z-order; setData()/setTiles() on an already-created layer doesn't move
+   * it) lands after the raster layer, keeping markers/shapes visible above it
+   * instead of hidden underneath. */
+  private _refreshOverlays(): void {
+    if (!this._config || !this.hass) return;
+    this._tileLayers?.update(this._config.tileLayers, this._config.wms, this.hass);
+    // _updateEntitiesAndClusters() → _resyncEntityMarkers() refreshes circles
+    // too (with the current absorbed set), so no separate circle update here.
+    this._updateEntitiesAndClusters();
+    this._geojson?.update(this._config.entities, this.hass);
   }
 
   /** Starts the compact attribution control collapsed (just the ⓘ button)
@@ -617,7 +735,12 @@ export class NyxmapCard extends LitElement {
     if (center) {
       this._map.jumpTo({ center, zoom: this._config.zoom });
     } else {
-      this._initialView.fitAllEntities(this._map as unknown as MapViewLike, this._config.entities, this.hass);
+      this._initialView.fitAllEntities(
+        this._map as unknown as MapViewLike,
+        this._config.entities,
+        this.hass,
+        this._config.zoom,
+      );
     }
   }
 

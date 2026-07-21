@@ -205,6 +205,84 @@ describe("PluginHost", () => {
     expect(good).toHaveBeenCalledTimes(1);
   });
 
+  it("rejects an overlay id that collides with an already-registered overlay", () => {
+    const onWarn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    window.nyxmapPlugins = [
+      {
+        setup(ctx) {
+          ctx.registerOverlay("dupe", {
+            label: "Plugin overlay",
+            source: { type: "geojson", data: {} } as never,
+            layers: [{ id: "dupe-layer", type: "circle", source: "dupe" } as never],
+          });
+        },
+      },
+    ];
+    const { host, map, reattach, layerRegistry } = makeHost();
+    // Stand in for an internal render service that already owns this id.
+    const internalFactory = vi.fn();
+    reattach.register("dupe", internalFactory);
+    layerRegistry.registerOverlay("dupe", { label: "Internal overlay", setVisible: vi.fn() });
+
+    host.activate();
+
+    expect(onWarn).toHaveBeenCalledWith(expect.stringContaining('"dupe"'));
+    // Nothing at all was registered — the internal entries are untouched.
+    expect(map.addSource).not.toHaveBeenCalled();
+    expect(map.addLayer).not.toHaveBeenCalled();
+    expect(layerRegistry.getOverlays().get("dupe")?.label).toBe("Internal overlay");
+    reattach.replayAll(map as never);
+    expect(internalFactory).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["history-device_tracker.phone", "circle-device_tracker.phone", "geojson-zone.home", "tile-layer-0", "wms-layer-0"])(
+    "rejects the reserved built-in overlay id %s even before the owning service registers it",
+    (id) => {
+      const onWarn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      window.nyxmapPlugins = [
+        {
+          setup(ctx) {
+            ctx.registerOverlay(id, {
+              label: "Plugin overlay",
+              source: { type: "geojson", data: {} } as never,
+              layers: [{ id: `${id}-layer`, type: "circle", source: id } as never],
+            });
+          },
+        },
+      ];
+      const { host, map, reattach, layerRegistry } = makeHost();
+
+      host.activate();
+
+      expect(onWarn).toHaveBeenCalledWith(expect.stringContaining("reserved"));
+      expect(map.addSource).not.toHaveBeenCalled();
+      expect(reattach.has(id)).toBe(false);
+      expect(layerRegistry.getOverlays().has(id)).toBe(false);
+    },
+  );
+
+  it("isolates a control whose onAdd throws instead of letting it escape", () => {
+    const onError = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { host, map } = makeHost();
+    map.addControl.mockImplementation(() => {
+      throw new Error("onAdd blew up");
+    });
+    const after = vi.fn();
+    window.nyxmapPlugins = [
+      {
+        setup(ctx) {
+          ctx.registerControl({ onAdd: vi.fn(), onRemove: vi.fn() } as never);
+          after();
+        },
+      },
+    ];
+
+    expect(() => host.activate()).not.toThrow();
+    // The plugin's own setup continued past the failed registerControl.
+    expect(after).toHaveBeenCalledTimes(1);
+    expect(onError).toHaveBeenCalledWith("[nyxmap-card] plugin registerControl() failed:", expect.any(Error));
+  });
+
   it("does not throw when no plugins are registered but still fires the event", () => {
     delete window.nyxmapPlugins;
     const { host } = makeHost();

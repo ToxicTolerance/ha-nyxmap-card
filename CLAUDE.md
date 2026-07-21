@@ -12,36 +12,120 @@ instead of Leaflet. It is forked in spirit from
 from Leaflet to MapLibre GL. Target: match `ha-map-card`'s feature set (overlays, map styles,
 history trails, clustering, etc.) on top of MapLibre.
 
-There is currently no build tooling, package manifest, or test suite in this repo — it is a
-single-file custom element (`maplibre-map-card.js`) intended for drop-in use:
+The card element is `<nyxmap-card>` (`type: custom:nyxmap-card`), a Lit 3 custom element built
+from TypeScript sources in `src/` and shipped as a **single bundled ES module**,
+`dist/nyxmap-card.js`.
 
-- **Dev**: copy the file to `/config/www/maplibre-map-card.js` in a Home Assistant instance and
-  register it as a Lovelace dashboard resource of type "JavaScript Module".
-- **Prod (planned)**: bundle MapLibre via its own Rollup config instead of pulling it from the
-  `unpkg` CDN at runtime (see `loadMapLibre()`).
+### Toolchain
 
-Since there's no build/lint/test setup yet, don't assume `npm run build`/`test` exist — check for
-a `package.json` before referencing any command.
+`package.json` (v0.9.1) is the source of truth; all of these scripts exist and work:
+
+| Script | What it does |
+|---|---|
+| `npm run dev` | Vite dev server; `vite.config.ts` opens `dev/harness.html` |
+| `npm run build` | Vite lib build → `dist/nyxmap-card.js` (`build:watch` for the watch mode) |
+| `npm test` | `vitest run` (`test:watch`, `test:coverage` for the variants) |
+| `npm run lint` | `eslint src` — note it covers **only `src`**, while `tsconfig.json` type-checks `src`, `test`, `dev` and `vite.config.ts` |
+| `npm run typecheck` | `tsc --noEmit` |
+
+Vite 6 + vitest 2 + TypeScript 5.7 + eslint 9 (with `typescript-eslint` and `eslint-plugin-lit`).
+`tsconfig.json` is `strict` **plus** `noUncheckedIndexedAccess`, `forceConsistentCasingInFileNames`
+and `isolatedModules` — assume new code has to clear that bar. Runtime dependencies are just
+`maplibre-gl`, `lit` and `@turf/circle`. `.github/workflows/test.yml` runs typecheck → lint → test
+→ build on pushes to `main`/`master` and on every PR.
+
+### Dev loop
+
+No Home Assistant instance is needed for day-to-day work: `npm run dev` serves `dev/harness.html`,
+which mounts a real `<nyxmap-card>` against the mocked `hass` object in `dev/mock-hass.ts`
+(`dev/main.ts` holds the harness config). `dev/plugin-example.html` / `dev/plugin-example.ts`
+exercise the JS plugin hook the same way. To test inside a real HA instance instead, run
+`npm run build` and copy `dist/nyxmap-card.js` to `/config/www/`, registering it as a Lovelace
+resource of type "JavaScript Module".
+
+### MapLibre bundling
+
+MapLibre GL is **bundled into `dist/nyxmap-card.js`**, not loaded from a CDN at runtime: an HA
+custom card ships as one drop-in resource file, and a runtime CDN dependency is a liability for
+self-hosted/air-gapped installs and a source of version drift. `vite.config.ts` therefore uses a
+lib build with `inlineDynamicImports: true` so the whole card — MapLibre included — is one ES
+module (~1.7 MB raw / ~366 kB gzip; the size is essentially all `maplibre-gl` and is accepted
+deliberately). `src/maplibre/MapLibreLoader.ts` re-exports that bundled `maplibregl` plus its CSS
+(imported with Vite's `?raw` so it can be injected into the card's shadow root, where a global
+`<link>` wouldn't reach). The same module still carries a `loadMapLibreFromCdn()` escape hatch,
+which nothing calls.
+
+`dist/` is gitignored and not tracked. `.github/workflows/release.yml` builds it on a `v*` tag and
+attaches it to the GitHub Release; `hacs.json`'s `filename: nyxmap-card.js` points HACS at that
+asset.
 
 ## Architecture
 
-The file is organized into banner-delimited sections that map 1:1 to where `ha-map-card`'s own
-modules would live, which is intentional — it keeps the fork diffable against the upstream
-project's module boundaries:
+`src/` is split into directories that mirror where `ha-map-card`'s own modules live, which is
+intentional — it keeps the fork diffable against the upstream project's module boundaries:
 
-- **`configs/MapConfig`** — `MapConfig` and `EntityConfig` parse the Lovelace YAML. Config keys
-  are kept identical to `ha-map-card` wherever the concept still applies (`x`/`y`, `zoom`, `title`,
-  `card_size`, `focus_entity`, `focus_follow`, per-entity `display`/`picture`/`icon`/`color`,
-  etc.). The only new keys are `map_style` / `map_style_dark`, which replace `tile_layer_url`
-  because MapLibre uses vector style JSON URLs rather than XYZ tile templates.
-- **`services/HistoryService`** — fetches entity position history via `hass.callWS` and returns
-  `[[lng, lat], ...]` ready to drop into a GeoJSON `LineString`. Renderer-agnostic, essentially
-  unchanged from upstream.
-- **`render/*`** — `buildMarkerElement` ports the marker DOM (picture / icon / initials fallback
-  chain) almost 1:1 from `ha-map-card`'s divIcon logic, plus small helpers (`initials`,
-  `colorFromString`) for the default marker look.
-- **Card lifecycle** — `MapLibreMapCard extends HTMLElement` implements the standard HA custom
-  card contract (`setConfig`, `set hass`, `getCardSize`).
+- **`src/index.ts`** — bundle entry. Imports the card element and registers it in
+  `window.customCards` so HA's card picker lists it.
+- **`src/components/`** — the Lit elements: `NyxmapCard` (the card itself and the largest module —
+  lifecycle, map construction, service orchestration), `NyxmapCardEditor` + `NyxmapFormListEditor`
+  (visual config editor), `LayerSwitcherControl`. Each has a sibling `*.styles.ts`.
+- **`src/configs/`** — `MapConfig`, `EntityConfig`, `CircleConfig`, `GeoJsonConfig`, `LayerConfig`
+  (+ `TileLayerConfig`/`WmsLayerConfig`) parse the Lovelace YAML into typed objects. See
+  "Config surface" below for how keys relate to upstream.
+- **`src/services/`** — `HaHistoryService` fetches entity position history via `hass.callWS` and
+  returns `[[lng, lat], ...]` ready to drop into a GeoJSON `LineString`; `HaUrlResolveService`
+  resolves `{{ states('entity_id') }}` templating in tile/WMS URLs. Both renderer-agnostic.
+- **`src/services/render/`** — one service per render concern, each injected into `NyxmapCard` and
+  each tested against a fake map: `EntitiesRenderService`, `HistoryRenderService`,
+  `CircleRenderService`, `GeoJsonRenderService`, `TileLayersRenderService` (raster tile + WMS
+  overlays), `ClusterRenderService`, `InitialViewRenderService`, plus `LayerRegistry` (the
+  deliberately non-reactive registry backing the layer switcher).
+- **`src/maplibre/`** — the MapLibre-facing seam: `MapLibreLoader` (bundled `maplibregl` + CSS),
+  `MarkerFactory` (marker DOM: picture / icon / initials fallback chain, ported ~1:1 from
+  `ha-map-card`'s divIcon logic), `MarkerAnimator`, `IconButtonControl`, `StyleReattach`,
+  `PluginHost`.
+- **`src/models/`** — `Circle`, `GeoJson`, `EntityHistory`/`EntityHistoryManager`.
+- **`src/editor/`** — pure, DOM-free schema/mapping functions for the visual editor
+  (`CardFormSchema`, `EntityFormSchema`, `MapStyleFormSchema`).
+- **`src/util/`** — `HaMapUtilities` (time parsing, color helpers), `geo`.
+- **`src/types/`** — `home-assistant.d.ts`, `ha-form.d.ts`, `nyxmap-plugin.d.ts`: duck-typed
+  contracts for things provided by the surrounding HA frontend or consumed by plugin authors,
+  never project dependencies.
+
+### Tests
+
+Tests are **colocated**: `Foo.ts` sits next to `Foo.test.ts` (33 test files today), and
+`vite.config.ts` collects `src/**/*.test.ts`. The default environment is `node`; the ~10 files that
+need a DOM opt in individually with a `// @vitest-environment jsdom` pragma rather than making
+jsdom global. `test/setup.ts` shims `matchMedia`, `ResizeObserver` and `requestAnimationFrame` for
+those, each with a comment explaining why. `test/fakes/FakeMaplibreMap.ts` is a hand-rolled double —
+real MapLibre needs WebGL, which neither jsdom nor CI has — and is the seam every render service is
+tested through. Prefer the `src/editor/` pattern where it fits: keep decision logic in pure
+functions so it tests under `node` with no DOM at all.
+
+### Config surface (relative to upstream `ha-map-card`)
+
+Config keys are kept identical to `ha-map-card` wherever the concept still applies (`x`/`y`,
+`zoom`, `title`, `card_size`, `focus_entity`, `focus_follow`, per-entity
+`display`/`picture`/`icon`/`color`, `tile_layers`/`wms`, …), so existing dashboards migrate with
+minimal changes. `README.md` is the user-facing reference for every key; the notes here are only
+the places nyxmap deliberately diverges:
+
+- **`map_style` / `map_style_dark`** replace upstream's `tile_layer_url`, because MapLibre consumes
+  vector **style JSON URLs** rather than XYZ tile templates. Their defaults are free, keyless
+  styles (OpenFreeMap light / CARTO dark) so a zero-config card renders on first run. *Open risk to
+  flag:* those are third-party public endpoints with no SLA or rate-limit guarantee — fine as a
+  default, worth documenting for anyone deploying widely.
+- **`map_styles`** (named base-style entries for the layer switcher) and **`layer_switcher`** are
+  not upstream keys at all — they exist because MapLibre can hot-swap whole styles, which Leaflet
+  tile layers can't.
+- **`projection`** is MapLibre-native (globe vs. mercator) and has no upstream counterpart. It
+  **defaults to `globe`**: the 3D globe is the most visible thing MapLibre buys over Leaflet, and
+  `projection: mercator` is a one-line opt-out for anyone who wants the classic flat view.
+- **`plugins`** gates nyxmap's own JS plugin hook. Upstream's Leaflet `plugins: []` array is
+  intentionally *not* mirrored — see "JS plugin hook" below.
+- **`z_index_offset`** is parsed and round-trips for upstream compatibility but no render service
+  reads it.
 
 ### The one non-obvious invariant: markers vs. sources across theme swaps
 
@@ -142,20 +226,52 @@ tracks the column's *real* height, which changes because the Toggle grouping but
 when clustering is on (so a fixed offset would be wrong half the time). `IconButtonControl` draws
 its glyph as **inline SVG** (not `<ha-icon>`) so the buttons render in the dev harness and anywhere
 HA's `ha-icon` isn't registered — same rationale as `LayerSwitcherControl`'s inline layers icon.
+Every card-added control therefore lives in the **top-right**; the only other occupied corner is
+bottom-right, which holds MapLibre's own compact attribution. Nothing sits bottom-left (an earlier
+layout put the layer switcher there — some in-code comments still say so; the top-right stacking
+above is what ships as of v0.9.1).
 The compact attribution is force-collapsed on the map's `idle` event (`_collapseAttribution`);
 MapLibre re-expands it when a style's attribution text loads *after* `style.load`, so collapsing
 only there wouldn't stick.
 
-### Not yet ported (tracked against upstream `ha-map-card` feature parity)
+## Porting backlog (not yet ported from upstream `ha-map-card`)
 
-Listed at the bottom of `maplibre-map-card.js` as the porting backlog — check there before
-assuming a feature is unsupported vs. simply not yet implemented:
+**This section is the backlog's home.** Check here before assuming a feature is unsupported
+rather than simply not yet implemented. `README.md`'s Roadmap is the user-facing summary of the
+same list — keep the two in sync.
 
-- `tile_layers` / WMS → MapLibre raster source (`{ type: 'raster', tiles: [...] }`)
-- `geojson:` attribute → `map.addSource({ type: 'geojson' })` directly (native support, should be
-  straightforward)
-- `history_date_selection` → subscribe to `energy-date-selection`, as upstream does
+- **`history_date_selection`** — subscribe to HA's `energy-date-selection` event, as upstream
+  does, so a card's history window follows the energy dashboard's date range. Nothing in `src/`
+  references `energy-date-selection` today.
+- **WMS `history` sub-config** (the WMS `TIME` parameter). `LayerConfig` deliberately omits it
+  because it's tightly coupled to the date-range linking above; it's deferred alongside it rather
+  than half-wired.
+- **Entity-valued `history_start`/`history_end`** — upstream lets these name an entity (e.g.
+  `input_number.hours`, read as a number of hours). `HaMapUtilities.resolveTime()` handles relative
+  ("5 hours ago") and absolute/ISO values, and deliberately returns `null` for an entity id,
+  because resolving one needs a `hass` state lookup that `resolveTime` has no access to.
 
-(Upstream's Leaflet `plugins: []` is intentionally *not* mirrored — MapLibre has no plugin
-registry to map it onto. It's superseded by nyxmap's own JS plugin hook; see "JS plugin hook"
-above.)
+Already ported, despite older comments implying otherwise: `tile_layers`/WMS raster overlays
+(`TileLayerConfig`/`WmsLayerConfig` → `TileLayersRenderService`) and per-entity `geojson:`
+(`GeoJsonConfig` → `GeoJsonRenderService`). Both are documented with full config tables in
+`README.md`.
+
+Deliberately *not* ported: upstream's Leaflet `plugins: []` array — MapLibre has no plugin registry
+to map it onto, and it's superseded by nyxmap's own JS plugin hook (see above).
+
+## Where older cross-references point
+
+Some source comments still cite section names from an earlier numbered/phased version of this
+document. Those numbers and phases are gone; this table maps them onto the sections that replaced
+them, so a pointer that says "§5" or "Phase 9" is not a dead end:
+
+| Old reference | Read instead |
+|---|---|
+| "§5", "§5 for keys that don't carry over 1:1" | [Config surface (relative to upstream `ha-map-card`)](#config-surface-relative-to-upstream-ha-map-card) |
+| "§5 'Open risk to flag'" | same section, the `map_style`/`map_style_dark` bullet |
+| "§5 'Layer switcher'" | same section, the `map_styles`/`layer_switcher` bullet |
+| "CLAUDE.md's globe decision" | same section, the `projection` bullet |
+| "the 'MapLibre bundling' decision" | [MapLibre bundling](#maplibre-bundling) |
+| "Phase 9", "the phase plan", "the Phase 9 backlog" | [Porting backlog](#porting-backlog-not-yet-ported-from-upstream-ha-map-card) |
+
+The comments themselves should be updated to the new names; until then, this table is the bridge.
