@@ -1,8 +1,11 @@
 import type { IControl } from "maplibre-gl";
 
 export interface IconButtonControlOptions {
-  /** MDI icon name, e.g. "mdi:image-filter-center-focus". */
-  icon: string;
+  /** SVG path data (the `d` attribute) for the button glyph, rendered as an
+   * inline <svg> rather than an <ha-icon> so it shows in every context — the
+   * dev harness and any page where HA's ha-icon element isn't registered
+   * (matching LayerSwitcherControl's own inline-icon rationale). */
+  iconPath: string;
   /** Used as both the button's aria-label and its title tooltip. */
   label: string;
   onClick: () => void;
@@ -45,8 +48,14 @@ export class IconButtonControl implements IControl {
     this._button.title = this.options.label;
     this._button.addEventListener("click", () => this.options.onClick());
 
-    const icon = document.createElement("ha-icon");
-    icon.setAttribute("icon", this.options.icon);
+    const svgNs = "http://www.w3.org/2000/svg";
+    const icon = document.createElementNS(svgNs, "svg");
+    icon.setAttribute("viewBox", "0 0 24 24");
+    icon.setAttribute("aria-hidden", "true");
+    const path = document.createElementNS(svgNs, "path");
+    path.setAttribute("fill", "currentColor");
+    path.setAttribute("d", this.options.iconPath);
+    icon.appendChild(path);
     this._button.appendChild(icon);
 
     this._container.appendChild(this._button);

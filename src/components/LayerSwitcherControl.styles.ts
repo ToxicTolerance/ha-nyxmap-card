@@ -3,42 +3,49 @@ import { css } from "lit";
 export const layerSwitcherStyles = css`
   :host {
     position: absolute;
-    /* bottom-left: NavigationControl + the Reset focus / Toggle grouping map
-     * buttons now share top-right, and attribution sits bottom-right, leaving
-     * this corner free. z-index sits above MapLibre's own control containers
-     * (z-index 2 in maplibre-gl.css). */
-    bottom: 8px;
-    left: 8px;
+    /* Top-right, stacked directly beneath MapLibre's NavigationControl and the
+     * Reset focus / Toggle grouping buttons. The top offset is set inline from
+     * a measured value (LayerSwitcherControl._measure) equal to the bottom of
+     * that control column, so it tracks the column's real height — which varies
+     * because the Toggle grouping button is only present when clustering is on.
+     * z-index sits above MapLibre's own control containers (z-index 2 in
+     * maplibre-gl.css). Both top and right are set inline by _measure so the
+     * toggle lines up with the actual control buttons' edges (MapLibre insets
+     * each control from the column edge by its own margin). */
     z-index: 3;
     font: 13px/1.4 var(--paper-font-body1_-_font-family, sans-serif);
   }
+  /* Sized to match MapLibre's own NavigationControl buttons (29×29, 4px
+   * corners) so every control on the map reads as one uniform set, even though
+   * this one is a standalone floating button in its own corner rather than part
+   * of the top-right nav group. */
   .toggle {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 40px;
-    height: 40px;
+    width: 29px;
+    height: 29px;
     padding: 0;
     border: none;
-    border-radius: 10px;
+    border-radius: 4px;
     background: var(--card-background-color, #fff);
     color: var(--primary-text-color, #212121);
     box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
     cursor: pointer;
   }
   .toggle svg {
-    width: 22px;
-    height: 22px;
+    width: 18px;
+    height: 18px;
   }
-  /* Opens upward from the bottom-left button, like Google/Apple Maps' layer
-   * picker. */
+  /* Opens downward from the top-right button, right-aligned under it. */
   /* Rounded container: it owns the border-radius and clips the inner scroller
    * (and its scrollbar) to that rounded shape via overflow:hidden — so the
    * scrollbar follows the curve instead of squaring off the right corners. */
   .panel {
     position: absolute;
-    bottom: 48px;
-    left: 0;
+    /* 29px toggle + 8px gap. */
+    top: 37px;
+    right: 0;
     min-width: 216px;
     border-radius: 14px;
     overflow: hidden;

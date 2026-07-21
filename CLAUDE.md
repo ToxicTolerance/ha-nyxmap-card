@@ -102,6 +102,50 @@ card-level default) while leaving any hand-authored `circle:` object
 untouched, since the visual editor only covers the on/off case, not per-field
 radius/color/fill_opacity editing.
 
+### JS plugin hook (extension point)
+
+`PluginHost` (`src/maplibre/PluginHost.ts`) turns the otherwise-private `maplibregl.Map` into a
+documented extension point, so third-party MapLibre-ecosystem plugins can attach without forking
+the card. It's built in `_buildMap()` (gated by the `plugins` config, default on) and its setup
+pass runs **once** from the first `"style.load"` handler, right after `_reattach.replayAll` — so a
+plugin's `registerOverlay` can `addSource`/`addLayer` immediately against a loaded style.
+
+Plugins register two ways, both handed the same `NyxmapPluginContext` (public contract in
+`src/types/nyxmap-plugin.d.ts`, the plugin-author surface — same duck-typing precedent as
+`home-assistant.d.ts`): the `window.nyxmapPlugins` global array (mirrors HA's `window.customCards`)
+and a bubbling/composed `nyxmap-map-ready` `CustomEvent` on the card element. Each `setup(ctx)` runs
+in try/catch so a throwing plugin can't take the card down.
+
+The context's helpers reuse existing machinery rather than new paths:
+- `registerOverlay(id, {label, source, layers})` is a direct generalization of
+  `GeoJsonRenderService._upsert`'s trio — `addSource`/`addLayer` **+** `StyleReattach.register`
+  (survives theme swaps) **+** `LayerRegistry.registerOverlay` (appears in the layer switcher).
+- `registerControl(control, position?)` is a thin `map.addControl` wrapper (controls are DOM, so
+  they survive `setStyle` for free, like cluster bubbles).
+- `injectStyle(cssOrUrl)` puts a plugin's stylesheet **inside the card's shadow root** — the load-
+  bearing non-obvious bit: the card renders in a shadow root, so a plugin that ships its own CSS
+  (compass/minimap/geocoder) attaches but renders **invisibly** (0×0) unless its CSS is injected
+  here. URL → `<link>` (works in a shadow root, no CORS fetch); raw CSS → `<style>`; deduped.
+
+Protocols / custom source types aren't first-class — authors reach for `ctx.maplibregl.addProtocol`
+directly (the whole point of exposing the *bundled* `maplibregl`: bundling otherwise isolates it
+from an external plugin script).
+
+### Map control layout
+
+MapLibre's `NavigationControl` (zoom/compass) and the two `IconButtonControl`s (Reset focus /
+Toggle grouping) stack in the **top-right** as a single `.maplibregl-ctrl-group` column; the
+`LayerSwitcherControl` toggle sits **beneath** that column, in the same corner. It's not a MapLibre
+control (it's a template-placed Lit element), so it can't auto-stack — instead `_measure()` reads
+the top-right column's rendered bottom/right edges and sets the toggle's `top`/`right` inline. This
+tracks the column's *real* height, which changes because the Toggle grouping button is only present
+when clustering is on (so a fixed offset would be wrong half the time). `IconButtonControl` draws
+its glyph as **inline SVG** (not `<ha-icon>`) so the buttons render in the dev harness and anywhere
+HA's `ha-icon` isn't registered — same rationale as `LayerSwitcherControl`'s inline layers icon.
+The compact attribution is force-collapsed on the map's `idle` event (`_collapseAttribution`);
+MapLibre re-expands it when a style's attribution text loads *after* `style.load`, so collapsing
+only there wouldn't stick.
+
 ### Not yet ported (tracked against upstream `ha-map-card` feature parity)
 
 Listed at the bottom of `maplibre-map-card.js` as the porting backlog — check there before
@@ -110,5 +154,8 @@ assuming a feature is unsupported vs. simply not yet implemented:
 - `tile_layers` / WMS → MapLibre raster source (`{ type: 'raster', tiles: [...] }`)
 - `geojson:` attribute → `map.addSource({ type: 'geojson' })` directly (native support, should be
   straightforward)
-- `plugins: []` → Leaflet's plugin API doesn't map to MapLibre; needs a new hook design
 - `history_date_selection` → subscribe to `energy-date-selection`, as upstream does
+
+(Upstream's Leaflet `plugins: []` is intentionally *not* mirrored — MapLibre has no plugin
+registry to map it onto. It's superseded by nyxmap's own JS plugin hook; see "JS plugin hook"
+above.)

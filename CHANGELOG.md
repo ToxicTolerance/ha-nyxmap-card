@@ -5,6 +5,29 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-07-21
+
+### Changed
+
+- The layer switcher's toggle button now matches MapLibre's native
+  zoom/compass buttons (29×29, 4px corners) and is stacked in the **top-right**
+  column directly beneath the zoom/compass and Reset focus / Toggle grouping
+  buttons — aligned to the same button edge — instead of floating in the
+  bottom-left. Its offset is measured so it tracks the column's real height
+  (which changes as the Toggle grouping button appears/disappears with
+  clustering).
+
+### Fixed
+
+- The "Reset focus" and "Toggle grouping" map buttons now draw their icons as
+  inline SVG instead of `<ha-icon>`, so they render in every context (the dev
+  harness and anywhere HA's `ha-icon` element isn't registered) rather than
+  showing as blank buttons.
+- The compact attribution control now starts **collapsed** (just the ⓘ button)
+  instead of expanded — MapLibre re-expands it when a style's attribution text
+  loads (after `style.load`), so it's now collapsed once the map settles and on
+  every theme swap.
+
 ## [0.9.0] - 2026-07-21
 
 ### Added

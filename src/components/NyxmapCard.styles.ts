@@ -196,7 +196,8 @@ export const nyxmapCardStyles = css`
   .nyxmap-ctrl-button[aria-pressed="false"] {
     opacity: 0.5;
   }
-  .nyxmap-ctrl-button ha-icon {
-    --mdc-icon-size: 18px;
+  .nyxmap-ctrl-button svg {
+    width: 18px;
+    height: 18px;
   }
 `;

@@ -38,8 +38,15 @@ vi.mock("../maplibre/MapLibreLoader", () => {
       arr.push(handler);
       this.handlers.set(event, arr);
     }
+    once(event: string, handler: () => void): void {
+      const wrapped = () => {
+        this.handlers.set(event, (this.handlers.get(event) ?? []).filter((h) => h !== wrapped));
+        handler();
+      };
+      this.on(event, wrapped);
+    }
     fire(event: string): void {
-      for (const h of this.handlers.get(event) ?? []) h();
+      for (const h of [...(this.handlers.get(event) ?? [])]) h();
     }
   }
   class FakeMarker {

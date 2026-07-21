@@ -42,6 +42,9 @@ GeoJSON/geometry rendering.
 - 🧩 Native GeoJSON rendering from any entity attribute (points, lines, polygons)
 - 🛰️ Raster tile and WMS overlays (e.g. weather radar) layered on top of the vector base style,
   with `{{ states('entity_id') }}` URL templating
+- 🔌 A [JS plugin hook](#plugins) exposing the live map + bundled `maplibregl`, so any
+  [MapLibre-ecosystem plugin](https://maplibre.org/maplibre-gl-js/docs/plugins/) (controls,
+  custom overlays, …) can attach without forking the card
 
 See [Roadmap](#roadmap) for what's not built yet.
 
@@ -110,7 +113,7 @@ same dialog) to set those.
 | `projection` | `globe` \| `mercator` | `globe` | MapLibre's 3D globe view, or the classic flat projection. |
 | `focus_entity` | entity id | — | Initial center, used when `x`/`y` aren't set. |
 | `focus_follow` | `none` \| `refocus` \| `contains` | `none` | `refocus` re-centers on every update; `contains` only re-fits when `focus_entity` leaves the current view. |
-| `layer_switcher` | boolean | `false` | Show a panel (top-left) for switching base styles and toggling overlays (history, circles, GeoJSON, clusters) on/off. |
+| `layer_switcher` | boolean | `false` | Show a panel for switching base styles and toggling overlays (history, circles, GeoJSON, clusters) on/off. Its button sits in the top-right, stacked directly beneath the zoom/compass and Reset focus / Toggle grouping controls; the panel opens downward from it. |
 | `history_start` / `history_end` | string (relative or ISO) | — | Card-level default history window, inherited by entities that don't set their own. |
 | `history_show_lines` | boolean | `true` | Draw the connecting trail line for each entity's history. |
 | `history_show_dots` | boolean | `false` | Draw a dot at each sampled history position, in addition to (or instead of) the connecting line. |
@@ -424,7 +427,6 @@ version's notes from [`CHANGELOG.md`](CHANGELOG.md); `filename` in
 
 Not yet built, tracked as upstream `ha-map-card` feature parity:
 
-- A plugin system
 - Energy-dashboard date-range linking (`history_date_selection`)
 
 See [`CLAUDE.md`](CLAUDE.md) for the full architecture notes and phased plan.

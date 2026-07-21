@@ -51,13 +51,61 @@ export class LayerSwitcherControl extends LitElement {
   @property({ attribute: false }) onSelectThemeMode?: (mode: ThemeMode) => void;
 
   @state() private _open = false;
-  /** Caps the panel to the space above the toggle within the map area, so a
+  /** Caps the panel to the space below the toggle within the map area, so a
    * tall panel on a short map scrolls internally instead of overflowing (and
    * being clipped by ha-card's overflow:hidden). Measured when opening. */
   @state() private _maxPanelHeight = 260;
+  /** Vertical offset of the toggle from the top of the map area, equal to the
+   * bottom of MapLibre's top-right control column so the switcher sits just
+   * beneath it. Re-measured on resize and whenever that column's height might
+   * have changed (e.g. the Toggle grouping button appearing/disappearing). */
+  private _topOffset = 8;
+  private _rightOffset = 8;
+  private _resizeObserver?: ResizeObserver;
+
+  override firstUpdated(): void {
+    this._measure();
+    const parent = this.offsetParent as HTMLElement | null;
+    if (parent) {
+      this._resizeObserver = new ResizeObserver(() => this._measure());
+      this._resizeObserver.observe(parent);
+    }
+  }
+
+  protected override updated(): void {
+    // The control column's height can change without a resize (the Toggle
+    // grouping button is added/removed with cluster state, which also changes
+    // this component's own props → an update) — re-measure so we re-stack.
+    this._measure();
+  }
+
+  /** Positions the toggle just below MapLibre's top-right control column, and
+   * aligned to the same right edge as the buttons in it — MapLibre insets each
+   * control from the column edge by its own margin, so measuring an actual
+   * control (not the column container) is what makes them line up. */
+  private _measure(): void {
+    const parent = this.offsetParent as HTMLElement | null;
+    if (!parent) return;
+    const column = parent.querySelector(".maplibregl-ctrl-top-right");
+    const ctrl = column?.querySelector(".maplibregl-ctrl");
+    let top = 8;
+    let right = 8;
+    if (column && ctrl) {
+      const parentRect = parent.getBoundingClientRect();
+      top = Math.round(column.getBoundingClientRect().bottom - parentRect.top + 8);
+      right = Math.round(parentRect.right - ctrl.getBoundingClientRect().right);
+    }
+    if (top !== this._topOffset || right !== this._rightOffset) {
+      this._topOffset = top;
+      this._rightOffset = right;
+      this.style.top = `${top}px`;
+      this.style.right = `${right}px`;
+    }
+  }
 
   override disconnectedCallback(): void {
     super.disconnectedCallback();
+    this._resizeObserver?.disconnect();
     window.removeEventListener("pointerdown", this._onOutsidePointerDown, true);
   }
 
@@ -75,8 +123,10 @@ export class LayerSwitcherControl extends LitElement {
     this._open = open;
     if (open) {
       const parent = this.offsetParent as HTMLElement | null;
-      // Leave room for the toggle button (40px) + its 8px inset + a small gap.
-      if (parent) this._maxPanelHeight = Math.max(120, parent.clientHeight - 56);
+      // Panel opens downward from the toggle: the room left is everything below
+      // it (map height − the toggle's own top offset − the 37px toggle+gap −
+      // an 8px bottom inset).
+      if (parent) this._maxPanelHeight = Math.max(120, parent.clientHeight - this._topOffset - 45);
       window.addEventListener("pointerdown", this._onOutsidePointerDown, true);
     } else {
       window.removeEventListener("pointerdown", this._onOutsidePointerDown, true);

@@ -23,6 +23,14 @@ import "./LayerSwitcherControl";
 import type { SwitcherBaseStyleItem, SwitcherOverlayItem } from "./LayerSwitcherControl";
 import { nyxmapCardStyles } from "./NyxmapCard.styles";
 
+// SVG path data for the two map buttons, rendered inline by IconButtonControl
+// (not via ha-icon) so they show in every context — see IconButtonControl.
+// mdi:image-filter-center-focus and mdi:group respectively.
+const ICON_RESET_FOCUS =
+  "M12,9A3,3 0 0,0 9,12A3,3 0 0,0 12,15A3,3 0 0,0 15,12A3,3 0 0,0 12,9M19,19H15V21H19A2,2 0 0,0 21,19V15H19M19,3H15V5H19V9H21V5A2,2 0 0,0 19,3M5,5H9V3H5A2,2 0 0,0 3,5V9H5M5,15H3V19A2,2 0 0,0 5,21H9V19H5V15Z";
+const ICON_TOGGLE_GROUPING =
+  "M1,1V5H2V19H1V23H5V22H19V23H23V19H22V5H23V1H19V2H5V1M5,4H19V5H20V19H19V20H5V19H4V5H5M6,6V14H9V18H18V9H14V6M8,8H12V12H8M14,11H16V16H11V14H14";
+
 @customElement("nyxmap-card")
 export class NyxmapCard extends LitElement {
   static override styles = [unsafeCSS(maplibreCss), nyxmapCardStyles];
@@ -379,7 +387,7 @@ export class NyxmapCard extends LitElement {
     // attribution bottom-right, so this corner is theirs to share.
     this._map.addControl(
       new IconButtonControl({
-        icon: "mdi:image-filter-center-focus",
+        iconPath: ICON_RESET_FOCUS,
         label: "Reset focus",
         onClick: () => this._applyInitialView(),
       }),
@@ -480,6 +488,14 @@ export class NyxmapCard extends LitElement {
     this._map.on("style.load", () => {
       this._ready = true;
       if (this._config) this._map!.setProjection({ type: this._config.projection });
+      // Collapse now (best effort) and again once the map settles: MapLibre
+      // re-expands the compact attribution when this style's attribution text
+      // populates, which happens asynchronously *after* style.load (on
+      // sourcedata), so a single collapse here would be undone. once("idle")
+      // fires after tiles + attribution have settled, when the collapse sticks;
+      // it's re-registered on every style.load so theme swaps stay collapsed too.
+      this._collapseAttribution();
+      this._map!.once("idle", () => this._collapseAttribution());
       this._reattach.replayAll(this._map!);
       // Run the plugin setup pass once, now that the style is loaded (so a
       // plugin's registerOverlay can addSource/addLayer immediately). Its own
@@ -501,6 +517,19 @@ export class NyxmapCard extends LitElement {
         this._applyInitialViewIfNeeded();
       }
     });
+  }
+
+  /** Starts the compact attribution control collapsed (just the ⓘ button)
+   * instead of expanded. MapLibre's own _updateCompact() adds both
+   * `maplibregl-compact` and `maplibregl-compact-show` on init, so it renders
+   * open until the first map drag minimizes it; dropping `-show` here collapses
+   * it up front. Safe against resize (that only re-adds `-show` when the
+   * `-compact` class is absent, which it never is once set) and re-applied on
+   * every style.load so a theme swap doesn't re-expand it. */
+  private _collapseAttribution(): void {
+    const attrib = this.renderRoot.querySelector(".maplibregl-ctrl-attrib");
+    attrib?.classList.remove("maplibregl-compact-show");
+    attrib?.removeAttribute("open");
   }
 
   /** Feeds ClusterRenderService (or tears it down when cluster_markers is
@@ -529,7 +558,7 @@ export class NyxmapCard extends LitElement {
     if (!this._config || !this._map) return;
     if (this._config.clusterMarkers && !this._clusterToggleControl) {
       this._clusterToggleControl = new IconButtonControl({
-        icon: "mdi:group",
+        iconPath: ICON_TOGGLE_GROUPING,
         label: "Toggle grouping",
         onClick: () => this._onToggleOverlay("entity-clusters"),
         isPressed: () => this._overlayVisibility.get("entity-clusters") ?? true,
