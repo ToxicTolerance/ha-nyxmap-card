@@ -4,19 +4,17 @@ import type { MapConfig } from "../configs/MapConfig";
 import type { HomeAssistant } from "../types/home-assistant";
 import type { NyxmapOverlaySpec, NyxmapPluginContext } from "../types/nyxmap-plugin";
 import type { LayerRegistry } from "../services/render/LayerRegistry";
+// Source/overlay id prefixes owned by the card's own render services.
+// StyleReattach and LayerRegistry are one flat string namespace shared with
+// plugins, so a plugin id inside these ranges is rejected — a plain
+// `reattach.has(id)` check isn't enough on its own because activate() runs
+// *before* those services' first update() in the card's "style.load" handler,
+// so a colliding plugin id would win the check and be clobbered moments later.
+// Imported from OverlayIds (where the services build their ids) rather than
+// re-listed here, so a new overlay type can't add a prefix without it landing
+// in this check too.
+import { RESERVED_OVERLAY_ID_PREFIXES } from "../services/render/OverlayIds";
 import type { StyleReattach } from "./StyleReattach";
-
-/**
- * Source/overlay id prefixes owned by the card's own render services
- * (HistoryRenderService, CircleRenderService, GeoJsonRenderService,
- * TileLayersRenderService). StyleReattach and LayerRegistry are one flat
- * string namespace shared with plugins, so a plugin id inside these ranges is
- * rejected — a plain `reattach.has(id)` check isn't enough on its own because
- * activate() runs *before* those services' first update() in the card's
- * "style.load" handler, so a colliding plugin id would win the check and be
- * clobbered moments later.
- */
-const RESERVED_OVERLAY_ID_PREFIXES = ["history-", "circle-", "geojson-", "tile-layer-", "wms-layer-"];
 
 export interface PluginHostDeps {
   map: maplibregl.Map;

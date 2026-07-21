@@ -1,16 +1,11 @@
 import { CircleConfig } from "../../configs/CircleConfig";
 import type { EntityConfig } from "../../configs/EntityConfig";
 import { colorFromString } from "../../maplibre/MarkerFactory";
-import type { StyleReattach } from "../../maplibre/StyleReattach";
 import { resolveCircleRadius } from "../../models/Circle";
 import type { HomeAssistant } from "../../types/home-assistant";
 import { circlePolygonCoordinates } from "../../util/geo";
-import type { MapSourceLike } from "./HistoryRenderService";
-import type { LayerRegistry } from "./LayerRegistry";
-
-function sourceId(entityId: string): string {
-  return `circle-${entityId}`;
-}
+import { circleSourceId } from "./OverlayIds";
+import { type OverlayBuild, OverlaySource } from "./OverlaySource";
 
 function fillLayerId(id: string): string {
   return `${id}-fill`;
@@ -33,28 +28,34 @@ function toLayers(id: string, color: string, fillOpacity: number, visible: boole
   return [
     {
       id: fillLayerId(id),
-      type: "fill" as const,
-      source: id,
-      paint: { "fill-color": color, "fill-opacity": fillOpacity },
-      layout: { visibility },
+      layer: {
+        id: fillLayerId(id),
+        type: "fill" as const,
+        source: id,
+        paint: { "fill-color": color, "fill-opacity": fillOpacity },
+        layout: { visibility },
+      },
     },
     {
       id: lineLayerId(id),
-      type: "line" as const,
-      source: id,
-      paint: { "line-color": color, "line-width": 2, "line-opacity": 0.8 },
-      layout: { visibility },
+      layer: {
+        id: lineLayerId(id),
+        type: "line" as const,
+        source: id,
+        paint: { "line-color": color, "line-width": 2, "line-opacity": 0.8 },
+        layout: { visibility },
+      },
     },
   ];
 }
 
-/** Identity of every paint value toLayers() bakes in, as a single comparable
- * string — same "store a visual key, redraw only when it changes" precedent as
- * MarkerFactory.markerVisualKey. JSON rather than a delimiter join because a
- * CSS colour can itself contain commas and spaces (`rgb(1, 2, 3)`), so two
- * distinct field tuples could otherwise collide by concatenation. */
-function paintKey(color: string, fillOpacity: number): string {
-  return JSON.stringify([color, fillOpacity]);
+/** One circle's config-driven inputs, carried through OverlaySource so the
+ * reattach factory can rebuild the geometry at replay time. */
+interface CircleItem {
+  center: [number, number];
+  radiusMeters: number;
+  color: string;
+  fillOpacity: number;
 }
 
 /**
@@ -66,20 +67,36 @@ function paintKey(color: string, fillOpacity: number): string {
  * overlay (visibility tracked here so a hidden circle stays hidden through a
  * reattach replay).
  */
-export class CircleRenderService {
-  private readonly active = new Set<string>();
-  private readonly visibility = new Map<string, boolean>();
-  /** Paint identity (see `paintKey`) each circle's layers were last drawn
-   * with. Paint used to be applied only on the addLayer() path, so recolouring
-   * an entity (or changing `fill_opacity`) left the existing circle drawn in
-   * the old colour until a theme swap replayed the reattach factory. */
-  private readonly paintKeys = new Map<string, string>();
+export class CircleRenderService extends OverlaySource<string, CircleItem> {
+  protected sourceIdFor(entityId: string): string {
+    return circleSourceId(entityId);
+  }
 
-  constructor(
-    private readonly map: MapSourceLike,
-    private readonly reattach: StyleReattach,
-    private readonly layerRegistry: LayerRegistry,
-  ) {}
+  protected build(entityId: string, item: CircleItem, visible: boolean): OverlayBuild {
+    const id = this.sourceIdFor(entityId);
+    return {
+      source: { type: "geojson", data: toGeoJson(item.center, item.radiusMeters) },
+      layers: toLayers(id, item.color, item.fillOpacity, visible),
+      label: `Circle: ${entityId}`,
+      group: "circle",
+      // A circle's source carries nothing but its data, so it never needs a
+      // rebuild — setData() alone always suffices.
+      sourceKey: "geojson",
+      paintKey: JSON.stringify([item.color, item.fillOpacity]),
+    };
+  }
+
+  protected updateSourceData(source: unknown, build: OverlayBuild): void {
+    (source as { setData(data: unknown): void }).setData((build.source as { data: unknown }).data);
+  }
+
+  /** setData() only carries geometry; the layers keep whatever paint they were
+   * added with, so a recolour has to be pushed onto them explicitly. */
+  protected applyPaint(id: string, item: CircleItem): void {
+    this.map.setPaintProperty(fillLayerId(id), "fill-color", item.color);
+    this.map.setPaintProperty(fillLayerId(id), "fill-opacity", item.fillOpacity);
+    this.map.setPaintProperty(lineLayerId(id), "line-color", item.color);
+  }
 
   update(
     entities: EntityConfig[],
@@ -109,83 +126,13 @@ export class CircleRenderService {
       if (radius <= 0) continue;
 
       seen.add(ent.id);
-      this._upsert(
-        ent.id,
-        [lng as number, lat as number],
-        radius,
-        circleCfg.color ?? colorFromString(ent.id),
-        circleCfg.fillOpacity,
-      );
+      this.upsert(ent.id, {
+        center: [lng as number, lat as number],
+        radiusMeters: radius,
+        color: circleCfg.color ?? colorFromString(ent.id),
+        fillOpacity: circleCfg.fillOpacity,
+      });
     }
-    for (const entityId of [...this.active]) {
-      if (!seen.has(entityId)) this._remove(entityId);
-    }
-  }
-
-  removeAll(): void {
-    for (const entityId of [...this.active]) this._remove(entityId);
-  }
-
-  has(entityId: string): boolean {
-    return this.active.has(entityId);
-  }
-
-  private _upsert(entityId: string, center: [number, number], radiusMeters: number, color: string, fillOpacity: number): void {
-    const id = sourceId(entityId);
-    const geojson = toGeoJson(center, radiusMeters);
-    const isVisible = () => this.visibility.get(id) ?? true;
-
-    const paint = paintKey(color, fillOpacity);
-    const existingSource = this.map.getSource(id);
-    if (existingSource) {
-      existingSource.setData(geojson);
-      // setData() only carries geometry; the layers keep whatever paint they
-      // were added with, so a recolour has to be pushed onto them explicitly.
-      if (this.paintKeys.get(id) !== paint) {
-        this.map.setPaintProperty(fillLayerId(id), "fill-color", color);
-        this.map.setPaintProperty(fillLayerId(id), "fill-opacity", fillOpacity);
-        this.map.setPaintProperty(lineLayerId(id), "line-color", color);
-      }
-    } else {
-      this.map.addSource(id, { type: "geojson", data: geojson });
-      for (const layer of toLayers(id, color, fillOpacity, isVisible())) this.map.addLayer(layer);
-      this.active.add(entityId);
-    }
-    this.paintKeys.set(id, paint);
-
-    // Re-registering on every update keeps the replayed geometry current — a
-    // later style.load replays whatever was most recently upserted here.
-    this.reattach.register(id, (map) => {
-      const m = map as unknown as MapSourceLike;
-      if (m.getSource(id)) return;
-      m.addSource(id, { type: "geojson", data: geojson });
-      for (const layer of toLayers(id, color, fillOpacity, isVisible())) m.addLayer(layer);
-    });
-
-    this.layerRegistry.registerOverlay(id, {
-      label: `Circle: ${entityId}`,
-      group: "circle",
-      setVisible: (map, visible) => {
-        this.visibility.set(id, visible);
-        const m = map as MapSourceLike;
-        const layout = visible ? "visible" : "none";
-        m.setLayoutProperty(fillLayerId(id), "visibility", layout);
-        m.setLayoutProperty(lineLayerId(id), "visibility", layout);
-      },
-    });
-  }
-
-  private _remove(entityId: string): void {
-    const id = sourceId(entityId);
-    this.reattach.unregister(id);
-    this.layerRegistry.unregister(id);
-    this.visibility.delete(id);
-    this.paintKeys.delete(id);
-    this.active.delete(entityId);
-    if (this.map.getSource(id)) {
-      this.map.removeLayer(lineLayerId(id));
-      this.map.removeLayer(fillLayerId(id));
-      this.map.removeSource(id);
-    }
+    this.reconcile(seen);
   }
 }

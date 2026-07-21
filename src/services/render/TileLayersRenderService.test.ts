@@ -39,6 +39,62 @@ describe("TileLayersRenderService", () => {
     expect(map.addSource).toHaveBeenCalledWith("tile-layer-base", expect.objectContaining({ minzoom: 5, maxzoom: 20 }));
   });
 
+  // MapLibre reads minzoom/maxzoom/attribution once, at addSource() time, and
+  // exposes no setter for them — setTiles() replaces only the URL. Editing
+  // `maxzoom` on a live layer therefore used to do nothing at all until a
+  // theme swap or page reload happened to replay the reattach factory.
+  describe("source options with no setter", () => {
+    function liveSource(map: ReturnType<typeof createFakeMaplibreMap>, setTiles = vi.fn()) {
+      // First update sees no source (so it adds one); every later update sees
+      // the live source, as the real map would.
+      map.getSource.mockReturnValueOnce(undefined).mockReturnValue({ setTiles });
+      return setTiles;
+    }
+
+    it("rebuilds the source when maxzoom changes", () => {
+      const map = createFakeMaplibreMap();
+      const setTiles = liveSource(map);
+      const service = new TileLayersRenderService(map as never, new StyleReattach(), new LayerRegistry());
+      const url = "https://example.com/{z}/{x}/{y}.png";
+
+      service.update([new LayerConfig({ url, options: { name: "radar", maxzoom: 18 } })], [], hassWith({}));
+      map.addSource.mockClear();
+      service.update([new LayerConfig({ url, options: { name: "radar", maxzoom: 20 } })], [], hassWith({}));
+
+      expect(map.removeSource).toHaveBeenCalledWith("tile-layer-radar");
+      expect(map.addSource).toHaveBeenCalledWith("tile-layer-radar", expect.objectContaining({ maxzoom: 20 }));
+      expect(setTiles).not.toHaveBeenCalled();
+    });
+
+    it("rebuilds the source when attribution changes", () => {
+      const map = createFakeMaplibreMap();
+      liveSource(map);
+      const service = new TileLayersRenderService(map as never, new StyleReattach(), new LayerRegistry());
+      const url = "https://example.com/{z}/{x}/{y}.png";
+
+      service.update([new LayerConfig({ url, options: { name: "radar", attribution: "© A" } })], [], hassWith({}));
+      map.addSource.mockClear();
+      service.update([new LayerConfig({ url, options: { name: "radar", attribution: "© B" } })], [], hassWith({}));
+
+      expect(map.addSource).toHaveBeenCalledWith("tile-layer-radar", expect.objectContaining({ attribution: "© B" }));
+    });
+
+    it("updates the url in place when only the url changed", () => {
+      const map = createFakeMaplibreMap();
+      const setTiles = liveSource(map);
+      const service = new TileLayersRenderService(map as never, new StyleReattach(), new LayerRegistry());
+      const options = { name: "radar", maxzoom: 18 };
+
+      service.update([new LayerConfig({ url: "https://a.example/{z}/{x}/{y}.png", options })], [], hassWith({}));
+      map.addSource.mockClear();
+      service.update([new LayerConfig({ url: "https://b.example/{z}/{x}/{y}.png", options })], [], hassWith({}));
+
+      expect(setTiles).toHaveBeenCalledWith(["https://b.example/{z}/{x}/{y}.png"]);
+      expect(map.addSource).not.toHaveBeenCalled();
+      expect(map.removeSource).not.toHaveBeenCalled();
+    });
+  });
+
   it("omits minzoom/maxzoom from the source when not set in options", () => {
     const map = createFakeMaplibreMap();
     const service = new TileLayersRenderService(map as never, new StyleReattach(), new LayerRegistry());

@@ -1,20 +1,14 @@
 import type { LayerConfig } from "../../configs/LayerConfig";
-import type { StyleReattach } from "../../maplibre/StyleReattach";
 import { HaUrlResolveService } from "../HaUrlResolveService";
 import type { HomeAssistant } from "../../types/home-assistant";
-import type { LayerRegistry } from "./LayerRegistry";
+import { rasterSourceId } from "./OverlayIds";
+import { type OverlayBuild, type OverlayMapLike, OverlaySource } from "./OverlaySource";
 
-/** The subset of maplibregl.Map TileLayersRenderService needs. Raster
- * sources use setTiles(), not the setData() other render services' sources
- * use — a distinct interface from MapSourceLike (used by History/Circle/
- * GeoJson) rather than a false-shared one. */
-export interface TileLayersMapLike {
-  addSource(id: string, source: unknown): unknown;
-  addLayer(layer: unknown): unknown;
+/** The subset of maplibregl.Map TileLayersRenderService needs: the shared
+ * overlay surface, narrowed so `getSource()` exposes raster's `setTiles()`
+ * rather than the `setData()` the GeoJSON-backed services use. */
+export interface TileLayersMapLike extends OverlayMapLike {
   getSource(id: string): { setTiles(tiles: string[]): void } | undefined;
-  removeLayer(id: string): unknown;
-  removeSource(id: string): unknown;
-  setLayoutProperty(layerId: string, name: string, value: unknown): unknown;
 }
 
 type LayerKind = "tile" | "wms";
@@ -27,9 +21,8 @@ type LayerKind = "tile" | "wms";
  * that slot. Keyed off `options.name` when the user supplies one, else a hash
  * of the layer's own (pre-template-resolution) URL, so identity survives both
  * reordering and a `{{ states(...) }}` URL whose resolved value changes. The
- * `tile-layer-`/`wms-layer-` prefixes are kept verbatim: they're part of the
- * reserved-id namespace documented for plugin authors (see
- * types/nyxmap-plugin.d.ts and PluginHost's RESERVED_OVERLAY_ID_PREFIXES). */
+ * `tile-layer-`/`wms-layer-` prefixes come from OverlayIds, which is also what
+ * PluginHost reads to reject colliding plugin overlay ids. */
 function identityToken(cfg: { url: string; options: Record<string, unknown> }): string {
   const name = typeof cfg.options.name === "string" ? cfg.options.name.trim() : "";
   return name ? name.replace(/[^A-Za-z0-9_-]+/g, "-").toLowerCase() : hashToken(cfg.url);
@@ -42,10 +35,6 @@ function hashToken(s: string): string {
   let h = 0;
   for (let i = 0; i < s.length; i++) h = (Math.imul(h, 31) + s.charCodeAt(i)) | 0;
   return (h >>> 0).toString(36);
-}
-
-function sourceId(kind: LayerKind, token: string): string {
-  return `${kind}-layer-${token}`;
 }
 
 /** Builds a WMS GetMap request as a MapLibre raster tile-URL template,
@@ -99,10 +88,20 @@ function layerLabel(cfg: { options: Record<string, unknown> }, fallbackPrefix: s
 function toRasterLayer(id: string, visible: boolean) {
   return {
     id,
-    type: "raster" as const,
-    source: id,
-    layout: { visibility: visible ? ("visible" as const) : ("none" as const) },
+    layer: {
+      id,
+      type: "raster" as const,
+      source: id,
+      layout: { visibility: visible ? ("visible" as const) : ("none" as const) },
+    },
   };
+}
+
+/** One raster layer's resolved URL plus the option bag it's built from. */
+interface RasterItem {
+  url: string;
+  options: Record<string, unknown>;
+  label: string;
 }
 
 /**
@@ -116,15 +115,38 @@ function toRasterLayer(id: string, visible: boolean) {
  * overlay — this is the phase multiple simultaneous raster overlays (e.g.
  * several weather layers) actually need the switcher for.
  */
-export class TileLayersRenderService {
-  private readonly active = new Set<string>();
-  private readonly visibility = new Map<string, boolean>();
+export class TileLayersRenderService extends OverlaySource<string, RasterItem> {
+  /** Raster ids are already fully-formed source ids (built by `uniqueId()`
+   * below, which has to disambiguate duplicates), so the key *is* the id. */
+  protected sourceIdFor(id: string): string {
+    return id;
+  }
 
-  constructor(
-    private readonly map: TileLayersMapLike,
-    private readonly reattach: StyleReattach,
-    private readonly layerRegistry: LayerRegistry,
-  ) {}
+  protected build(id: string, item: RasterItem, visible: boolean): OverlayBuild {
+    const attribution = typeof item.options.attribution === "string" ? item.options.attribution : undefined;
+    const zoomRange = extractZoomRange(item.options);
+    return {
+      source: { type: "raster" as const, tiles: [item.url], tileSize: 256, attribution, ...zoomRange },
+      layers: [toRasterLayer(id, visible)],
+      label: item.label,
+      group: "raster",
+      // Unlike the GeoJSON-backed overlays, a raster source carries state with
+      // no setter: minzoom/maxzoom/attribution are read once at addSource()
+      // time and setTiles() only replaces the URL. Editing `maxzoom` on a live
+      // layer therefore used to do nothing until a theme swap or page reload
+      // replayed the reattach factory. Folding them into sourceKey makes
+      // OverlaySource tear the source down and re-add it instead.
+      sourceKey: JSON.stringify([zoomRange.minzoom, zoomRange.maxzoom, attribution]),
+      // Raster layers have no config-driven paint — everything visual lives on
+      // the source.
+      paintKey: "raster",
+    };
+  }
+
+  protected updateSourceData(source: unknown, build: OverlayBuild): void {
+    const tiles = (build.source as { tiles: string[] }).tiles;
+    (source as { setTiles(tiles: string[]): void }).setTiles(tiles);
+  }
 
   update(tileLayers: LayerConfig[], wmsLayers: LayerConfig[], hass: HomeAssistant): void {
     const resolver = new HaUrlResolveService(hass);
@@ -134,7 +156,7 @@ export class TileLayersRenderService {
     // unavoidable and also harmless (they're interchangeable by definition).
     const used = new Map<string, number>();
     const uniqueId = (kind: LayerKind, cfg: LayerConfig): string => {
-      const base = sourceId(kind, identityToken(cfg));
+      const base = rasterSourceId(kind, identityToken(cfg));
       const n = used.get(base) ?? 0;
       used.set(base, n + 1);
       return n === 0 ? base : `${base}-${n}`;
@@ -143,73 +165,22 @@ export class TileLayersRenderService {
     tileLayers.forEach((cfg, index) => {
       const id = uniqueId("tile", cfg);
       seen.add(id);
-      this._upsert(id, resolver.resolveUrl(cfg.url), cfg.options, layerLabel(cfg, "Tile layer", index));
+      this.upsert(id, {
+        url: resolver.resolveUrl(cfg.url),
+        options: cfg.options,
+        label: layerLabel(cfg, "Tile layer", index),
+      });
     });
     wmsLayers.forEach((cfg, index) => {
       const id = uniqueId("wms", cfg);
       seen.add(id);
-      this._upsert(
-        id,
-        buildWmsUrl(resolver.resolveUrl(cfg.url), cfg.options),
-        cfg.options,
-        layerLabel(cfg, "WMS layer", index),
-      );
+      this.upsert(id, {
+        url: buildWmsUrl(resolver.resolveUrl(cfg.url), cfg.options),
+        options: cfg.options,
+        label: layerLabel(cfg, "WMS layer", index),
+      });
     });
 
-    for (const id of [...this.active]) {
-      if (!seen.has(id)) this._remove(id);
-    }
-  }
-
-  removeAll(): void {
-    for (const id of [...this.active]) this._remove(id);
-  }
-
-  has(id: string): boolean {
-    return this.active.has(id);
-  }
-
-  private _upsert(id: string, url: string, options: Record<string, unknown>, label: string): void {
-    const isVisible = () => this.visibility.get(id) ?? true;
-    const attribution = typeof options.attribution === "string" ? options.attribution : undefined;
-    const source = { type: "raster" as const, tiles: [url], tileSize: 256, attribution, ...extractZoomRange(options) };
-
-    const existingSource = this.map.getSource(id);
-    if (existingSource) {
-      existingSource.setTiles([url]);
-    } else {
-      this.map.addSource(id, source);
-      this.map.addLayer(toRasterLayer(id, isVisible()));
-      this.active.add(id);
-    }
-
-    // Re-registering on every update keeps the replayed URL current — a
-    // later style.load replays whatever was most recently upserted here.
-    this.reattach.register(id, (map) => {
-      const m = map as unknown as TileLayersMapLike;
-      if (m.getSource(id)) return;
-      m.addSource(id, source);
-      m.addLayer(toRasterLayer(id, isVisible()));
-    });
-
-    this.layerRegistry.registerOverlay(id, {
-      label,
-      group: "raster",
-      setVisible: (map, visible) => {
-        this.visibility.set(id, visible);
-        (map as TileLayersMapLike).setLayoutProperty(id, "visibility", visible ? "visible" : "none");
-      },
-    });
-  }
-
-  private _remove(id: string): void {
-    this.reattach.unregister(id);
-    this.layerRegistry.unregister(id);
-    this.visibility.delete(id);
-    this.active.delete(id);
-    if (this.map.getSource(id)) {
-      this.map.removeLayer(id);
-      this.map.removeSource(id);
-    }
+    this.reconcile(seen);
   }
 }
