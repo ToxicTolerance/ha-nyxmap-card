@@ -5,6 +5,19 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-07-22
+
+### Fixed
+
+- **The map no longer breaks after the browser drops its WebGL context.**
+  Browsers cap how many live WebGL contexts a page may hold and silently kill
+  the oldest one, so a second map card or a dashboard tab switch could take
+  this map's context away at any time. MapLibre recovers from that on its own,
+  but the card kept treating the map as ready in the meantime and threw on the
+  next Home Assistant state update, aborting the rest of that refresh. The card
+  now stands down until MapLibre has rebuilt the style, then re-attaches every
+  overlay as usual.
+
 ## [0.10.0] - 2026-07-22
 
 First stable 0.10.0, promoting `0.10.0-rc.1`/`rc.2` after a third audit wave.

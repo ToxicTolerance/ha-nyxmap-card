@@ -18,7 +18,7 @@ from TypeScript sources in `src/` and shipped as a **single bundled ES module**,
 
 ### Toolchain
 
-`package.json` (v0.10.0-rc.2) is the source of truth; all of these scripts exist and work:
+`package.json` (v0.10.1) is the source of truth; all of these scripts exist and work:
 
 | Script | What it does |
 |---|---|
