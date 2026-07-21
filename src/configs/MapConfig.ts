@@ -61,6 +61,10 @@ export interface MapConfigRaw {
   map_styles?: MapStyleRaw[];
   projection?: MapProjection;
   layer_switcher?: boolean;
+  /** Kill-switch for the JS plugin hook (window.nyxmapPlugins /
+   * nyxmap-map-ready). Defaults on; set false to withhold the map instance
+   * from plugins entirely. */
+  plugins?: boolean;
   history_start?: string;
   history_end?: string;
   /** Whether to draw the connecting trail line / a dot per sampled position.
@@ -117,6 +121,8 @@ export class MapConfig {
   /** Opt-in layer switcher UI (base-style radio group + overlay checkboxes).
    * Not an upstream key — see CLAUDE.md §5 "Layer switcher". */
   readonly layerSwitcher: boolean;
+  /** Whether the JS plugin hook is active (see MapConfigRaw.plugins). */
+  readonly plugins: boolean;
   /** Card-level history_start/history_end fallback — inherited by entities
    * that don't define their own (see EntityConfig.historyStart). */
   readonly historyStart?: string;
@@ -155,6 +161,7 @@ export class MapConfig {
     }));
     this.projection = raw.projection ?? "globe";
     this.layerSwitcher = raw.layer_switcher ?? false;
+    this.plugins = raw.plugins ?? true;
     this.historyStart = raw.history_start;
     this.historyEnd = raw.history_end;
     this.historyShowLines = raw.history_show_lines ?? true;

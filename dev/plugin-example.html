@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>nyxmap-card plugin example</title>
+    <style>
+      body { margin: 0; padding: 24px; font-family: sans-serif; background: #eee; color: #222; }
+      #app { max-width: 1100px; }
+      ha-card { display: block; background: #fff; border-radius: 12px; padding: 8px; }
+      p { max-width: 1100px; }
+    </style>
+  </head>
+  <body>
+    <h1>nyxmap-card plugin example</h1>
+    <p>
+      A MapLibre-ecosystem IControl plugin (<code>maplibre-compass-pro</code>, loaded from a
+      CDN) plus a custom overlay, both attached through the card's plugin hook. The compass
+      is styled via <code>ctx.injectStyle()</code> so it renders inside the card's shadow root.
+    </p>
+    <div id="app"></div>
+    <script type="module" src="./plugin-example.ts"></script>
+  </body>
+</html>

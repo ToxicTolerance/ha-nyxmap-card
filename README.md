@@ -120,6 +120,7 @@ same dialog) to set those.
 | `tile_layers` | one or a list of [layer objects](#tilewms-layer-options-tile_layers--wms) | — | Raster tile overlay(s), layered on top of the vector base style. |
 | `wms` | one or a list of [layer objects](#tilewms-layer-options-tile_layers--wms) | — | WMS overlay(s). |
 | `entities` | list of entity ids or [entity objects](#entity-options) | `[]` | Entities to render. |
+| `plugins` | boolean | `true` | Whether the [JS plugin hook](#plugins) is active. Set `false` to withhold the map instance from plugins entirely. |
 
 ### Entity options
 
@@ -211,6 +212,93 @@ wms:
 WMS requests are built as a MapLibre raster tile-URL template around its
 `{bbox-epsg-3857}` substitution token — not hand-rolled BBOX math — so tiles
 load exactly like any other raster source.
+
+## Plugins
+
+The card bundles MapLibre GL and hands third-party code the **live map** and the
+**exact bundled `maplibregl` module** through a small JS extension hook, so you
+can wire up anything from the [MapLibre plugin ecosystem](https://maplibre.org/maplibre-gl-js/docs/plugins/)
+(draw, minimap, geocoder, deck.gl overlays, dev tools, …) or add your own custom
+overlays and controls — all from a Lovelace JavaScript-module resource, no fork
+required.
+
+A plugin is an object with a `setup(ctx)` method. Its `setup` runs **once per
+card** when that card's map is first ready. Register it two ways:
+
+- **`window.nyxmapPlugins`** — push onto this global array (mirrors Home
+  Assistant's own `window.customCards`); applies to **every** nyxmap card.
+- **`nyxmap-map-ready` event** — a bubbling/composed `CustomEvent` dispatched on
+  each `<nyxmap-card>` element, carrying the same context in `event.detail`; the
+  per-card path.
+
+The `ctx` (`NyxmapPluginContext`) gives you:
+
+| Field | What it is |
+|---|---|
+| `map` | the live `maplibregl.Map` instance |
+| `maplibregl` | the exact bundled module — escape hatch for `addProtocol`, custom source types, etc. |
+| `card` | the `<nyxmap-card>` element |
+| `getHass()` / `getConfig()` | current Home Assistant object / parsed card config (getters — state changes over time) |
+| `registerOverlay(id, {label, group?, source, layers, visible?})` | add a custom overlay (one source + its layers); it survives theme swaps and shows up as a toggle in the [layer switcher](#layer_switcher) |
+| `registerControl(control, position?)` | add a MapLibre `IControl` (thin wrapper over `map.addControl`) |
+| `injectStyle(cssOrUrl)` | inject a plugin's stylesheet **into the card's shadow root** — required for any plugin that ships its own CSS (compass, minimap, geocoder, …), see the note below |
+| `reattach` | advanced escape hatch for hand-rolled sources/layers that must be re-added after each theme swap |
+
+The card renders inside a **shadow root**, which isolates it from stylesheets
+loaded globally into the page. A plugin that ships its own CSS (e.g. a compass
+or minimap control) will otherwise attach but render **invisibly** (unstyled,
+collapsed to 0×0). Call `ctx.injectStyle(url)` (or pass raw CSS text) to place
+its stylesheet where it can actually reach the map:
+
+```js
+// /config/www/nyxmap-compass-plugin.js  (add as a JS-module dashboard resource)
+window.nyxmapPlugins = window.nyxmapPlugins || [];
+window.nyxmapPlugins.push({
+  setup(ctx) {
+    // 1) put the plugin's CSS inside the card's shadow root, or you won't see it
+    ctx.injectStyle("https://esm.sh/maplibre-compass-pro/dist/style.css");
+    // 2) load the plugin (any ESM CDN works — no bundler needed) and attach it
+    import("https://esm.sh/maplibre-compass-pro").then(({ Compass }) => {
+      ctx.map.addControl(new Compass({ size: "lg" }), "bottom-left");
+    });
+  },
+});
+```
+
+```js
+// /config/www/nyxmap-quakes-plugin.js  (add as a JS-module dashboard resource)
+window.nyxmapPlugins = window.nyxmapPlugins || [];
+window.nyxmapPlugins.push({
+  setup(ctx) {
+    // A custom overlay — appears in the layer switcher, survives theme swaps.
+    ctx.registerOverlay("plugin:quakes", {
+      label: "Earthquakes",
+      group: "plugins",
+      source: {
+        type: "geojson",
+        data: "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_day.geojson",
+      },
+      layers: [
+        {
+          id: "plugin:quakes-dots",
+          type: "circle",
+          source: "plugin:quakes",
+          paint: { "circle-radius": 6, "circle-color": "#e74c3c" },
+        },
+      ],
+    });
+
+    // Any IControl-based MapLibre plugin:
+    // ctx.map.addControl(new SomeMapLibrePlugin(), "top-left");
+  },
+});
+```
+
+> Give overlay ids a prefix (e.g. `plugin:`) so they don't collide with the
+> card's built-in overlays. Overlays and controls added through `ctx` survive
+> light/dark theme swaps automatically. Set `plugins: false` on the card to
+> disable the hook entirely. Custom **protocols/source types** aren't first-class
+> yet — use `ctx.maplibregl.addProtocol(...)` directly for those.
 
 ## Examples
 

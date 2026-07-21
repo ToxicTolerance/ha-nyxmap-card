@@ -5,6 +5,7 @@ import { buildStubConfig } from "../editor/CardFormSchema";
 import { EntityHistoryManager } from "../models/EntityHistoryManager";
 import { IconButtonControl } from "../maplibre/IconButtonControl";
 import { maplibreCss, maplibregl } from "../maplibre/MapLibreLoader";
+import { PluginHost } from "../maplibre/PluginHost";
 import { StyleReattach } from "../maplibre/StyleReattach";
 import "./NyxmapCardEditor";
 import { HaHistoryService } from "../services/HaHistoryService";
@@ -47,6 +48,7 @@ export class NyxmapCard extends LitElement {
   private _geojson?: GeoJsonRenderService;
   private _cluster?: ClusterRenderService;
   private _tileLayers?: TileLayersRenderService;
+  private _pluginHost?: PluginHost;
   private _clusterToggleControl?: IconButtonControl;
   private _initialViewApplied = false;
   private _historyCatchUpDone = false;
@@ -439,6 +441,23 @@ export class NyxmapCard extends LitElement {
       this._layerRegistry,
     );
 
+    // JS plugin hook — hands third-party MapLibre plugins the live map + the
+    // bundled maplibregl. Only its setup pass runs (once, from the first
+    // style.load below); any overlays it registers go through _reattach and
+    // _layerRegistry like every internal one, so they survive theme swaps and
+    // appear in the switcher. Gated by the `plugins` kill-switch.
+    if (config.plugins) {
+      this._pluginHost = new PluginHost({
+        map: this._map,
+        maplibregl,
+        card: this,
+        layerRegistry: this._layerRegistry,
+        reattach: this._reattach,
+        getHass: () => this.hass,
+        getConfig: () => this._config,
+      });
+    }
+
     // Base styles are now registered — re-render so the switcher (if
     // enabled) reflects them instead of showing an empty radio group, and
     // (if the initial style matched a named entry above) highlight it as
@@ -462,6 +481,11 @@ export class NyxmapCard extends LitElement {
       this._ready = true;
       if (this._config) this._map!.setProjection({ type: this._config.projection });
       this._reattach.replayAll(this._map!);
+      // Run the plugin setup pass once, now that the style is loaded (so a
+      // plugin's registerOverlay can addSource/addLayer immediately). Its own
+      // overlays register with _reattach above, so later theme swaps replay
+      // them without setup running again (activate() is idempotent).
+      this._pluginHost?.activate();
       if (this._config && this.hass) {
         // tile_layers/wms first — see the matching comment in updated()'s
         // hass branch: this is what actually fixes the z-order, since this is

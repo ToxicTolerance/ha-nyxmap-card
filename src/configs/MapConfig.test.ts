@@ -30,6 +30,12 @@ describe("MapConfig", () => {
     expect(cfg.clusterMarkers).toBe(true);
     expect(cfg.clusterMaxZoom).toBe(14);
     expect(cfg.showAccuracyCircles).toBe(true);
+    expect(cfg.plugins).toBe(true);
+  });
+
+  it("parses plugins: false to disable the JS plugin hook", () => {
+    const cfg = new MapConfig({ plugins: false });
+    expect(cfg.plugins).toBe(false);
   });
 
   it("parses max_zoom/min_zoom", () => {

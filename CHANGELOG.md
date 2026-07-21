@@ -5,6 +5,26 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-07-21
+
+### Added
+
+- **JS plugin hook** — the card now hands third-party MapLibre plugins (and your
+  own code) the live map and the exact bundled `maplibregl` module, so anything
+  from the [MapLibre plugin ecosystem](https://maplibre.org/maplibre-gl-js/docs/plugins/)
+  can attach without forking the card. Register plugins via the
+  `window.nyxmapPlugins` global or the bubbling `nyxmap-map-ready` event; each
+  plugin's `setup(ctx)` runs once per card. The context includes first-class
+  helpers `registerOverlay(id, {label, source, layers, …})` (custom overlays
+  that survive theme swaps and appear in the layer switcher),
+  `registerControl(control, position?)` (IControl controls), and
+  `injectStyle(cssOrUrl)` (place a plugin's own stylesheet inside the card's
+  shadow root — required for visual plugins like a compass/minimap, which
+  otherwise attach but render invisibly), plus `map`, `maplibregl`,
+  `getHass()`/`getConfig()`, and a `reattach` escape hatch. A new
+  `plugins: false` card option disables the hook entirely. A runnable demo
+  lives at `dev/plugin-example.html`. See the README's "Plugins" section.
+
 ## [0.8.4] - 2026-07-21
 
 ### Fixed
