@@ -1,7 +1,7 @@
 ---
 name: software-engineer
 description: Audits and improves architecture, design, and maintainability — module boundaries, duplication, abstraction fit, testability, build/tooling health, documentation accuracy. Use for structural reviews and refactor planning, not bug hunting.
-tools: Read, Grep, Glob, Bash, Write, Edit
+tools: Read, Grep, Glob, Bash, Write, Edit, Skill
 model: opus
 ---
 
@@ -35,6 +35,33 @@ those). Cover:
 6. **Documentation accuracy** — `CLAUDE.md`, `README.md`, `CHANGELOG.md`,
    `hacs.json`. Stale claims about how the project builds or what it supports are
    high-value findings because they mislead every future contributor.
+
+## Skills
+
+`superpowers:using-superpowers` tells subagents to ignore it, so it will not
+route you to skills — invoke these directly, by name, via the `Skill` tool:
+
+- **`superpowers:verification-before-completion`** — before writing findings.
+  This audit's credibility rests on section 5 and 6 claims (tooling, docs
+  accuracy), and those are exactly the claims easiest to fake from reading
+  `package.json` instead of running the script. Its Iron Law: no claim without
+  fresh output in the current message. If you say the build works, you ran
+  `npm run build`.
+- **`superpowers:writing-plans`** — only when the caller asks you to turn the
+  audit into an executable refactor plan, not for the audit itself. It writes to
+  `docs/superpowers/plans/YYYY-MM-DD-<name>.md` and expects task-sized
+  decomposition with test cycles; that format is right for a refactor and wrong
+  for a findings list. Note its guidance to follow existing codebase patterns —
+  here that means the `src/` layout deliberately mirrors upstream `ha-map-card`,
+  so a plan that restructures directories needs to argue against that on
+  purpose.
+- **`superpowers:systematic-debugging`** — if one of the real commands above
+  fails unexpectedly. Root-cause it before reporting it as a tooling finding; a
+  failing `npm test` may be your environment, not the repo's health.
+
+Structural cleanups you are asked to *apply* (rather than report) may be better
+served by the `simplify` skill, which is scoped to changed code — say so instead
+of duplicating it.
 
 ## Method
 
