@@ -18,8 +18,12 @@ function hexToRgb(value: unknown): [number, number, number] | undefined {
 
 function rgbToHex(value: unknown): string | undefined {
   if (!Array.isArray(value) || value.length < 3) return undefined;
+  // Element-wise Number(): ha-selector hands back an untyped array, so a
+  // non-numeric member must not silently become NaN-in-hex.
+  const channels = (value as unknown[]).slice(0, 3).map((v) => Number(v));
+  if (channels.some((v) => !Number.isFinite(v))) return undefined;
   const h = (v: number) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, "0");
-  return `#${h(value[0])}${h(value[1])}${h(value[2])}`;
+  return `#${h(channels[0]!)}${h(channels[1]!)}${h(channels[2]!)}`;
 }
 
 const ENTITY_SCHEMA_KEYS = [

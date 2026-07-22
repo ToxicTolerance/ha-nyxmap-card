@@ -24,6 +24,26 @@ export default tseslint.config(
     rules: lit.configs.recommended.rules,
   },
   {
+    // Type-aware linting over the shipped source. The rules that matter here
+    // are no-floating-promises and no-misused-promises: this card is unusually
+    // async for its size (the history refresh chain, queueMicrotask,
+    // requestAnimationFrame, setInterval, a deferred teardown), and a wave-3
+    // fix was exactly a promise chain with no terminating .catch, whose
+    // rejections surfaced only as unhandled-rejection warnings. Those are
+    // mechanically detectable rather than review-detectable.
+    //
+    // Scoped to src/** rather than the whole project: type-aware linting needs
+    // a TS program, which roughly doubles lint time, and the payoff is in the
+    // shipped code. Tests deliberately float promises (fire-and-forget
+    // fixtures) and would need per-file noise to pass.
+    files: ["src/**/*.ts"],
+    ignores: ["src/**/*.test.ts"],
+    extends: [...tseslint.configs.recommendedTypeChecked],
+    languageOptions: {
+      parserOptions: { projectService: true, tsconfigRootDir: import.meta.dirname },
+    },
+  },
+  {
     ignores: ["dist/**", "coverage/**", "node_modules/**"],
   },
 );

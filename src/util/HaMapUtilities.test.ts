@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MapConfig } from "../configs/MapConfig";
-import { isColorDark, resolveStyle, resolveStylePair, resolveThemeMode, resolveTime } from "./HaMapUtilities";
+import { isColorDark, resolveStylePair, resolveThemeMode, resolveTime } from "./HaMapUtilities";
 
 describe("isColorDark", () => {
   it("detects dark hex backgrounds", () => {
@@ -39,20 +39,20 @@ describe("resolveThemeMode", () => {
   });
 });
 
-describe("resolveStyle", () => {
-  it("picks styleDark/styleLight to match the resolved theme", () => {
+describe("resolveStylePair", () => {
+  // A MapConfig satisfies the {styleLight, styleDark} pair shape structurally,
+  // which is how the card resolves its own map_style/map_style_dark.
+  it("resolves a MapConfig against the system preference", () => {
     const cfg = new MapConfig({
       map_style: "https://example.com/light.json",
       map_style_dark: "https://example.com/dark.json",
       theme_mode: "auto",
     });
-    expect(resolveStyle(cfg, true)).toBe("https://example.com/dark.json");
-    expect(resolveStyle(cfg, false)).toBe("https://example.com/light.json");
+    expect(resolveStylePair(cfg, cfg.themeMode, true)).toBe("https://example.com/dark.json");
+    expect(resolveStylePair(cfg, cfg.themeMode, false)).toBe("https://example.com/light.json");
   });
-});
 
-describe("resolveStylePair", () => {
-  it("resolves an arbitrary light/dark pair the same way resolveStyle does", () => {
+  it("resolves an arbitrary light/dark pair the same way", () => {
     const pair = { styleLight: "a", styleDark: "b" };
     expect(resolveStylePair(pair, "auto", true)).toBe("b");
     expect(resolveStylePair(pair, "auto", false)).toBe("a");

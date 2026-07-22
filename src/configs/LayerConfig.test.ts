@@ -50,4 +50,28 @@ describe("parseLayerConfigList", () => {
     expect(result.every((r) => r instanceof WmsLayerConfig)).toBe(true);
     expect(result.map((r) => r.url)).toEqual(["https://example.com/a", "https://example.com/b"]);
   });
+
+  // setConfig() re-parses on every keystroke in HA's YAML editor, so these are
+  // states a user types *through*, not just broken saved configs. Throwing
+  // propagated out of the MapConfig constructor and HA replaced the card with
+  // an error card mid-edit — MapConfig already drops half-typed `entities` and
+  // `map_styles` entries for exactly this reason.
+  describe("half-typed entries", () => {
+    it("drops a null entry, as `tile_layers:\\n  -` produces", () => {
+      expect(parseLayerConfigList([null], TileLayerConfig)).toEqual([]);
+    });
+
+    it("drops an entry with no url yet", () => {
+      const result = parseLayerConfigList([{ options: { name: "radar" } }, { url: "https://ok" }], TileLayerConfig);
+      expect(result.map((r) => r.url)).toEqual(["https://ok"]);
+    });
+
+    it("drops an entry whose url is not a string", () => {
+      expect(parseLayerConfigList([{ url: 42 }], TileLayerConfig)).toEqual([]);
+    });
+
+    it("does not throw on a single malformed object", () => {
+      expect(() => parseLayerConfigList({ options: {} }, WmsLayerConfig)).not.toThrow();
+    });
+  });
 });

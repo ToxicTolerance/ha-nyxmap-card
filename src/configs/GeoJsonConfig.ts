@@ -26,7 +26,7 @@ export class GeoJsonConfig {
   static from(raw: unknown, defaultColor?: string): GeoJsonConfig | undefined {
     if (!raw) return undefined;
     if (typeof raw === "string") return new GeoJsonConfig({ attribute: raw }, defaultColor);
-    return new GeoJsonConfig(raw as GeoJsonConfigRaw, defaultColor);
+    return new GeoJsonConfig(raw, defaultColor);
   }
 
   constructor(raw: GeoJsonConfigRaw, defaultColor?: string) {

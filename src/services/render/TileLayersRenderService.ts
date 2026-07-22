@@ -45,14 +45,28 @@ function hashToken(s: string): string {
  * query param here and is applied separately as the source's own
  * `attribution` field by the caller. */
 function buildWmsUrl(baseUrl: string, options: Record<string, unknown>): string {
+  // WMS params come out of a free-form YAML `options:` bag, so a value can be
+  // any shape the user typed. Only primitives make sense in a query string —
+  // a nested map or list would otherwise stringify to "[object Object]" and
+  // produce a request the server rejects with no hint as to why, so anything
+  // non-primitive falls back to the default instead.
+  const param = (value: unknown, fallback: string | number | boolean): string => {
+    if (value === undefined || value === null) return String(fallback);
+    if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+      return String(value);
+    }
+    console.warn("[nyxmap-card] ignoring non-primitive WMS option:", value);
+    return String(fallback);
+  };
+
   const params = new URLSearchParams();
   params.set("SERVICE", "WMS");
   params.set("REQUEST", "GetMap");
-  params.set("VERSION", String(options.version ?? "1.1.1"));
-  params.set("LAYERS", String(options.layers ?? ""));
-  params.set("STYLES", String(options.styles ?? ""));
-  params.set("FORMAT", String(options.format ?? "image/png"));
-  params.set("TRANSPARENT", String(options.transparent ?? true));
+  params.set("VERSION", param(options.version, "1.1.1"));
+  params.set("LAYERS", param(options.layers, ""));
+  params.set("STYLES", param(options.styles, ""));
+  params.set("FORMAT", param(options.format, "image/png"));
+  params.set("TRANSPARENT", param(options.transparent, true));
   params.set("WIDTH", "256");
   params.set("HEIGHT", "256");
   params.set("CRS", "EPSG:3857");

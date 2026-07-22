@@ -16,6 +16,28 @@ import type { LayerRegistry } from "../services/render/LayerRegistry";
 import { RESERVED_OVERLAY_ID_PREFIXES } from "../services/render/OverlayIds";
 import type { StyleReattach } from "./StyleReattach";
 
+/**
+ * Which stylesheets have already been injected into a given shadow root.
+ *
+ * Keyed off the *root* rather than held on the PluginHost, because the two
+ * have different lifetimes: `_teardown()` discards the host and `_buildMap()`
+ * makes a fresh one, but the injected `<style>`/`<link>` nodes were appended
+ * to the card element's shadow root, which is the same DOM node throughout. A
+ * per-host set therefore started empty on every rebuild and re-injected, so a
+ * long-lived dashboard cycling views accumulated duplicate nodes without
+ * bound. Weak on the root so nothing is retained after the card is gone.
+ */
+const injectedStylesByRoot = new WeakMap<ShadowRoot, Set<string>>();
+
+function injectedStylesFor(root: ShadowRoot): Set<string> {
+  let set = injectedStylesByRoot.get(root);
+  if (!set) {
+    set = new Set<string>();
+    injectedStylesByRoot.set(root, set);
+  }
+  return set;
+}
+
 export interface PluginHostDeps {
   map: maplibregl.Map;
   /** The bundled maplibregl module, handed to plugins verbatim so global-scope
@@ -50,7 +72,6 @@ export interface PluginHostDeps {
 export class PluginHost {
   private _activated = false;
   private readonly _overlayVisible = new Map<string, boolean>();
-  private readonly _injectedStyles = new Set<string>();
 
   constructor(private readonly deps: PluginHostDeps) {}
 
@@ -125,8 +146,9 @@ export class PluginHost {
       console.warn("[nyxmap-card] injectStyle: card has no shadow root to inject into.");
       return;
     }
-    if (this._injectedStyles.has(cssOrUrl)) return;
-    this._injectedStyles.add(cssOrUrl);
+    const injected = injectedStylesFor(root);
+    if (injected.has(cssOrUrl)) return;
+    injected.add(cssOrUrl);
 
     const looksLikeUrl =
       /^https?:\/\//i.test(cssOrUrl) || cssOrUrl.startsWith("/") || /\.css(\?|#|$)/i.test(cssOrUrl.trim());
@@ -194,8 +216,8 @@ export class PluginHost {
     for (const layer of overlay.layers) {
       map.addLayer({
         ...layer,
-        layout: { ...(layer.layout as Record<string, unknown> | undefined), visibility },
-      } as maplibregl.LayerSpecification);
+        layout: { ...(layer.layout), visibility },
+      });
     }
   }
 }

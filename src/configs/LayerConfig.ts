@@ -24,12 +24,28 @@ export class LayerConfig {
   }
 }
 
-/** `tile_layers:`/`wms:` accept either a single layer object or a list. */
+/**
+ * `tile_layers:`/`wms:` accept either a single layer object or a list.
+ *
+ * Entries without a usable `url` are dropped rather than thrown on, matching
+ * how MapConfig already treats half-typed `entities` and `map_styles`. The
+ * reason is the same: setConfig() re-parses the whole config on every
+ * keystroke in HA's YAML editor, so the intermediate text `tile_layers:\n  -`
+ * parses to `[null]`. Throwing there propagated out of the MapConfig
+ * constructor, out of setConfig(), and HA replaced the whole card with an
+ * error card mid-edit.
+ */
 export function parseLayerConfigList<T extends LayerConfig>(
   raw: unknown,
   ctor: new (raw: LayerConfigRaw) => T,
 ): T[] {
   if (!raw) return [];
   const list = Array.isArray(raw) ? raw : [raw];
-  return list.map((r) => new ctor(r as LayerConfigRaw));
+  const parsed: T[] = [];
+  for (const entry of list) {
+    const candidate = entry as LayerConfigRaw | null | undefined;
+    if (!candidate?.url || typeof candidate.url !== "string") continue;
+    parsed.push(new ctor(candidate));
+  }
+  return parsed;
 }

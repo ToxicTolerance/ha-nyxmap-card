@@ -33,7 +33,7 @@ export class NyxmapFormListEditor<
   protected override render() {
     return html`
       ${this.items.map((item, i) => this._renderRow(item, i))}
-      <button class="add" @click=${this._add}>+ ${this.addLabel}</button>
+      <button class="add" @click=${() => this._add()}>+ ${this.addLabel}</button>
     `;
   }
 

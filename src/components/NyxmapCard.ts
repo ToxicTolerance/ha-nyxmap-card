@@ -11,13 +11,13 @@ import "./NyxmapCardEditor";
 import { HaHistoryService } from "../services/HaHistoryService";
 import { HistoryRefreshController } from "../services/HistoryRefreshController";
 import { CircleRenderService } from "../services/render/CircleRenderService";
-import { ClusterRenderService, type ClusterMapLike } from "../services/render/ClusterRenderService";
-import { EntitiesRenderService, type MapLibreGlLike } from "../services/render/EntitiesRenderService";
+import { ClusterRenderService } from "../services/render/ClusterRenderService";
+import { EntitiesRenderService } from "../services/render/EntitiesRenderService";
 import { GeoJsonRenderService, type GeoJsonMapLike } from "../services/render/GeoJsonRenderService";
-import { HistoryRenderService, type MapSourceLike } from "../services/render/HistoryRenderService";
+import { HistoryRenderService } from "../services/render/HistoryRenderService";
 import { InitialViewRenderService } from "../services/render/InitialViewRenderService";
 import { LayerRegistry } from "../services/render/LayerRegistry";
-import { TileLayersRenderService, type TileLayersMapLike } from "../services/render/TileLayersRenderService";
+import { TileLayersRenderService } from "../services/render/TileLayersRenderService";
 import type { HomeAssistant } from "../types/home-assistant";
 import { isColorDark, resolveStylePair, resolveThemeMode } from "../util/HaMapUtilities";
 import "./LayerSwitcherControl";
@@ -641,16 +641,16 @@ export class NyxmapCard extends LitElement {
     // before first paint.
     requestAnimationFrame(() => requestAnimationFrame(() => this._map?.resize()));
 
-    this._entities = new EntitiesRenderService(this._map, maplibregl as unknown as MapLibreGlLike, (entityId) =>
+    this._entities = new EntitiesRenderService(this._map, maplibregl, (entityId) =>
       this._fireMoreInfo(entityId),
     );
     this._history = new HistoryRenderService(
-      this._map as unknown as MapSourceLike,
+      this._map,
       this._reattach,
       this._layerRegistry,
     );
     this._circles = new CircleRenderService(
-      this._map as unknown as MapSourceLike,
+      this._map,
       this._reattach,
       this._layerRegistry,
     );
@@ -661,13 +661,13 @@ export class NyxmapCard extends LitElement {
       (entityId) => this._fireMoreInfo(entityId),
     );
     this._cluster = new ClusterRenderService(
-      this._map as unknown as ClusterMapLike,
-      maplibregl as unknown as MapLibreGlLike,
+      this._map,
+      maplibregl,
       this._layerRegistry,
       () => this._resyncEntityMarkers(),
     );
     this._tileLayers = new TileLayersRenderService(
-      this._map as unknown as TileLayersMapLike,
+      this._map,
       this._reattach,
       this._layerRegistry,
     );
@@ -754,7 +754,10 @@ export class NyxmapCard extends LitElement {
       // fires after tiles + attribution have settled, when the collapse sticks;
       // it's re-registered on every style.load so theme swaps stay collapsed too.
       this._collapseAttribution();
-      this._map!.once("idle", () => this._collapseAttribution());
+      // maplibre's once() is overloaded — with a listener it returns the map,
+      // without one a Promise — so the union reads as floating. The listener
+      // form is what's used here; nothing to await.
+      void this._map!.once("idle", () => this._collapseAttribution());
       this._reattach.replayAll(this._map!);
       // Run the plugin setup pass once, now that the style is loaded (so a
       // plugin's registerOverlay can addSource/addLayer immediately). Its own

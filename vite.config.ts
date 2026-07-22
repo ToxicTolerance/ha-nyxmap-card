@@ -46,9 +46,13 @@ export default defineConfig({
       // functions) that reports 0% because nothing imports it under `node`
       // tests — excluded rather than left to trip the per-file floor below.
       // MapSeamConformance.ts is type-only and emits no runtime code at all.
+      // The *.styles.ts files are bare `css` template literals — no branches,
+      // no functions, 100% by construction — so counting them only pads the
+      // aggregate without ever being able to fail.
       exclude: [
         "src/index.ts",
         "src/**/*.test.ts",
+        "src/**/*.styles.ts",
         "src/types/**",
         "src/vite-env.d.ts",
         "src/maplibre/MapLibreLoader.ts",

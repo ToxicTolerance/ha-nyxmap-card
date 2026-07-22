@@ -27,7 +27,7 @@ function makeHost(overrides: Partial<PluginHostDeps> = {}) {
     getConfig: () => undefined,
     ...overrides,
   };
-  return { host: new PluginHost(deps), map, card, shadow, reattach, layerRegistry };
+  return { host: new PluginHost(deps), map, card, shadow, reattach, layerRegistry, deps };
 }
 
 beforeEach(() => {
@@ -178,6 +178,22 @@ describe("PluginHost", () => {
     const { host, shadow } = makeHost();
 
     host.activate();
+
+    expect(shadow.querySelectorAll("link[rel=stylesheet]")).toHaveLength(1);
+  });
+
+  // The dedup set used to live on the PluginHost, which _teardown() discards
+  // and _buildMap() replaces — but the injected nodes go into the card's
+  // shadow root, which is the same DOM node throughout. A long-lived dashboard
+  // cycling views therefore accumulated duplicate <style> nodes without bound.
+  it("injectStyle stays deduped across a PluginHost rebuild on the same card", () => {
+    window.nyxmapPlugins = [{ setup: (ctx) => ctx.injectStyle("https://example.com/a.css") }];
+    const { host, shadow, deps } = makeHost();
+    host.activate();
+
+    // Same card element (and so the same shadow root), brand-new host — what a
+    // teardown/rebuild cycle produces.
+    new PluginHost(deps).activate();
 
     expect(shadow.querySelectorAll("link[rel=stylesheet]")).toHaveLength(1);
   });

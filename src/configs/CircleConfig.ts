@@ -27,7 +27,7 @@ export class CircleConfig {
   static from(raw: unknown, defaultColor?: string): CircleConfig | undefined {
     if (!raw) return undefined;
     if (raw === "auto") return new CircleConfig({ source: "auto" }, defaultColor);
-    return new CircleConfig(raw as CircleConfigRaw, defaultColor);
+    return new CircleConfig(raw, defaultColor);
   }
 
   constructor(raw: CircleConfigRaw, defaultColor?: string) {

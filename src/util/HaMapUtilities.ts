@@ -1,4 +1,4 @@
-import type { MapConfig, ThemeMode } from "../configs/MapConfig";
+import type { ThemeMode } from "../configs/MapConfig";
 
 /** Resolves `theme_mode` ("auto"|"light"|"dark") against the system preference. */
 export function resolveThemeMode(themeMode: ThemeMode, prefersDark: boolean): "light" | "dark" {
@@ -6,21 +6,16 @@ export function resolveThemeMode(themeMode: ThemeMode, prefersDark: boolean): "l
   return themeMode;
 }
 
-/** Picks a style URL from a light/dark pair for the current theme — shared by
- * resolveStyle() (the card's primary map_style/map_style_dark) and the layer
- * switcher, which resolves the same way for whichever base-style entry is
- * currently selected (see LayerRegistry.BaseStyleEntry). */
+/** Picks a style URL from a light/dark pair for the current theme. Used both
+ * for the card's own map_style/map_style_dark (a MapConfig satisfies the pair
+ * shape structurally) and by the layer switcher, which resolves the same way
+ * for whichever base-style entry is selected (see LayerRegistry.BaseStyleEntry). */
 export function resolveStylePair(
   pair: { styleLight: string; styleDark: string },
   themeMode: ThemeMode,
   prefersDark: boolean,
 ): string {
   return resolveThemeMode(themeMode, prefersDark) === "dark" ? pair.styleDark : pair.styleLight;
-}
-
-/** Picks the MapLibre style URL for the current theme. */
-export function resolveStyle(config: MapConfig, prefersDark: boolean): string {
-  return resolveStylePair(config, config.themeMode, prefersDark);
 }
 
 /**
