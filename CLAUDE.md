@@ -18,14 +18,15 @@ from TypeScript sources in `src/` and shipped as a **single bundled ES module**,
 
 ### Toolchain
 
-`package.json` (v0.10.1) is the source of truth; all of these scripts exist and work:
+`package.json` is the source of truth for the version and the scripts; all of these exist and
+work (a version number repeated in prose only drifts, so there isn't one here):
 
 | Script | What it does |
 |---|---|
 | `npm run dev` | Vite dev server; `vite.config.ts` opens `dev/harness.html` |
 | `npm run build` | Vite lib build → `dist/nyxmap-card.js` (`build:watch` for the watch mode) |
 | `npm test` | `vitest run` (`test:watch`, `test:coverage` for the variants) |
-| `npm run lint` | `eslint . --max-warnings 0` — the whole project, matching what `tsconfig.json` type-checks (`src`, `test`, `dev`, `vite.config.ts`) |
+| `npm run lint` | `eslint . --max-warnings 0` — the whole project, matching what `tsconfig.json` type-checks (`src`, `test`, `dev`, `vite.config.ts`); **type-aware** over `src/**` |
 | `npm run typecheck` | `tsc --noEmit` |
 
 Vite 6 + vitest 2 + TypeScript 5.7 + eslint 9 (with `typescript-eslint` and `eslint-plugin-lit`).
@@ -37,11 +38,25 @@ a required job so a `v*` tag can't publish without passing it. Two deliberate sh
 gate: `lint` runs with `--max-warnings 0` (eslint exits 0 on warnings, so without it a lint job can
 never fail — `no-unused-vars` and unused `eslint-disable` directives are both warn-severity here),
 and `passWithNoTests` is off, so a glob mistake that collects zero tests fails instead of reporting
-green. Coverage thresholds live in `vite.config.ts` and are **per-file** floors (70% of each metric,
+green.
+
+Linting is **type-aware** (`recommendedTypeChecked`) over `src/**`, excluding tests — which
+deliberately float promises in fixtures and would need per-file noise to pass. That is what makes
+`no-floating-promises` and `no-misused-promises` active, and this card is unusually async for its
+size (the history refresh chain, `queueMicrotask`, `requestAnimationFrame`, `setInterval`, a
+deferred teardown); a wave-3 fix was exactly a promise chain with no terminating `.catch`, which is
+mechanically detectable rather than review-detectable. It costs a TS program per lint run, so it is
+scoped to shipped code rather than everything.
+
+Coverage thresholds live in `vite.config.ts` and are **per-file** floors (70% of each metric,
 `perFile: true`) rather than aggregate ones — an aggregate gate lets one module rot to 0% while the
-rest of the tree carries the average. Actuals are far above the floor (~98% statements/lines, ~96%
-functions, ~91% branches); `LayerSwitcherControl.ts` is the weakest file and sets the ceiling on how
-high the floor can go.
+rest of the tree carries the average. Actuals are far above the floor on most metrics (~99%
+statements/lines, ~97% functions, ~92% branches). **Branch** coverage is the binding constraint on
+raising it: `LayerSwitcherControl.ts` sits around 71%, because what is left uncovered there is the
+`getBoundingClientRect()`-driven code that jsdom cannot exercise at all (it implements no layout,
+so every rect is zeros and the assertions would be vacuous). The arithmetic itself was moved to
+`LayerSwitcherLayout.ts` for exactly this reason and *is* fully tested; the residue is the DOM
+plumbing around it.
 
 ### Dev loop
 
@@ -58,7 +73,7 @@ MapLibre GL is **bundled into `dist/nyxmap-card.js`**, not loaded from a CDN at 
 custom card ships as one drop-in resource file, and a runtime CDN dependency is a liability for
 self-hosted/air-gapped installs and a source of version drift. `vite.config.ts` therefore uses a
 lib build with `inlineDynamicImports: true` so the whole card — MapLibre included — is one ES
-module (~1.7 MB raw / ~366 kB gzip; the size is essentially all `maplibre-gl` and is accepted
+module (~1.7 MB raw / ~370 kB gzip; the size is essentially all `maplibre-gl` and is accepted
 deliberately). `src/maplibre/MapLibreLoader.ts` re-exports that bundled `maplibregl` plus its CSS
 (imported with Vite's `?raw` so it can be injected into the card's shadow root, where a global
 `<link>` wouldn't reach). There is deliberately **no** runtime-CDN escape hatch — an unused
@@ -80,39 +95,70 @@ intentional — it keeps the fork diffable against the upstream project's module
 - **`src/components/`** — the Lit elements: `NyxmapCard` (the card itself and the largest module —
   lifecycle, map construction, service orchestration), `NyxmapCardEditor` + `NyxmapFormListEditor`
   (visual config editor), `LayerSwitcherControl`. Each has a sibling `*.styles.ts`.
+  `LayerSwitcherLayout` sits here too but is *not* an element: it holds the switcher's geometry
+  and grouping math as pure functions, because jsdom implements no layout (every
+  `getBoundingClientRect()` returns zeros), so arithmetic left inside the element cannot be
+  meaningfully tested. Same reasoning as `src/editor/`.
 - **`src/configs/`** — `MapConfig`, `EntityConfig`, `CircleConfig`, `GeoJsonConfig`, `LayerConfig`
   (+ `TileLayerConfig`/`WmsLayerConfig`) parse the Lovelace YAML into typed objects. See
   "Config surface" below for how keys relate to upstream.
 - **`src/services/`** — `HaHistoryService` fetches entity position history via `hass.callWS` and
   returns `[[lng, lat], ...]` ready to drop into a GeoJSON `LineString`; `HaUrlResolveService`
-  resolves `{{ states('entity_id') }}` templating in tile/WMS URLs. Both renderer-agnostic.
+  resolves `{{ states('entity_id') }}` templating in tile/WMS URLs; `HistoryRefreshController`
+  owns the history poll (timer, in-flight coalescing, generation guard, startup catch-up). All
+  renderer-agnostic and DOM-free — the controller tests under `node` with fake timers.
 - **`src/services/render/`** — one service per render concern, each injected into `NyxmapCard` and
   each tested against a fake map: `EntitiesRenderService`, `HistoryRenderService`,
   `CircleRenderService`, `GeoJsonRenderService`, `TileLayersRenderService` (raster tile + WMS
   overlays), `ClusterRenderService`, `InitialViewRenderService`, plus `LayerRegistry` (the
   deliberately non-reactive registry backing the layer switcher).
+  The four source/layer-backed services extend **`OverlaySource`**, which owns the whole overlay
+  lifecycle once (add-or-update source, reconcile layers, re-apply changed paint, register with
+  `StyleReattach` + `LayerRegistry`, tear all of it down symmetrically). Subclasses supply only
+  what differs: the id, the source spec, the layer specs, a `paintKey`, a `sourceKey`, and how to
+  update a live source. **`OverlayIds`** is the single source of truth for id prefixes and is
+  what `PluginHost` reads for its reserved list — see "Adding an overlay type" below.
 - **`src/maplibre/`** — the MapLibre-facing seam: `MapLibreLoader` (bundled `maplibregl` + CSS),
   `MarkerFactory` (marker DOM: picture / icon / initials fallback chain, ported ~1:1 from
   `ha-map-card`'s divIcon logic), `MarkerAnimator`, `IconButtonControl`, `StyleReattach`,
   `PluginHost`.
 - **`src/models/`** — `Circle`, `GeoJson`, `EntityHistory`/`EntityHistoryManager`.
 - **`src/editor/`** — pure, DOM-free schema/mapping functions for the visual editor
-  (`CardFormSchema`, `EntityFormSchema`, `MapStyleFormSchema`).
+  (`CardFormSchema`, `EntityFormSchema`, `MapStyleFormSchema`, and `EntityListReconcile`, which
+  matches edited rows back to their previous raw entities so YAML-only keys survive a rename or
+  a reorder).
 - **`src/util/`** — `HaMapUtilities` (time parsing, color helpers), `geo`.
 - **`src/types/`** — `home-assistant.d.ts`, `ha-form.d.ts`, `nyxmap-plugin.d.ts`: duck-typed
   contracts for things provided by the surrounding HA frontend or consumed by plugin authors,
   never project dependencies.
+- **`docs/audit/`** — historical only. Point-in-time artifacts of the v0.9.1 audit, each carrying
+  a "Superseded" banner. They describe a tree that no longer exists; `CHANGELOG.md` is what
+  landed and this file is the current architecture.
 
 ### Tests
 
-Tests are **colocated**: `Foo.ts` sits next to `Foo.test.ts` (33 test files today), and
+Tests are **colocated**: `Foo.ts` sits next to `Foo.test.ts` (36 test files today), and
 `vite.config.ts` collects `src/**/*.test.ts`. The default environment is `node`; the ~10 files that
 need a DOM opt in individually with a `// @vitest-environment jsdom` pragma rather than making
 jsdom global. `test/setup.ts` shims `matchMedia`, `ResizeObserver` and `requestAnimationFrame` for
 those, each with a comment explaining why. `test/fakes/FakeMaplibreMap.ts` is a hand-rolled double —
 real MapLibre needs WebGL, which neither jsdom nor CI has — and is the seam every render service is
-tested through. Prefer the `src/editor/` pattern where it fits: keep decision logic in pure
-functions so it tests under `node` with no DOM at all.
+tested through.
+
+It is deliberately the **only** MapLibre double in the repo. `NyxmapCard.test.ts` used to declare a
+second, richer one inside its `vi.mock` factory and the two drifted, with fidelity fixes landing in
+one and not the other. That is not hypothetical: `focus_follow: "contains"` shipped broken because
+a fake described `getBounds()` as a plain `{west,east,…}` box, so the suite confirmed the bug. The
+sharp behaviours are opt-in per call site instead — `strictStyleLoading` (models
+`Style._loaded`, so `addSource()` throws mid-swap the way it really does) and `projectScale`. The
+card's test reaches it through `createFakeMapLibreLoaderModule()` via `await import(...)` inside an
+async `vi.mock` factory, because the factory is hoisted above imports and a top-level binding
+referenced from inside it is not yet initialised.
+
+Prefer the `src/editor/` pattern where it fits: keep decision logic in pure functions so it tests
+under `node` with no DOM at all. `LayerSwitcherLayout.ts` and `EntityListReconcile.ts` are the two
+most recent applications of it, both extracted from code that previously needed a mounted element
+to reach.
 
 ### Config surface (relative to upstream `ha-map-card`)
 
@@ -141,8 +187,9 @@ the places nyxmap deliberately diverges:
 
 ### The one non-obvious invariant: markers vs. sources across theme swaps
 
-`_resolveStyle()` picks a light/dark MapLibre style JSON based on `theme_mode` (or system
-preference when `auto`). Switching themes calls `map.setStyle(...)`, which **wipes all GeoJSON
+`_resolveActiveStyleUrl()` picks a light/dark MapLibre style JSON based on `theme_mode` (or
+system preference when `auto`), after first honouring any manual base-style pick made in the
+layer switcher (`_manualStyleId`), which takes precedence. Switching themes calls `map.setStyle(...)`, which **wipes all GeoJSON
 sources/layers but does *not* remove HTML `Marker` elements** (they live outside the style).
 Consequently:
 
@@ -159,11 +206,35 @@ Consequently:
   through `PluginHost`'s `registerOverlay`.
 
 Any new overlay type that uses MapLibre sources/layers rather than HTML markers needs to plug into
-this same re-attach path, or it will silently vanish on the next theme change. `CircleRenderService`
-(GPS-accuracy/radius circles) and `HistoryRenderService` (trail `LineString`s) are the smallest
-examples to copy. Note `ClusterRenderService` deliberately does *not*: its cluster bubbles are HTML
-`maplibregl.Marker`s (like entity markers), so they survive `setStyle()` for free and need no
-re-attach registration — that's also what lets them animate via CSS transitions.
+this same re-attach path, or it will silently vanish on the next theme change. Note
+`ClusterRenderService` deliberately does *not*: its cluster bubbles are HTML `maplibregl.Marker`s
+(like entity markers), so they survive `setStyle()` for free and need no re-attach registration —
+that's also what lets them animate via CSS transitions.
+
+#### Adding an overlay type
+
+**Extend `OverlaySource` — do not hand-roll the protocol.** It used to be hand-rolled five times
+(the four services plus `PluginHost`), which meant every fix had to be applied five times; the
+wave-2 paint fix missed a branch doing exactly that. `CircleRenderService` is the smallest example
+to copy. Concretely:
+
+1. Add your prefix to `OVERLAY_ID_PREFIXES` in `src/services/render/OverlayIds.ts` and export an
+   id builder next to the others. `RESERVED_OVERLAY_ID_PREFIXES` is derived from that object, so
+   this is also what stops a plugin from claiming your namespace — and why a new prefix cannot be
+   forgotten there.
+2. Subclass `OverlaySource<TKey, TItem>` and implement `sourceIdFor`, `build` and
+   `updateSourceData`; override `applyPaint` if any paint is config-driven, and
+   `onAdded`/`onRemoving` if you own something that is neither a source nor a layer (the way
+   `GeoJsonRenderService` owns layer-scoped click handlers).
+3. In `build()`, put anything MapLibre reads **once at `addSource()` time and offers no setter
+   for** into `sourceKey` — raster `minzoom`/`maxzoom`/`attribution` are the live example. The base
+   rebuilds the source when that key changes; get it wrong and edits silently do nothing until the
+   next theme swap. Overlays whose source carries only data return a constant.
+4. Instantiate it in `_buildMap()`, null it in `_teardown()`, and call its `update()` from
+   `_refreshOverlays()`.
+
+Steps 3 and 4 are the only ones you can still get wrong silently; the reattach registration,
+switcher registration, layer reconciliation and teardown symmetry all come from the base.
 
 Per-entity accuracy circles (`CircleConfig`/`CircleRenderService`) render automatically for any
 entity with a `gps_accuracy` or `radius` attribute — matching HA's own built-in map — controlled by
@@ -247,7 +318,10 @@ The context's helpers reuse existing machinery rather than new paths:
   services, an id is rejected (with a `console.warn` suggesting `plugin:<id>`) when it either
   already exists in `StyleReattach`/`LayerRegistry` **or** starts with one of the prefixes those
   services own — `history-`, `circle-`, `geojson-`, `tile-layer-`, `wms-layer-`
-  (`RESERVED_OVERLAY_ID_PREFIXES`). Plugin authors must namespace around that list. The static
+  (`RESERVED_OVERLAY_ID_PREFIXES`, **derived from `OverlayIds.OVERLAY_ID_PREFIXES`** so it cannot
+  drift from what the services actually use; it was previously a hand-maintained copy, which meant
+  a sixth overlay type could compile, lint and test green while silently opening a collision
+  hole). Plugin authors must namespace around that list. The static
   prefixes are not redundant with the dynamic check: `activate()` runs *before* the render
   services' first `update()`, so at plugin-registration time a colliding id isn't in either
   registry yet and would pass a purely dynamic test, only to be clobbered moments later.

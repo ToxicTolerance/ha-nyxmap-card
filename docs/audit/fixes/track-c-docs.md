@@ -1,5 +1,13 @@
 # Track C — documentation accuracy (engineering audit §1.1, §1.2, §1.3)
 
+> **Superseded — historical record.** This is a point-in-time artifact of the
+> v0.9.1 audit, kept for provenance. Much of it has since been fixed and parts
+> of it are now simply wrong about the current tree (it predates the CI
+> coverage gate, the whole-project lint, the removal of `loadMapLibreFromCdn`,
+> and the `OverlaySource` extraction it recommends). Do **not** read it as a
+> description of the project today — see `CHANGELOG.md` for what landed and
+> `CLAUDE.md` for the current architecture and backlog.
+
 **Baseline:** `1b7bc2d` (v0.9.1, `master`). **Files changed:** `CLAUDE.md`, `README.md`.
 Nothing under `src/` was touched; no commit was made.
 

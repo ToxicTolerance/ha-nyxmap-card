@@ -116,7 +116,7 @@ save.
 | `projection` | `globe` \| `mercator` | `globe` | MapLibre's 3D globe view, or the classic flat projection. |
 | `focus_entity` | entity id | — | Initial center, used when `x`/`y` aren't set. |
 | `focus_follow` | `none` \| `refocus` \| `contains` | `none` | Ongoing auto-fit over every entity with [`focus_on_fit`](#entity-options) (not just `focus_entity`). `refocus` re-fits whenever those entities' combined bounding box actually changes — it deliberately does *not* re-fit on every Home Assistant state update, so your own pan/zoom isn't undone milliseconds later by an unrelated sensor. `contains` is lazier still: it only re-fits once that box no longer fits inside the current view. When the box collapses to a single point (one entity, or several at the same position) the camera centers there at `zoom` instead of zooming all the way in. |
-| `layer_switcher` | boolean | `false` | Show a panel for switching base styles and toggling overlays (history, circles, GeoJSON, raster `tile_layers`/`wms` layers, clusters) on/off. Its button sits in the top-right, stacked directly beneath the zoom/compass and Reset focus / Toggle grouping controls; the panel opens downward from it. |
+| `layer_switcher` | boolean | `false` | Show a panel for switching base styles and toggling overlays on/off, grouped by kind (History, Accuracy circles, GeoJSON, Tile layers, Clustering, plus a section per plugin group). Its button sits in the top-right, stacked directly beneath the zoom/compass and Reset focus / Toggle grouping controls; the panel opens downward from it. |
 | `history_start` / `history_end` | string (relative or ISO) | — | Card-level default history window, inherited by entities that don't set their own. Trails refresh about once a minute, so a relative window (`6 hours ago`) keeps tracking real time on a dashboard left open all day rather than freezing at page load. |
 | `history_show_lines` | boolean | `true` | Draw the connecting trail line for each entity's history. |
 | `history_show_dots` | boolean | `false` | Draw a dot at each sampled history position, in addition to (or instead of) the connecting line. |
@@ -246,7 +246,7 @@ The `ctx` (`NyxmapPluginContext`) gives you:
 | `maplibregl` | the exact bundled module — escape hatch for `addProtocol`, custom source types, etc. |
 | `card` | the `<nyxmap-card>` element |
 | `getHass()` / `getConfig()` | current Home Assistant object / parsed card config (getters — state changes over time) |
-| `registerOverlay(id, {label, group?, source, layers, visible?})` | add a custom overlay (one source + its layers); it survives theme swaps and shows up as a toggle in the [layer switcher](#card-options) |
+| `registerOverlay(id, {label, group?, source, layers, visible?})` | add a custom overlay (one source + its layers); it survives theme swaps and shows up as a toggle in the [layer switcher](#card-options). `group` puts your overlays under their own heading in that panel — any string works, and it is used verbatim as the heading, so `group: "Heatmaps"` gives you a "Heatmaps" section |
 | `registerControl(control, position?)` | add a MapLibre `IControl` (thin wrapper over `map.addControl`) |
 | `injectStyle(cssOrUrl)` | inject a plugin's stylesheet **into the card's shadow root** — required for any plugin that ships its own CSS (compass, minimap, geocoder, …), see the note below |
 | `reattach` | advanced escape hatch for hand-rolled sources/layers that must be re-added after each theme swap |

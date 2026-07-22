@@ -1,9 +1,9 @@
 import { LitElement, html, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
-import type { EntityConfigRaw } from "../configs/EntityConfig";
 import type { MapConfigRaw, MapStyleRaw } from "../configs/MapConfig";
 import { buildCardSchema, cardConfigToFormData, formDataToCardConfig } from "../editor/CardFormSchema";
-import { buildEntitySchema, entityRawToFormData, formDataToEntityRaw } from "../editor/EntityFormSchema";
+import { buildEntitySchema, entityRawToFormData } from "../editor/EntityFormSchema";
+import { reconcileEntityList } from "../editor/EntityListReconcile";
 import { buildMapStyleSchema } from "../editor/MapStyleFormSchema";
 import type { HaFormSchema, HaFormValueChangedEvent } from "../types/ha-form";
 import type { HomeAssistant } from "../types/home-assistant";
@@ -117,50 +117,11 @@ export class NyxmapCardEditor extends LitElement {
     this._configChanged(formDataToCardConfig(ev.detail.value, this._config!));
   };
 
-  /**
-   * Matches each edited row back to its previous raw entity so the YAML-only
-   * keys the form doesn't cover (`geojson`, a rich `circle:` object, …) are
-   * carried across the edit.
-   *
-   * Two matching strategies, because neither is right on its own:
-   *
-   *  - **By entity id** for a reorder. Rows physically swap slots, so position
-   *    would cross-wire one entity's geojson/circle onto whichever entity moved
-   *    into its old slot.
-   *  - **By position** for an in-place edit. If the edit *was* to the entity id
-   *    itself (fixing a typo), an id lookup misses and falls back to an empty
-   *    `{ entity: id }` — silently dropping every key outside
-   *    ENTITY_SCHEMA_KEYS. See code-review §14.
-   *
-   * They're told apart by the id multiset: the list editor's move buttons
-   * permute ids without changing the set, while a rename changes it. Add and
-   * remove change the length, which rules positional matching out entirely
-   * (indices past the edit point have shifted) and leaves id matching — correct
-   * there, since add/remove never rename.
-   */
+  /** Matching edited rows back to their previous raw entities (so YAML-only
+   * keys survive a rename or a reorder) is a pure function of two arrays —
+   * see reconcileEntityList, which is where that reasoning and its tests live. */
   private _entitiesChanged = (ev: ItemsChangedEvent): void => {
-    const previousList = this._config!.entities ?? [];
-    const items = ev.detail.items;
-    const idOf = (raw: string | EntityConfigRaw): string => (typeof raw === "string" ? raw : raw.entity) || "";
-    const previousByEntityId = new Map<string, string | EntityConfigRaw>();
-    for (const raw of previousList) {
-      const id = idOf(raw);
-      if (id) previousByEntityId.set(id, raw);
-    }
-
-    const sameIds =
-      items.length === previousList.length &&
-      JSON.stringify(items.map((i) => (i.entity as string | undefined) ?? "").sort()) ===
-        JSON.stringify(previousList.map(idOf).sort());
-    const byPosition = items.length === previousList.length && !sameIds;
-
-    const entities = items.map((item, i) => {
-      const id = item.entity as string | undefined;
-      const previous = (byPosition ? previousList[i] : id ? previousByEntityId.get(id) : undefined) ?? {
-        entity: id ?? "",
-      };
-      return formDataToEntityRaw(item, previous);
-    });
+    const entities = reconcileEntityList(ev.detail.items, this._config!.entities ?? []);
     this._configChanged({ ...this._config!, entities });
   };
 

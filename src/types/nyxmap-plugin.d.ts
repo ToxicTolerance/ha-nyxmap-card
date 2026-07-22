@@ -21,7 +21,14 @@ import type { HomeAssistant } from "./home-assistant";
 export interface NyxmapOverlaySpec {
   /** Human label shown in the layer switcher's overlay list. */
   label: string;
-  /** Optional grouping key (see LayerRegistry.OverlayEntry.group). */
+  /**
+   * Optional grouping key: overlays sharing one are listed together under a
+   * heading in the layer switcher. The card's own groups ("history",
+   * "circle", "geojson", "raster", "cluster") get friendly labels; any other
+   * value is used verbatim as the heading, so `group: "Heatmaps"` gives your
+   * plugin its own named section. Omit it to land in the generic "Overlays"
+   * section alongside anything else ungrouped.
+   */
   group?: string;
   source: SourceSpecification;
   /** Layer ids are the author's own; each layer's `source` must match the

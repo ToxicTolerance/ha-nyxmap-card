@@ -5,6 +5,41 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Editing a tile/WMS layer's `minzoom`, `maxzoom` or `attribution` now takes
+  effect immediately.** MapLibre reads those once, when the source is created,
+  and offers no setter for them, so the card's in-place update (which only ever
+  replaced the URL) left the old values in force until a theme swap or a page
+  reload happened to rebuild the layer. A layer capped at `maxzoom: 18` kept
+  rendering blank past z18 no matter what you changed it to.
+- **The layer switcher works again after a dashboard edit re-parents the card.**
+  Home Assistant's Sections and masonry layouts remove and re-add the same card
+  element, which tore down the switcher's outside-click listener without
+  restoring it: a panel left open could no longer be closed by tapping the map,
+  for the rest of the page's life. Its resize handling was lost the same way.
+- **A style chosen while the WebGL context was lost is no longer thrown away.**
+  MapLibre restores the style it captured at the moment the context died, so if
+  the theme flipped to dark during the outage the map came back light while the
+  card — and the switcher's radio button — still said dark, permanently.
+- **Changing `history_start` mid-fetch updates the trail right away** instead of
+  showing the old time window until the next poll, up to a minute later.
+- **A half-typed `tile_layers:`/`wms:` entry no longer replaces the card with an
+  error card** while you are still typing it in the YAML editor. Incomplete
+  entries are ignored, matching how `entities` and `map_styles` already behave.
+- **A malformed WMS option no longer produces a silently broken request.**
+  Non-primitive values (a nested map or list) used to be pasted into the query
+  string as `[object Object]`; they now warn and fall back to the default.
+- Plugin stylesheets are no longer re-injected on every card rebuild, which
+  could accumulate duplicate `<style>` nodes on a long-lived dashboard.
+
+### Changed
+
+- **The layer switcher now groups overlays under headings** — History, Accuracy
+  circles, GeoJSON, Tile layers, Clustering — instead of one flat list. Plugins
+  can name their own section with `registerOverlay`'s `group` field, which was
+  documented and accepted but had never actually done anything.
+
 ## [0.10.1] - 2026-07-22
 
 ### Fixed
