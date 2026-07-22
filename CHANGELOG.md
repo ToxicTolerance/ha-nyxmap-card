@@ -5,6 +5,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.10.2] - 2026-07-22
+
 ### Fixed
 
 - **Editing a tile/WMS layer's `minzoom`, `maxzoom` or `attribution` now takes
@@ -731,7 +733,10 @@ Initial HACS-installable release.
 - HACS packaging (`hacs.json`, release workflow publishing `nyxmap-card.js`
   as a GitHub Release asset).
 
-[Unreleased]: https://github.com/ToxicTolerance/ha-nyxmap-card/compare/v0.5.2...HEAD
+[Unreleased]: https://github.com/ToxicTolerance/ha-nyxmap-card/compare/v0.10.2...HEAD
+[0.10.2]: https://github.com/ToxicTolerance/ha-nyxmap-card/compare/v0.10.1...v0.10.2
+[0.10.1]: https://github.com/ToxicTolerance/ha-nyxmap-card/compare/v0.10.0...v0.10.1
+[0.10.0]: https://github.com/ToxicTolerance/ha-nyxmap-card/compare/v0.9.1...v0.10.0
 [0.5.2]: https://github.com/ToxicTolerance/ha-nyxmap-card/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/ToxicTolerance/ha-nyxmap-card/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/ToxicTolerance/ha-nyxmap-card/compare/v0.4.2...v0.5.0
