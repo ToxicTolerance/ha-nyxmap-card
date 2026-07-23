@@ -13,7 +13,8 @@ import type { LayerRegistry } from "../services/render/LayerRegistry";
 // Imported from OverlayIds (where the services build their ids) rather than
 // re-listed here, so a new overlay type can't add a prefix without it landing
 // in this check too.
-import { RESERVED_OVERLAY_ID_PREFIXES } from "../services/render/OverlayIds";
+import { RESERVED_OVERLAY_ID_PREFIXES, RESERVED_OVERLAY_IDS } from "../services/render/OverlayIds";
+import { registerOverlayLifecycle } from "../services/render/OverlaySource";
 import type { StyleReattach } from "./StyleReattach";
 
 /**
@@ -174,6 +175,12 @@ export class PluginHost {
    * exist. See code-review finding 10.
    */
   private _registerOverlay(id: string, overlay: NyxmapOverlaySpec): void {
+    if (RESERVED_OVERLAY_IDS.includes(id)) {
+      console.warn(
+        `[nyxmap-card] plugin overlay id "${id}" is a reserved built-in overlay id (owned by the card's own overlays) — rejected. Namespace it, e.g. "plugin:${id}".`,
+      );
+      return;
+    }
     const reserved = RESERVED_OVERLAY_ID_PREFIXES.find((prefix) => id.startsWith(prefix));
     if (reserved) {
       console.warn(
@@ -189,20 +196,19 @@ export class PluginHost {
     }
     this._overlayVisible.set(id, overlay.visible ?? true);
 
-    // Same three registrations GeoJsonRenderService makes for its overlays:
-    // add now, replay after every theme swap (setStyle wipes sources/layers),
-    // and list as a toggleable layer-switcher entry.
+    // Add now, then hand the theme-swap + switcher wiring to the shared
+    // registerOverlayLifecycle (the same one OverlaySource uses) so the reattach
+    // and visibility-toggle semantics live in exactly one place. This overlay's
+    // source/layers are a fixed spec, so `attach` re-adds them verbatim rather
+    // than rebuilding from a key the way OverlaySource's own overlays do.
     this._addOverlay(id, overlay, this.deps.map);
-    this.deps.reattach.register(id, (map) => this._addOverlay(id, overlay, map));
-    this.deps.layerRegistry.registerOverlay(id, {
+    registerOverlayLifecycle(this.deps.reattach, this.deps.layerRegistry, {
+      id,
       label: overlay.label,
       group: overlay.group,
-      setVisible: (map, visible) => {
-        this._overlayVisible.set(id, visible);
-        const layout = visible ? "visible" : "none";
-        const m = map as maplibregl.Map;
-        for (const layer of overlay.layers) m.setLayoutProperty(layer.id, "visibility", layout);
-      },
+      attach: (map) => this._addOverlay(id, overlay, map),
+      layerIds: () => overlay.layers.map((layer) => layer.id),
+      rememberVisibility: (visible) => this._overlayVisible.set(id, visible),
     });
   }
 

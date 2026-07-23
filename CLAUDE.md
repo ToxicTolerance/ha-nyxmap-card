@@ -115,13 +115,21 @@ intentional — it keeps the fork diffable against the upstream project's module
   The four source/layer-backed services extend **`OverlaySource`**, which owns the whole overlay
   lifecycle once (add-or-update source, reconcile layers, re-apply changed paint, register with
   `StyleReattach` + `LayerRegistry`, tear all of it down symmetrically). Subclasses supply only
-  what differs: the id, the source spec, the layer specs, a `paintKey`, a `sourceKey`, and how to
-  update a live source. **`OverlayIds`** is the single source of truth for id prefixes and is
-  what `PluginHost` reads for its reserved list — see "Adding an overlay type" below.
+  what differs: the id, the source spec, the layer specs, a `paintKey`, a `sourceKey`, a `dataKey`
+  (the identity of the data a live update pushes — an unchanged one skips the push, which is what
+  stops raster/WMS overlays reloading their source on every `hass` tick), and how to update a live
+  source. The reattach + layer-switcher registration itself is shared with `PluginHost` via the
+  exported **`registerOverlayLifecycle`** helper, so that wiring lives in one place. **`OverlayIds`**
+  is the single source of truth for overlay id prefixes *and* for the non-prefixed reserved ids
+  (`entity-clusters`), and is what `PluginHost` reads for its reserved list — see "Adding an overlay
+  type" below.
 - **`src/maplibre/`** — the MapLibre-facing seam: `MapLibreLoader` (bundled `maplibregl` + CSS),
   `MarkerFactory` (marker DOM: picture / icon / initials fallback chain, ported ~1:1 from
   `ha-map-card`'s divIcon logic), `MarkerAnimator`, `IconButtonControl`, `StyleReattach`,
-  `PluginHost`.
+  `PluginHost`, and `MapSeamConformance` (a type-only, unimported compile-time guard that checks
+  each render service's narrow `*Like` view of the map against the real `maplibregl.Map`, so a
+  drifted seam is caught by `tsc` instead of shipping — as `focus_follow: "contains"` once did
+  through an `as unknown as` cast; don't mistake it for dead code and delete it).
 - **`src/models/`** — `Circle`, `GeoJson`, `EntityHistory`/`EntityHistoryManager`.
 - **`src/editor/`** — pure, DOM-free schema/mapping functions for the visual editor
   (`CardFormSchema`, `EntityFormSchema`, `MapStyleFormSchema`, and `EntityListReconcile`, which
@@ -215,13 +223,20 @@ that's also what lets them animate via CSS transitions.
 
 **Extend `OverlaySource` — do not hand-roll the protocol.** It used to be hand-rolled five times
 (the four services plus `PluginHost`), which meant every fix had to be applied five times; the
-wave-2 paint fix missed a branch doing exactly that. `CircleRenderService` is the smallest example
-to copy. Concretely:
+wave-2 paint fix missed a branch doing exactly that. The four services subclass `OverlaySource`;
+`PluginHost` can't (a plugin overlay is a pre-built fixed spec, not a keyed item), but it no longer
+hand-rolls either — it and `OverlaySource.upsert` both funnel the reattach + switcher registration
+through the shared `registerOverlayLifecycle` helper, so a fix to *that* wiring lands once.
+`CircleRenderService` is the smallest example to copy. Concretely:
 
 1. Add your prefix to `OVERLAY_ID_PREFIXES` in `src/services/render/OverlayIds.ts` and export an
    id builder next to the others. `RESERVED_OVERLAY_ID_PREFIXES` is derived from that object, so
    this is also what stops a plugin from claiming your namespace — and why a new prefix cannot be
-   forgotten there.
+   forgotten there. An overlay that registers a single *fixed, non-prefixed* id instead (the way
+   `ClusterRenderService` uses `CLUSTER_OVERLAY_ID`) adds that id to `RESERVED_OVERLAY_IDS` in the
+   same file — `PluginHost` rejects both the prefix set and that exact-id set, closing the window
+   where a plugin registers the id at `activate()` time (before the owning service's first
+   `update()`) and gets silently clobbered moments later.
 2. Subclass `OverlaySource<TKey, TItem>` and implement `sourceIdFor`, `build` and
    `updateSourceData`; override `applyPaint` if any paint is config-driven, and
    `onAdded`/`onRemoving` if you own something that is neither a source nor a layer (the way
@@ -311,18 +326,20 @@ plugin pass. Four separate guards keep third-party code from reaching that work:
 - **Overlay id collisions are rejected**, all-or-nothing, rather than half-registered — see below.
 
 The context's helpers reuse existing machinery rather than new paths:
-- `registerOverlay(id, {label, source, layers})` is a direct generalization of
-  `GeoJsonRenderService._upsert`'s trio — `addSource`/`addLayer` **+** `StyleReattach.register`
+- `registerOverlay(id, {label, source, layers})` goes through the same `registerOverlayLifecycle`
+  helper `OverlaySource.upsert` uses — `addSource`/`addLayer` **+** `StyleReattach.register`
   (survives theme swaps) **+** `LayerRegistry.registerOverlay` (appears in the layer switcher).
   Because those three registries are one flat string namespace shared with the card's own render
   services, an id is rejected (with a `console.warn` suggesting `plugin:<id>`) when it either
-  already exists in `StyleReattach`/`LayerRegistry` **or** starts with one of the prefixes those
+  already exists in `StyleReattach`/`LayerRegistry`, **or** starts with one of the prefixes those
   services own — `history-`, `circle-`, `geojson-`, `tile-layer-`, `wms-layer-`
   (`RESERVED_OVERLAY_ID_PREFIXES`, **derived from `OverlayIds.OVERLAY_ID_PREFIXES`** so it cannot
   drift from what the services actually use; it was previously a hand-maintained copy, which meant
   a sixth overlay type could compile, lint and test green while silently opening a collision
-  hole). Plugin authors must namespace around that list. The static
-  prefixes are not redundant with the dynamic check: `activate()` runs *before* the render
+  hole), **or** exactly matches a non-prefixed reserved id — `entity-clusters`
+  (`RESERVED_OVERLAY_IDS`, likewise owned by `OverlayIds`, because the cluster overlay's fixed id
+  fits no prefix). Plugin authors must namespace around all of that. The static
+  prefixes/ids are not redundant with the dynamic check: `activate()` runs *before* the render
   services' first `update()`, so at plugin-registration time a colliding id isn't in either
   registry yet and would pass a purely dynamic test, only to be clobbered moments later.
 - `registerControl(control, position?)` is a thin, error-isolated `map.addControl` wrapper

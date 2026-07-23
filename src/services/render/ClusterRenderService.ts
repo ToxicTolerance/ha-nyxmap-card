@@ -3,11 +3,8 @@ import { animateConverge, animateEmerge } from "../../maplibre/MarkerAnimator";
 import { applyClusterBubbleVisual, buildClusterBubbleElement, wrapAnimatedMarker } from "../../maplibre/MarkerFactory";
 import type { HomeAssistant } from "../../types/home-assistant";
 import type { LayerRegistry } from "./LayerRegistry";
+import { CLUSTER_OVERLAY_ID as OVERLAY_ID } from "./OverlayIds";
 import type { MapLibreGlLike, MarkerLike } from "./EntitiesRenderService";
-
-/** Fixed LayerRegistry overlay id — also hard-referenced by NyxmapCard's
- * "Toggle grouping" button and _onToggleOverlay, so it must not change. */
-const OVERLAY_ID = "entity-clusters";
 const DEFAULT_MAX_ZOOM = 14;
 // Hysteresis multipliers on the per-pair touch distance: a pair must be
 // comfortably *within* touch distance to newly merge, and comfortably *outside*

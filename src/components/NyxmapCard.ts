@@ -17,9 +17,17 @@ import { GeoJsonRenderService, type GeoJsonMapLike } from "../services/render/Ge
 import { HistoryRenderService } from "../services/render/HistoryRenderService";
 import { InitialViewRenderService } from "../services/render/InitialViewRenderService";
 import { LayerRegistry } from "../services/render/LayerRegistry";
+import { CLUSTER_OVERLAY_ID } from "../services/render/OverlayIds";
 import { TileLayersRenderService } from "../services/render/TileLayersRenderService";
 import type { HomeAssistant } from "../types/home-assistant";
-import { isColorDark, resolveStylePair, resolveThemeMode } from "../util/HaMapUtilities";
+import { isColorDark } from "../util/HaMapUtilities";
+import {
+  baseStyleZoomRange,
+  defaultBaseStyleId,
+  effectiveThemeMode,
+  initialManualStyleId,
+  resolveActiveStyleUrl,
+} from "./BaseStyleResolution";
 import "./LayerSwitcherControl";
 import type { SwitcherBaseStyleItem, SwitcherOverlayItem } from "./LayerSwitcherControl";
 import { nyxmapCardStyles } from "./NyxmapCard.styles";
@@ -402,7 +410,7 @@ export class NyxmapCard extends LitElement {
    * the same way _manualStyleId overrides which base style is active —
    * neither mutates the underlying config. */
   private _effectiveThemeMode(): ThemeMode {
-    return this._manualThemeMode ?? this._config?.themeMode ?? "auto";
+    return effectiveThemeMode(this._manualThemeMode, this._config?.themeMode);
   }
 
   /** Manual switcher selection (if any) takes precedence over the automatic
@@ -410,17 +418,18 @@ export class NyxmapCard extends LitElement {
    * still a light/dark pair, so a genuinely dual-variant custom style keeps
    * responding to the effective theme mode even while "selected". */
   private _resolveActiveStyleUrl(): string {
-    const themeMode = this._effectiveThemeMode();
-    if (this._manualStyleId && this._config) {
-      const entry = this._layerRegistry.getBaseStyles().get(this._manualStyleId);
-      if (entry) return resolveStylePair(entry, themeMode, this._prefersDark());
-    }
-    return resolveStylePair(this._config!, themeMode, this._prefersDark());
+    return resolveActiveStyleUrl(
+      this._config!,
+      this._manualStyleId,
+      this._effectiveThemeMode(),
+      this._prefersDark(),
+      this._layerRegistry.getBaseStyles(),
+    );
   }
 
   private _defaultBaseStyleId(): "light" | "dark" {
     if (!this._config) return "light";
-    return resolveThemeMode(this._effectiveThemeMode(), this._prefersDark()) === "dark" ? "dark" : "light";
+    return defaultBaseStyleId(this._effectiveThemeMode(), this._prefersDark());
   }
 
   /** Handles the layer switcher's own Theme (Auto/Light/Dark) control —
@@ -462,8 +471,9 @@ export class NyxmapCard extends LitElement {
     // style capped it to, or a capped style wouldn't be capped at all,
     // letting the camera zoom past real tile coverage into 400s/blank tiles.
     const entry = this._layerRegistry.getBaseStyles().get(id);
-    this._map.setMaxZoom(entry?.maxZoom ?? this._config.maxZoom ?? 22);
-    this._map.setMinZoom(entry?.minZoom ?? this._config.minZoom ?? 0);
+    const { maxZoom, minZoom } = baseStyleZoomRange(entry, this._config);
+    this._map.setMaxZoom(maxZoom);
+    this._map.setMinZoom(minZoom);
   }
 
   /** Records the click as intent, then reconciles the live services with it.
@@ -567,6 +577,18 @@ export class NyxmapCard extends LitElement {
 
     for (const id of [...this._layerRegistry.getBaseStyles().keys()]) {
       if (!seen.has(id)) this._layerRegistry.unregister(id);
+    }
+
+    // Re-derive the manual base-style selection when the entry it points at just
+    // disappeared (a map_styles entry deleted from config after it was picked).
+    // Left dangling, _manualStyleId names an id no entry has: _resolveActiveStyleUrl
+    // still falls back to the card style (fine) but _baseStyleItems computes an
+    // activeId matching no radio, so the switcher shows nothing selected until
+    // the user clicks. Falling back to initialManualStyleId() lands on the same
+    // selection a fresh load with this config would — the matching entry, or the
+    // generic Light/Dark default when none matches.
+    if (this._manualStyleId !== undefined && !seen.has(this._manualStyleId)) {
+      this._manualStyleId = initialManualStyleId(config);
     }
   }
 
@@ -840,8 +862,8 @@ export class NyxmapCard extends LitElement {
       this._clusterToggleControl = new IconButtonControl({
         iconPath: ICON_TOGGLE_GROUPING,
         label: "Toggle grouping",
-        onClick: () => this._onToggleOverlay("entity-clusters"),
-        isPressed: () => this._overlayVisibility.get("entity-clusters") ?? true,
+        onClick: () => this._onToggleOverlay(CLUSTER_OVERLAY_ID),
+        isPressed: () => this._overlayVisibility.get(CLUSTER_OVERLAY_ID) ?? true,
       });
       // top-right so it stacks under NavigationControl + the Reset focus
       // button (see _buildMap()).

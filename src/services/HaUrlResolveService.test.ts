@@ -12,8 +12,21 @@ describe("HaUrlResolveService", () => {
       hassWith({ "input_datetime.radar_time": { entity_id: "input_datetime.radar_time", state: "2026-07-19T12:00:00", attributes: {}, last_changed: "", last_updated: "" } }),
     );
 
+    // The state is percent-encoded on substitution, so the `:` in the ISO
+    // timestamp comes out as %3A — this test previously asserted the raw value,
+    // which encoded the bug the encodeURIComponent fix closes.
     expect(resolver.resolveUrl("https://example.com/wms?TIME={{ states('input_datetime.radar_time') }}")).toBe(
-      "https://example.com/wms?TIME=2026-07-19T12:00:00",
+      "https://example.com/wms?TIME=2026-07-19T12%3A00%3A00",
+    );
+  });
+
+  it("percent-encodes url-significant characters in the substituted state", () => {
+    const resolver = new HaUrlResolveService(
+      hassWith({ "sensor.x": { entity_id: "sensor.x", state: "a&b=c/d ?e", attributes: {}, last_changed: "", last_updated: "" } }),
+    );
+
+    expect(resolver.resolveUrl("https://example.com/tiles?q={{ states('sensor.x') }}")).toBe(
+      "https://example.com/tiles?q=a%26b%3Dc%2Fd%20%3Fe",
     );
   });
 

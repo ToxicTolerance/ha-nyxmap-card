@@ -154,6 +154,13 @@ export class TileLayersRenderService extends OverlaySource<string, RasterItem> {
       // Raster layers have no config-driven paint — everything visual lives on
       // the source.
       paintKey: "raster",
+      // The only thing a live update pushes is the tiles URL, and setTiles()
+      // reloads the source unconditionally. HA swaps `hass` (and so re-runs
+      // update()) many times per second; without this the same URL is pushed —
+      // re-requesting WMS GetMap tiles from a third-party server — on every
+      // tick. Keyed off the resolved URL so a real `{{ states(...) }}` change
+      // still triggers the reload.
+      dataKey: item.url,
     };
   }
 

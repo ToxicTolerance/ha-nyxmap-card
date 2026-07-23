@@ -251,7 +251,18 @@ describe("PluginHost", () => {
     expect(internalFactory).toHaveBeenCalledTimes(1);
   });
 
-  it.each(["history-device_tracker.phone", "circle-device_tracker.phone", "geojson-zone.home", "tile-layer-0", "wms-layer-0"])(
+  it.each([
+    "history-device_tracker.phone",
+    "circle-device_tracker.phone",
+    "geojson-zone.home",
+    "tile-layer-0",
+    "wms-layer-0",
+    // Non-prefixed reserved id: the cluster overlay registers this exact id but
+    // only during _refreshOverlays(), which runs *after* activate() — so a
+    // purely dynamic check would pass here and be clobbered moments later. It's
+    // covered by RESERVED_OVERLAY_IDS, not the prefix list.
+    "entity-clusters",
+  ])(
     "rejects the reserved built-in overlay id %s even before the owning service registers it",
     (id) => {
       const onWarn = vi.spyOn(console, "warn").mockImplementation(() => {});

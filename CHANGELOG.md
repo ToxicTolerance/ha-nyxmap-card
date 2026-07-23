@@ -5,6 +5,54 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.10.3] - 2026-07-23
+
+This release is the remediation of a full, orchestrated code audit (correctness,
+architecture/maintainability, and security). The audit report — findings, the
+verification method, and a fix-by-fix remediation table — is attached in
+[`docs/audit/2026-07-22-code-audit.md`](docs/audit/2026-07-22-code-audit.md).
+No shipped runtime dependencies changed; the test suite grew from 462 to 479.
+
+### Security
+
+- **Entity state substituted into a `tile_layers:`/`wms:` URL template
+  (`{{ states(...) }}`) is now URL-encoded.** Defense-in-depth: a spoofed or
+  compromised entity state can no longer inject path or query fragments into the
+  resulting tile request. (No XSS was possible — the value only ever reached an
+  image-tile GET — but encoding closes the request-manipulation edge.)
+
+### Fixed
+
+- **Tile and WMS overlays no longer reload their source on every state change.**
+  Home Assistant replaces its whole state object many times per second, and the
+  card was pushing the (unchanged) tile URL back into MapLibre each time — which
+  reloads the raster source, re-requesting WMS tiles from the server and
+  flickering the overlay. The push is now skipped when the resolved URL is
+  unchanged, and still fires when a `{{ states(...) }}` URL actually changes.
+- **A third-party plugin can no longer claim the built-in `entity-clusters`
+  overlay id** and silently corrupt the marker-clustering overlay. That exact id
+  is now in the same reserved list the card already enforced for its other
+  overlays, rejected before the clustering service registers it rather than
+  clobbered moments after.
+- **The layer switcher no longer shows nothing selected after you delete the
+  named map style that was active.** It now re-derives the selection the same way
+  a fresh load with that config would, so a valid radio stays highlighted.
+- **Editing one of two entities that share the same `entity_id` no longer drops
+  the other's YAML-only config** (e.g. a per-entity `geojson:` block). Rows with
+  a duplicate id are now matched individually instead of collapsing to the last.
+
+### Internal
+
+- The plugin overlay path and the card's own overlays now share one registration
+  helper (`registerOverlayLifecycle`), so a fix to the theme-swap / layer-switcher
+  wiring lands once instead of in two hand-rolled copies.
+- The layer switcher's style/theme/zoom resolution moved out of the `NyxmapCard`
+  element into pure, unit-tested functions (`BaseStyleResolution`), following the
+  existing `LayerSwitcherLayout`/`EntityListReconcile` pattern.
+- `CLAUDE.md` was brought back in line with the code (documents
+  `MapSeamConformance`, `registerOverlayLifecycle`, `RESERVED_OVERLAY_IDS` and the
+  new overlay `dataKey`), and the dependency lockfile version was reconciled.
+
 ## [0.10.2] - 2026-07-22
 
 ### Fixed

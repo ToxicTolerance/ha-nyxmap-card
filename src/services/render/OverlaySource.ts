@@ -1,4 +1,4 @@
-import type { StyleReattach } from "../../maplibre/StyleReattach";
+import type { ReattachFactory, StyleReattach } from "../../maplibre/StyleReattach";
 import type { LayerRegistry } from "./LayerRegistry";
 
 /**
@@ -20,6 +20,56 @@ export interface OverlayMapLike {
 export interface OverlayLayerSpec {
   id: string;
   layer: unknown;
+}
+
+/**
+ * One overlay's theme-swap + switcher registration, minus how its source/layers
+ * are actually built. See `registerOverlayLifecycle`.
+ */
+export interface OverlayRegistration {
+  id: string;
+  label: string;
+  group?: string;
+  /** (Re)adds the overlay's source + layers, idempotently. Registered as the
+   * StyleReattach factory so the overlay is replayed after every theme swap. */
+  attach: ReattachFactory;
+  /** Ids of the layers the switcher's visibility toggle flips. Read lazily so a
+   * rebuilt layer set (history dots/lines, a replayed overlay) stays current. */
+  layerIds: () => string[];
+  /** Record the switcher's visibility intent, so the next reattach replay
+   * rebuilds at the visibility the user last chose, not the default. */
+  rememberVisibility: (visible: boolean) => void;
+}
+
+/**
+ * The overlay-lifecycle registration shared by `OverlaySource` (the card's own
+ * source/layer overlays) and `PluginHost` (third-party overlays): register a
+ * StyleReattach factory so the overlay survives theme swaps, and register a
+ * LayerRegistry entry so it appears in the switcher with a visibility toggle
+ * that flips `visibility` on each of its layers.
+ *
+ * Kept in one place so a fix to *these* semantics lands once rather than in
+ * every overlay producer — the exact "applied N times, one branch missed"
+ * drift `OverlaySource` was created to end. `PluginHost` was the last remaining
+ * hand-rolled copy; it and `OverlaySource.upsert` now funnel through here,
+ * supplying only what genuinely differs (a keyed rebuild vs. a fixed spec).
+ */
+export function registerOverlayLifecycle(
+  reattach: StyleReattach,
+  layerRegistry: LayerRegistry,
+  reg: OverlayRegistration,
+): void {
+  reattach.register(reg.id, reg.attach);
+  layerRegistry.registerOverlay(reg.id, {
+    label: reg.label,
+    group: reg.group,
+    setVisible: (map, visible) => {
+      reg.rememberVisibility(visible);
+      const m = map as OverlayMapLike;
+      const layout = visible ? "visible" : "none";
+      for (const layerId of reg.layerIds()) m.setLayoutProperty(layerId, "visibility", layout);
+    },
+  });
 }
 
 /** Everything needed to draw one overlay once. Built fresh on every upsert and
@@ -51,6 +101,18 @@ export interface OverlayBuild {
    * concatenation.
    */
   paintKey: string;
+  /**
+   * Identity of the *data* pushed into a live source (`setData`/`setTiles`).
+   * When it's unchanged since the last update the push is skipped — HA replaces
+   * the whole `hass` object on every state change anywhere in the instance, so
+   * `update()` runs many times per second, and for raster that push is
+   * `setTiles()` → an unconditional source reload (re-requesting WMS GetMap
+   * tiles from a third-party server on every tick, even when the URL is
+   * identical). Optional: an overlay that omits it keeps the previous
+   * always-update behaviour, so this is a pure opt-in guard for the overlays
+   * whose data push is expensive.
+   */
+  dataKey?: string;
 }
 
 /**
@@ -83,6 +145,7 @@ export abstract class OverlaySource<TKey, TItem> {
   private readonly layerIds = new Map<string, string[]>();
   private readonly paintKeys = new Map<string, string>();
   private readonly sourceKeys = new Map<string, string>();
+  private readonly dataKeys = new Map<string, string>();
 
   constructor(
     protected readonly map: OverlayMapLike,
@@ -143,7 +206,12 @@ export abstract class OverlaySource<TKey, TItem> {
     if (stale) this.destroySource(id);
 
     if (existing !== undefined && !stale) {
-      this.updateSourceData(existing, build);
+      // Skip the push when the overlay declared a dataKey and it hasn't changed
+      // (see OverlayBuild.dataKey). An overlay that leaves dataKey undefined
+      // still updates every time — unchanged behaviour for the data-only
+      // GeoJSON-backed overlays whose push is local work, not a network reload.
+      const dataUnchanged = build.dataKey !== undefined && this.dataKeys.get(id) === build.dataKey;
+      if (!dataUnchanged) this.updateSourceData(existing, build);
     } else {
       this.map.addSource(id, build.source);
       if (!this.activeKeys.has(key)) {
@@ -152,6 +220,7 @@ export abstract class OverlaySource<TKey, TItem> {
       }
     }
     this.sourceKeys.set(id, build.sourceKey);
+    if (build.dataKey !== undefined) this.dataKeys.set(id, build.dataKey);
 
     // Reconciled against the previously-added layer ids rather than assumed
     // fixed: history_show_lines/_dots can change the layer set between
@@ -177,27 +246,23 @@ export abstract class OverlaySource<TKey, TItem> {
     // Re-registering on every update keeps the replayed overlay current. The
     // factory rebuilds rather than closing over `build`, so a replay picks up
     // the visibility the overlay has *at replay time* — closing over the
-    // already-built layers would resurrect a hidden overlay as visible.
-    this.reattach.register(id, (map) => {
-      const m = map as unknown as OverlayMapLike;
-      if (m.getSource(id) !== undefined) return;
-      const fresh = this.build(key, item, this.isVisible(id));
-      m.addSource(id, fresh.source);
-      for (const spec of fresh.layers) m.addLayer(spec.layer);
-      this.layerIds.set(id, fresh.layers.map((spec) => spec.id));
-    });
-
-    this.layerRegistry.registerOverlay(id, {
+    // already-built layers would resurrect a hidden overlay as visible. The
+    // reattach + switcher wiring itself is shared with PluginHost via
+    // registerOverlayLifecycle; only the keyed rebuild below is ours.
+    registerOverlayLifecycle(this.reattach, this.layerRegistry, {
+      id,
       label: build.label,
       group: build.group,
-      setVisible: (map, visible) => {
-        this.visibility.set(id, visible);
-        const m = map as OverlayMapLike;
-        const layout = visible ? "visible" : "none";
-        for (const layerId of this.layerIds.get(id) ?? []) {
-          m.setLayoutProperty(layerId, "visibility", layout);
-        }
+      attach: (map) => {
+        const m = map as unknown as OverlayMapLike;
+        if (m.getSource(id) !== undefined) return;
+        const fresh = this.build(key, item, this.isVisible(id));
+        m.addSource(id, fresh.source);
+        for (const spec of fresh.layers) m.addLayer(spec.layer);
+        this.layerIds.set(id, fresh.layers.map((spec) => spec.id));
       },
+      layerIds: () => this.layerIds.get(id) ?? [],
+      rememberVisibility: (visible) => this.visibility.set(id, visible),
     });
   }
 
@@ -209,6 +274,7 @@ export abstract class OverlaySource<TKey, TItem> {
     this.visibility.delete(id);
     this.paintKeys.delete(id);
     this.sourceKeys.delete(id);
+    this.dataKeys.delete(id);
     this.activeKeys.delete(key);
     this.destroySource(id);
     this.layerIds.delete(id);

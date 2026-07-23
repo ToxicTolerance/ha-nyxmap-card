@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { LayerConfig } from "../../configs/LayerConfig";
 import { StyleReattach } from "../../maplibre/StyleReattach";
-import type { HomeAssistant } from "../../types/home-assistant";
+import type { HassEntity, HomeAssistant } from "../../types/home-assistant";
 import { createFakeMaplibreMap } from "../../../test/fakes/FakeMaplibreMap";
 import { LayerRegistry } from "./LayerRegistry";
 import { TileLayersRenderService } from "./TileLayersRenderService";
@@ -154,6 +154,55 @@ describe("TileLayersRenderService", () => {
 
     expect(setTiles).toHaveBeenCalledTimes(1);
     expect(map.addSource).not.toHaveBeenCalled();
+  });
+
+  it("skips setTiles when the resolved url is unchanged across updates", () => {
+    // HA replaces `hass` on every state change anywhere, re-running update()
+    // many times per second; setTiles() reloads the source unconditionally, so
+    // an unchanged url must not be re-pushed. See OverlaySource.dataKey.
+    const map = createFakeMaplibreMap();
+    const service = new TileLayersRenderService(map as never, new StyleReattach(), new LayerRegistry());
+    const tile = new LayerConfig({
+      url: "https://example.com/{z}/{x}/{y}.png?t={{ states('sensor.t') }}",
+      options: { name: "base" },
+    });
+    const state = (v: string): HassEntity => ({
+      entity_id: "sensor.t",
+      state: v,
+      attributes: {},
+      last_changed: "",
+      last_updated: "",
+    });
+
+    service.update([tile], [], hassWith({ "sensor.t": state("1") }));
+    const setTiles = vi.fn();
+    map.getSource.mockReturnValue({ setTiles }); // source now exists
+    service.update([tile], [], hassWith({ "sensor.t": state("1") })); // identical resolved url
+
+    expect(setTiles).not.toHaveBeenCalled();
+  });
+
+  it("calls setTiles when the resolved url changes", () => {
+    const map = createFakeMaplibreMap();
+    const service = new TileLayersRenderService(map as never, new StyleReattach(), new LayerRegistry());
+    const tile = new LayerConfig({
+      url: "https://example.com/{z}/{x}/{y}.png?t={{ states('sensor.t') }}",
+      options: { name: "base" },
+    });
+    const state = (v: string): HassEntity => ({
+      entity_id: "sensor.t",
+      state: v,
+      attributes: {},
+      last_changed: "",
+      last_updated: "",
+    });
+
+    service.update([tile], [], hassWith({ "sensor.t": state("1") }));
+    const setTiles = vi.fn();
+    map.getSource.mockReturnValue({ setTiles });
+    service.update([tile], [], hassWith({ "sensor.t": state("2") })); // url now differs
+
+    expect(setTiles).toHaveBeenCalledTimes(1);
   });
 
   it("removes a layer that drops out of config", () => {

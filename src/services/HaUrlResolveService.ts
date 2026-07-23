@@ -15,6 +15,12 @@ export class HaUrlResolveService {
   constructor(private readonly hass: HomeAssistant) {}
 
   resolveUrl(url: string): string {
-    return url.replace(STATES_TOKEN, (_match, entityId: string) => this.hass.states[entityId]?.state ?? "");
+    // Percent-encode the substituted state (defense-in-depth): the result is
+    // used as a raster tiles / WMS request URL, so a spoofed or compromised
+    // entity state must not be able to inject path/query fragments. An empty
+    // fallback stays empty — encodeURIComponent("") is "".
+    return url.replace(STATES_TOKEN, (_match, entityId: string) =>
+      encodeURIComponent(this.hass.states[entityId]?.state ?? ""),
+    );
   }
 }
