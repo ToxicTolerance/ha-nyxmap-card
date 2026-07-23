@@ -588,6 +588,37 @@ describe("NyxmapCard", () => {
       expect(switcher.baseStyles.some((s) => s.label === "Karte (hell)")).toBe(false);
     });
 
+    it("re-highlights a default base style when the manually-selected map_styles entry is removed", async () => {
+      // C3: pick a named base style, then delete it from config. Without
+      // re-deriving the selection, _manualStyleId dangles at the removed id and
+      // the switcher shows *nothing* highlighted until the user clicks.
+      el.setConfig({
+        layer_switcher: true,
+        map_style: "https://example.com/positron.json",
+        map_styles: [{ name: "Karte", map_style: "https://example.com/positron.json" }],
+      });
+      await el.updateComplete;
+      await flushMicrotasks();
+      await el.updateComplete;
+
+      const switcher = el.shadowRoot!.querySelector("nyxmap-layer-switcher") as unknown as {
+        baseStyles: Array<{ id: string; label: string; active: boolean }>;
+        onSelectBaseStyle: (id: string) => void;
+      };
+      switcher.onSelectBaseStyle("custom:Karte");
+      await el.updateComplete;
+
+      el.setConfig({ layer_switcher: true, map_style: "https://example.com/positron.json", map_styles: [] });
+      await el.updateComplete;
+      await flushMicrotasks();
+      await el.updateComplete;
+
+      // The dangling selection is gone and a generic Light/Dark default is
+      // highlighted instead of nothing.
+      expect(switcher.baseStyles.some((s) => s.id === "custom:Karte")).toBe(false);
+      expect(switcher.baseStyles.some((s) => s.active)).toBe(true);
+    });
+
     it("selecting a base style pins map.setStyle to that style's URL", async () => {
       el.setConfig({
         layer_switcher: true,

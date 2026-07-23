@@ -10,9 +10,27 @@ re-verified by the orchestrator against the actual source** (file:line read and
 confirmed) before being recorded; claims that could not be reproduced were
 dropped. Verification status is stated per finding.
 
-Nothing in the shipped code was modified — this is a read-only audit. The only
-actionable non-finding is a lockfile drift (see Gate) surfaced while
-establishing the baseline.
+Nothing in the shipped code was modified *during the audit pass* — it was
+read-only. The findings were **remediated in a follow-up pass on the same
+branch** (see below).
+
+## Remediation status (follow-up pass)
+
+Every finding below was fixed on this branch, each with regression tests; the
+full gate is green afterward (typecheck, lint `--max-warnings 0`, **479 tests**
+— up from 462, +17 new — and a clean build).
+
+| # | Finding | Fix |
+|---|---|---|
+| A1/A2 | `entity-clusters` outside the reserved-id guard; duplicated literal | Added `CLUSTER_OVERLAY_ID` + `RESERVED_OVERLAY_IDS` to `OverlayIds.ts`; `PluginHost` now rejects the exact id; `ClusterRenderService`/`NyxmapCard` import the constant. Parameterized rejection test extended with `entity-clusters`. |
+| C1 | Raster/WMS `setTiles` on every `hass` tick | Added an opt-in `dataKey` guard to `OverlaySource` (skips the data push when unchanged); `TileLayersRenderService` keys it on the resolved URL. Tests: skip-on-unchanged, push-on-change. |
+| A3 | `PluginHost` hand-rolled the overlay protocol | Extracted `registerOverlayLifecycle`; both `OverlaySource.upsert` and `PluginHost` funnel through it. Existing 20 PluginHost tests still green. |
+| A4 | Style/theme resolution trapped in the element | Extracted pure `BaseStyleResolution.ts` (`effectiveThemeMode`, `resolveActiveStyleUrl`, `defaultBaseStyleId`, `baseStyleZoomRange`, `initialManualStyleId`) with 11 `node` tests; element delegates. |
+| C3 | Dangling `_manualStyleId` after a selected style is removed | `_syncBaseStyles` re-derives the selection via `initialManualStyleId(config)`, matching fresh-load state. Element regression test added. |
+| S1 | Un-encoded entity state in tile/WMS URLs | `encodeURIComponent` on the substituted state; templating test updated + new case. |
+| C2 | `reconcileEntityList` cross-wires duplicate ids | Per-id buckets consumed once (`shift`) instead of last-wins; duplicate-id test added. |
+| A5/A6 | Doc drift (`MapSeamConformance` omitted; migration overstated) | `CLAUDE.md` updated: documents `MapSeamConformance`, `registerOverlayLifecycle`, `RESERVED_OVERLAY_IDS`, and `dataKey`. |
+| — | Lockfile version drift | Reconciled to `0.10.2` (hygiene — see the corrected Gate note below; it did **not** break `npm ci`). |
 
 ---
 
@@ -28,10 +46,14 @@ establishing the baseline.
 
 **Two environment notes surfaced while running the gate (not shipped-code defects):**
 
-- **Lockfile drift — `npm ci` fails.** `package-lock.json` records version
-  `0.10.1` while `package.json` is `0.10.2`; `npm ci` requires the two to agree,
-  so it aborts (`npm install` was needed instead). *Fix:* re-run `npm install`
-  and commit the reconciled lockfile so CI's clean-install path works.
+- **Lockfile version drift (hygiene, not a CI-blocker).** `package-lock.json`
+  recorded version `0.10.1` while `package.json` is `0.10.2`. *Correction to an
+  earlier draft of this audit:* this does **not** break `npm ci` — verified with
+  `npm ci --dry-run`, which passes with the drift present (modern npm enforces
+  lockfile agreement on **dependency** entries, not the root project `version`
+  field). The `npm ci` failure seen at audit time was a concurrent-install
+  `ENOTEMPTY` race in the shared workspace, unrelated to the version. Reconciled
+  the lockfile to `0.10.2` anyway as tidiness.
 - **`npm audit`: 6 advisories (2 critical / 1 high / 3 moderate) — all in the
   dev toolchain** (`vitest`/`vite`/`esbuild`/`@vitest/*`). **None reach the
   shipped runtime bundle** (`maplibre-gl`, `lit`, `@turf/circle`). Informational;

@@ -75,6 +75,22 @@ describe("reconcileEntityList", () => {
     expect(result[1]).not.toHaveProperty("geojson");
   });
 
+  // Two previous rows share an entity id; only the first carries a geojson
+  // block. A last-wins id map would resolve both same-id rows to the second
+  // (bare) entry, dropping the first row's geojson.
+  it("keeps per-row keys when the previous list has duplicate entity ids", () => {
+    const previous = [withGeoJson("device_tracker.a"), { entity: "device_tracker.a" } as EntityConfigRaw];
+    const rows = rowsFor(previous);
+    rows[1]!.label = "Second";
+
+    const result = reconcileEntityList(rows, previous);
+
+    expect(result.map((r) => r.entity)).toEqual(["device_tracker.a", "device_tracker.a"]);
+    expect(result[0]).toHaveProperty("geojson");
+    expect(result[1]).not.toHaveProperty("geojson");
+    expect(result[1]).toMatchObject({ label: "Second" });
+  });
+
   it("handles bare-string entity entries, which are legal YAML", () => {
     const previous: Array<string | EntityConfigRaw> = ["device_tracker.a"];
     const rows = [{ entity: "device_tracker.a", label: "A" }];

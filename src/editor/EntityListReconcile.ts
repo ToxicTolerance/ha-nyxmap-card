@@ -43,10 +43,17 @@ export function reconcileEntityList(
   items: readonly EntityFormRow[],
   previousList: readonly PreviousEntity[],
 ): EntityConfigRaw[] {
-  const previousByEntityId = new Map<string, PreviousEntity>();
+  // One bucket per id, in list order, consumed (shift) once per match: a `set`
+  // keyed by id collapses two rows sharing an entity id to the last occurrence,
+  // so every same-id row in the by-id branch would resolve to that last entry
+  // and the first row's YAML-only keys (e.g. a `geojson:` block) would be lost.
+  const previousByEntityId = new Map<string, PreviousEntity[]>();
   for (const raw of previousList) {
     const id = idOf(raw);
-    if (id) previousByEntityId.set(id, raw);
+    if (!id) continue;
+    const bucket = previousByEntityId.get(id);
+    if (bucket) bucket.push(raw);
+    else previousByEntityId.set(id, [raw]);
   }
 
   const sameIds =
@@ -57,7 +64,7 @@ export function reconcileEntityList(
 
   return items.map((item, i) => {
     const id = item.entity as string | undefined;
-    const previous = (byPosition ? previousList[i] : id ? previousByEntityId.get(id) : undefined) ?? {
+    const previous = (byPosition ? previousList[i] : id ? previousByEntityId.get(id)?.shift() : undefined) ?? {
       entity: id ?? "",
     };
     return formDataToEntityRaw(item, previous);

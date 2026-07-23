@@ -31,6 +31,26 @@ export const OVERLAY_ID_PREFIXES = {
  */
 export const RESERVED_OVERLAY_ID_PREFIXES: readonly string[] = Object.values(OVERLAY_ID_PREFIXES);
 
+/**
+ * The cluster overlay's fixed id. Unlike the per-entity overlays above it
+ * registers a single, non-prefixed id, so it can't be expressed as a prefix —
+ * hence its own constant here, imported by `ClusterRenderService` (which owns
+ * it) and `NyxmapCard` (whose "Toggle grouping" button drives it) instead of
+ * being repeated as a literal in each.
+ */
+export const CLUSTER_OVERLAY_ID = "entity-clusters";
+
+/**
+ * Full (non-prefixed) overlay ids a plugin may not claim. The prefix list above
+ * can't cover `entity-clusters`, and the dynamic "is this id already taken?"
+ * check in `PluginHost` can't either: `activate()` runs *before*
+ * `ClusterRenderService`'s first `update()`, so at plugin-registration time the
+ * cluster overlay isn't in any registry yet — a colliding plugin id would pass
+ * the dynamic check and be clobbered moments later. Listing the id here, beside
+ * the prefixes, is what lets the guard reject it up front.
+ */
+export const RESERVED_OVERLAY_IDS: readonly string[] = [CLUSTER_OVERLAY_ID];
+
 export function historySourceId(entityId: string): string {
   return `${OVERLAY_ID_PREFIXES.history}${entityId}`;
 }
