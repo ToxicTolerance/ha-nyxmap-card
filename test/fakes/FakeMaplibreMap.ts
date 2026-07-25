@@ -63,6 +63,10 @@ export class FakeMaplibreMap {
       x: lngLat[0] * this.projectScale,
       y: lngLat[1] * this.projectScale,
     }));
+    this.unproject = vi.fn((point: [number, number]) => ({
+      lng: point[0] / this.projectScale,
+      lat: point[1] / this.projectScale,
+    }));
   }
 
   /**
@@ -139,9 +143,12 @@ export class FakeMaplibreMap {
     getSouth: () => -85,
     getNorth: () => 85,
   }));
-  // Assigned in the constructor so it can close over projectScale.
+  // Assigned in the constructor so they can close over projectScale. Kept an
+  // exact inverse pair: ClusterRenderService derives a bubble's anchor in
+  // screen space and unprojects it back, so a fake whose unproject() ignored
+  // projectScale would report anchors off by that factor.
   project: ReturnType<typeof vi.fn>;
-  unproject = vi.fn((point: { x: number; y: number }): [number, number] => [point.x, point.y]);
+  unproject: ReturnType<typeof vi.fn>;
   getZoom = vi.fn(() => this.zoom);
   getMaxZoom = vi.fn(() => 22);
 

@@ -12,6 +12,21 @@ const DEFAULT_MAX_ZOOM = 14;
 // boundary from flipping every frame during a slow drag. See class doc.
 const MERGE_FACTOR = 0.95;
 const SPLIT_FACTOR = 1.15;
+/**
+ * Cap on how far a single group may sprawl, as a multiple of its largest
+ * member's marker diameter — the diagonal of the group's screen-space bounding
+ * box must stay within it for a merge to be accepted.
+ *
+ * Grouping is single-linkage (A joins B, B joins C ⇒ one group), and unbounded
+ * single-linkage *chains*: a row of markers each overlapping only its immediate
+ * neighbour collapses into one bubble spanning the whole viewport, anchored at a
+ * centroid that sits on top of a middle member rather than "between" anything.
+ * That is what makes a bubble read as offset from the entities it stands for.
+ * With the cap, the chain breaks into several bubbles that each genuinely sit
+ * among their own members. 3 × a default 48px marker ≈ 144px, comfortably wider
+ * than any real overlapping blob but well short of a viewport.
+ */
+const MAX_GROUP_SPREAD_FACTOR = 3;
 
 export interface ClusterOptions {
   /** Zoom level at and above which clustering stops entirely, regardless of
@@ -25,6 +40,10 @@ export interface ClusterOptions {
  * a real WebGL context (see FakeMaplibreMap). */
 export interface ClusterMapLike {
   project(lngLat: [number, number]): { x: number; y: number };
+  /** Inverse of `project()`. Needed because a bubble's anchor is derived in
+   * screen space and has to be handed back to MapLibre as lng/lat — see
+   * `_centroidOf`. */
+  unproject(point: [number, number]): { lng: number; lat: number };
   getZoom(): number;
   getMaxZoom(): number;
   easeTo(options: { center: [number, number]; zoom: number }): unknown;
@@ -40,6 +59,16 @@ interface Point {
 interface Member {
   xy: { x: number; y: number };
   size: number;
+}
+
+/** A candidate group's screen-space bounding box plus the largest marker in it,
+ * carried per union-find root so a merge's spread test is O(1). */
+interface Extent {
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+  maxSize: number;
 }
 
 interface Bubble {
@@ -90,7 +119,12 @@ class UnionFind {
  * circles overlap — each marker is a circle of diameter `EntityConfig.size`, so
  * entities A/B touch when their `map.project()`-ed pixel centers are within
  * `(sizeA + sizeB) / 2`. Grouping is transitive (union-find), recomputed
- * continuously as the camera moves, with per-pair hysteresis to avoid flicker.
+ * continuously as the camera moves, with per-pair hysteresis to avoid flicker
+ * and a cap on how far one group may sprawl (MAX_GROUP_SPREAD_FACTOR) so a
+ * chain of just-touching markers doesn't collapse into one viewport-wide
+ * bubble. A bubble is anchored at the mean of its members' *screen* positions
+ * (see `_centroidOf`), which is the point that actually looks centred among
+ * them under both projections the card offers.
  *
  * Bubbles render as HTML `maplibregl.Marker`s (same substrate as individual
  * entity markers), NOT a GeoJSON layer — so they survive `map.setStyle()` for
@@ -196,8 +230,8 @@ export class ClusterRenderService {
     for (const group of groups) {
       const memberIds = group.map((m) => m.id);
       const count = group.length;
-      const centroid = centroidOf(group.map((m) => m.lngLat));
       const members: Member[] = group.map((m) => ({ xy: m.xy, size: m.size }));
+      const centroid = this._centroidOf(members);
       for (const id of memberIds) newAbsorbed.set(id, centroid);
 
       const prevId = this._bestOverlap(memberIds, usedPrev);
@@ -236,8 +270,41 @@ export class ClusterRenderService {
     if (membershipChanged) this.onVisibilityChange();
   }
 
-  /** Screen-space union-find grouping with hysteresis. Returns only groups of
-   * size >= 2 (singletons stay individual markers). */
+  /**
+   * The point a bubble is anchored at: the mean of its members' **screen**
+   * positions, converted back to lng/lat.
+   *
+   * Averaging the members' raw lng/lat instead — which is what this did — is
+   * only the visual midpoint under a linear projection, and neither projection
+   * this card offers is linear. Web Mercator's latitude axis is logarithmic, so
+   * the mean latitude of a group sits off its own pixel midpoint by an amount
+   * that grows with the group's latitude span and with distance from the
+   * equator; the default `projection: globe` is nonlinear in *both* axes, and
+   * increasingly so away from the globe's centre, where a lng/lat mean can land
+   * visibly outside the members it stands for. The mean of the projected
+   * positions has neither problem — it is the pixel midpoint by construction,
+   * for whatever projection is active — and it also survives the antimeridian,
+   * where averaging lng 179 and −179 yields 0 and throws the bubble half a
+   * world away.
+   *
+   * The `xy` values here are the same ones grouping was decided from
+   * (`_computeGroups` projected them this pass), so no extra projection work is
+   * done and the anchor cannot disagree with the collision test that formed the
+   * group.
+   */
+  private _centroidOf(members: Member[]): [number, number] {
+    let x = 0;
+    let y = 0;
+    for (const m of members) {
+      x += m.xy.x;
+      y += m.xy.y;
+    }
+    const { lng, lat } = this.map.unproject([x / members.length, y / members.length]);
+    return [lng, lat];
+  }
+
+  /** Screen-space union-find grouping with hysteresis and a spread cap. Returns
+   * only groups of size >= 2 (singletons stay individual markers). */
   private _computeGroups(): Array<Array<Point & { xy: { x: number; y: number } }>> {
     const points = this._points;
     if (points.length < 2 || this.map.getZoom() >= this._maxZoom) {
@@ -249,6 +316,9 @@ export class ClusterRenderService {
     const uf = new UnionFind(screen.length);
     const nextGroupedPairs = new Set<string>();
 
+    // Pass 1: every pair whose marker circles overlap, with per-pair hysteresis
+    // on the touch distance.
+    const candidates: Array<{ i: number; j: number; dist: number; key: string }> = [];
     for (let i = 0; i < screen.length; i++) {
       for (let j = i + 1; j < screen.length; j++) {
         const a = screen[i]!;
@@ -257,12 +327,39 @@ export class ClusterRenderService {
         const touch = (a.size + b.size) / 2;
         const key = pairKey(a.id, b.id);
         const factor = this._groupedPairs.has(key) ? SPLIT_FACTOR : MERGE_FACTOR;
-        if (dist < touch * factor) {
-          uf.union(i, j);
-          nextGroupedPairs.add(key);
-        }
+        if (dist < touch * factor) candidates.push({ i, j, dist, key });
       }
     }
+
+    // Pass 2: merge tightest-pair-first, refusing any merge that would push the
+    // resulting group past MAX_GROUP_SPREAD_FACTOR. Order matters: taking the
+    // closest pairs first means a chain that has to break breaks at its loosest
+    // link rather than wherever the index order happened to reach the cap.
+    candidates.sort((a, b) => a.dist - b.dist);
+    const extents: Extent[] = screen.map((s) => ({
+      minX: s.xy.x,
+      maxX: s.xy.x,
+      minY: s.xy.y,
+      maxY: s.xy.y,
+      maxSize: s.size,
+    }));
+    for (const { i, j, key } of candidates) {
+      const ra = uf.find(i);
+      const rb = uf.find(j);
+      if (ra === rb) {
+        // Already in one group (directly or transitively) — still a grouped
+        // pair for hysteresis purposes.
+        nextGroupedPairs.add(key);
+        continue;
+      }
+      const merged = mergeExtents(extents[ra]!, extents[rb]!);
+      if (spreadOf(merged) > merged.maxSize * MAX_GROUP_SPREAD_FACTOR) continue;
+      uf.union(i, j);
+      extents[uf.find(i)] = merged;
+      nextGroupedPairs.add(key);
+    }
+    // A pair rejected by the cap is deliberately NOT recorded: it is not
+    // grouped, so next pass it must clear the tighter merge threshold again.
     this._groupedPairs = nextGroupedPairs;
 
     const byRoot = new Map<number, Array<Point & { xy: { x: number; y: number } }>>();
@@ -321,14 +418,19 @@ export class ClusterRenderService {
   }
 }
 
-function centroidOf(coords: Array<[number, number]>): [number, number] {
-  let lng = 0;
-  let lat = 0;
-  for (const [x, y] of coords) {
-    lng += x;
-    lat += y;
-  }
-  return [lng / coords.length, lat / coords.length];
+function mergeExtents(a: Extent, b: Extent): Extent {
+  return {
+    minX: Math.min(a.minX, b.minX),
+    maxX: Math.max(a.maxX, b.maxX),
+    minY: Math.min(a.minY, b.minY),
+    maxY: Math.max(a.maxY, b.maxY),
+    maxSize: Math.max(a.maxSize, b.maxSize),
+  };
+}
+
+/** Diagonal of the bounding box, in pixels — the group's widest reach. */
+function spreadOf(e: Extent): number {
+  return Math.hypot(e.maxX - e.minX, e.maxY - e.minY);
 }
 
 /** Target zoom that visually separates a clicked group's members. Uses the

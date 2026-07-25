@@ -305,7 +305,15 @@ an explicit per-entity `circle:` config always overrides both.
 
 Marker clustering (`ClusterRenderService`) groups entities whose on-screen marker circles overlap
 (screen-space collision via `map.project()`, union-find, recomputed on every camera move with
-hysteresis), rendering each group as an animated HTML-marker bubble. Defaults on
+hysteresis), rendering each group as an animated HTML-marker bubble. Two things about it are
+deliberate and easy to regress: the union is **bounded** — merges are taken closest-pair-first and
+refused once the group's screen bounding-box diagonal would exceed `MAX_GROUP_SPREAD_FACTOR` ×
+its largest marker, because unbounded single-linkage lets a row of just-touching markers chain into
+one viewport-wide bubble — and a bubble is anchored at the mean of its members' **screen**
+positions, unprojected (`_centroidOf`), not at their mean lng/lat. Neither projection the card
+offers is linear (Mercator's latitude axis is logarithmic; `globe`, the default, is nonlinear in
+both axes), so a lng/lat mean is not the pixel midpoint and the bubble reads as offset from its own
+members. That is also why `ClusterMapLike` carries `unproject`. Defaults on
 (`cluster_markers`, matching HA's built-in map); `cluster_max_zoom` caps the zoom above which it
 stops. Individual-marker hide/show and bubble merge/split share the `MarkerAnimator` CSS-transition
 helper, and both marker kinds go through `wrapAnimatedMarker()` so their scale animation doesn't
