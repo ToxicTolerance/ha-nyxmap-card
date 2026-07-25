@@ -47,6 +47,7 @@ interface TestableNyxmapCard extends HTMLElement {
     getMaxZoom: ReturnType<typeof vi.fn>;
   };
   _entities?: EntitiesRenderService;
+  _circles?: { has(entityId: string): boolean };
   _cluster?: { getAbsorbed(): ReadonlyMap<string, [number, number]> };
   _clusterToggleControl?: IconButtonControl;
 }
@@ -889,6 +890,71 @@ describe("NyxmapCard", () => {
 
       expect(el._clusterToggleControl!.options.isPressed?.()).toBe(false);
       expect(el._cluster!.getAbsorbed().size).toBe(0);
+    });
+
+    it("keeps a circle hidden across the cluster absorb/release round trip that removes it", async () => {
+      // Regression, end to end: hiding an accuracy circle in the switcher, then
+      // zooming out until clustering absorbs its entity (which makes
+      // CircleRenderService reconcile the overlay away) and back in, used to
+      // bring the circle back *visible* while its checkbox still read
+      // unchecked. No config edit involved — just the camera moving.
+      const entities = [
+        { entity: "device_tracker.a", fixed_x: 1, fixed_y: 2 },
+        { entity: "device_tracker.b", fixed_x: 3, fixed_y: 4 },
+      ];
+      el.setConfig({ layer_switcher: true, cluster_markers: true, show_accuracy_circles: true, entities });
+      await el.updateComplete;
+      el._map!.fire("style.load");
+      const states = {
+        "device_tracker.a": {
+          entity_id: "device_tracker.a",
+          state: "home",
+          attributes: { gps_accuracy: 30 },
+        },
+      } as unknown as HomeAssistant["states"];
+      el.hass = hassWith(states);
+      await el.updateComplete;
+      // Overlays register during updated(), i.e. after that render — so the
+      // switcher only sees them on the next tick. HA supplies those constantly.
+      el.hass = hassWith(states);
+      await el.updateComplete;
+
+      const switcherEl = () =>
+        el.shadowRoot!.querySelector("nyxmap-layer-switcher") as unknown as {
+          overlays: Array<{ id: string; active: boolean }>;
+          onToggleOverlay: (id: string) => void;
+        };
+      const circleId = "circle-device_tracker.a";
+      expect(switcherEl().overlays.map((o) => o.id)).toContain(circleId);
+
+      switcherEl().onToggleOverlay(circleId);
+      await el.updateComplete;
+      expect(switcherEl().overlays.find((o) => o.id === circleId)?.active).toBe(false);
+
+      // Zoom out until both markers collide -> both absorbed -> circle removed.
+      el._map!.project.mockReturnValue({ x: 0, y: 0 });
+      el._map!.fire("zoomend");
+      expect(el._cluster!.getAbsorbed().size).toBe(2);
+      expect(el._circles!.has("device_tracker.a")).toBe(false);
+
+      // Zoom back in -> released -> the circle is rebuilt from scratch.
+      el._map!.addLayer.mockClear();
+      el._map!.project.mockImplementation((lngLat: [number, number]) => ({
+        x: lngLat[0] * 1e6,
+        y: lngLat[1] * 1e6,
+      }));
+      el._map!.fire("zoomend");
+      expect(el._cluster!.getAbsorbed().size).toBe(0);
+      expect(el._circles!.has("device_tracker.a")).toBe(true);
+      await el.updateComplete;
+
+      // It must come back hidden, and the checkbox must still say so.
+      const rebuilt = el
+        ._map!.addLayer.mock.calls.map((c) => c[0] as { id: string; layout?: { visibility?: string } })
+        .filter((l) => l.id.startsWith(circleId));
+      expect(rebuilt.length).toBeGreaterThan(0);
+      expect(rebuilt.every((l) => l.layout?.visibility === "none")).toBe(true);
+      expect(switcherEl().overlays.find((o) => o.id === circleId)?.active).toBe(false);
     });
   });
 
