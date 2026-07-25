@@ -163,6 +163,36 @@ Each item in `entities:` is either a bare entity id string, or an object:
 | `circle` | `"auto"`, `false`, or [object](#circle-options-per-entity-circle) | — | Only needed to override the card-level `show_accuracy_circles` default: `false` opts this entity out, an object/`"auto"` customizes it. |
 | `geojson` | string (attribute name) or [object](#geojson-options-per-entity-geojson) | — | |
 
+### History window (`history_start` / `history_end`)
+
+A trail is drawn for any entity with a resolvable `history_start` — per-entity if set,
+otherwise the card-level one. `history_end` is optional and defaults to **now**.
+
+Both accept the same two forms:
+
+| Form | Examples |
+|---|---|
+| Relative | `5 hours ago`, `90 minutes ago`, `2 days ago`, `1 week ago` |
+| Absolute / ISO | `2026-07-25T06:00:00Z`, `2026-07-25` |
+
+Only `minute`/`hour`/`day`/`week` are understood in the relative form, and the wording is
+matched as written — `5h ago` or `5 hours` (no "ago") are **not** recognized. An
+unrecognized `history_start` disables that entity's trail entirely rather than falling
+back to a default window, so a trail that never appears is worth checking for a typo
+first. An unrecognized `history_end` falls back to now.
+
+The window is re-resolved on every refresh (about once a minute), so `5 hours ago` means
+*the last five hours*, sliding with real time — a dashboard left open all day keeps a
+five-hour trail rather than freezing the one it loaded with. Setting an absolute
+`history_end` pins the window instead.
+
+Two things bound how much of that window actually has points, both on the Home Assistant
+side rather than the card's: your recorder's retention (`purge_keep_days`, 10 days by
+default) and whether the entity is excluded from the recorder at all. Trails are built
+from every recorded position in the window, including moves that don't change the
+entity's state — a phone that reads `home` for the whole window still draws its full
+path.
+
 ### Circle options (per-entity `circle:`)
 
 Draws a circle around the entity — handy for showing GPS accuracy or a
