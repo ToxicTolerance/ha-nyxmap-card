@@ -171,6 +171,14 @@ intentional — it keeps the fork diffable against the upstream project's module
   off-centre (`ha-icon` had a size but no centring box), and the editor's `focus_on_fit`
   toggle displayed as off against a `true` default. Re-shooting is manual and not wired into
   CI; if a change alters what the card looks like, the affected images need regenerating.
+  **`README.md` must reference these with absolute URLs**
+  (`https://raw.githubusercontent.com/ToxicTolerance/ha-nyxmap-card/master/docs/images/…`,
+  and `…/blob/master/…` for links to repo files). HACS renders the README inside the Home
+  Assistant frontend and does *not* rewrite relative URLs, so a relative `docs/images/…` src
+  resolves against the HA origin and the image silently fails to load — which is exactly how
+  the whole screenshot tour, hero shot included, was once invisible to every HACS visitor.
+  Same reason `#anchor` links don't work there: the README's own nav uses absolute
+  ones. Inside `docs/` relative paths are fine — only the README is rendered by HACS.
 - **`docs/examples/`** — the two plugin scripts the guide's Plugins section is shot from,
   kept as real runnable files rather than prose snippets so they can be dropped into
   `/config/www/` and registered as a Lovelace JS-module resource verbatim.
