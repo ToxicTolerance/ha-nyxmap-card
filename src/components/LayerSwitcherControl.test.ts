@@ -172,4 +172,43 @@ describe("LayerSwitcherControl", () => {
 
     expect(el.shadowRoot!.querySelectorAll('input[type="radio"]')).toHaveLength(0);
   });
+
+  describe("resize observer attachment", () => {
+    // Regression: _observeParent() bails when offsetParent is null (the element
+    // or an ancestor is display:none — an HA conditional card, or a dashboard
+    // tab not yet shown) and only firstUpdated() ever called it, so a switcher
+    // first rendered while hidden had no resize tracking for the life of the
+    // page. updated() now retries it.
+    it("attaches on a later update once offsetParent becomes available", async () => {
+      const observed: Element[] = [];
+      const original = globalThis.ResizeObserver;
+      globalThis.ResizeObserver = class {
+        observe(target: Element) {
+          observed.push(target);
+        }
+        unobserve() {}
+        disconnect() {}
+      } as unknown as typeof ResizeObserver;
+      try {
+        // Hidden at first render: offsetParent is null, nothing to observe.
+        let hostParent: HTMLElement | null = null;
+        const el = document.createElement("nyxmap-layer-switcher") as LayerSwitcherControl;
+        Object.defineProperty(el, "offsetParent", { get: () => hostParent, configurable: true });
+        document.body.appendChild(el);
+        await el.updateComplete;
+        expect(observed).toHaveLength(0);
+
+        // Becomes visible; the next real prop change retries the attach.
+        hostParent = document.createElement("div");
+        el.overlays = [{ id: "x", label: "X", active: true }];
+        await el.updateComplete;
+
+        expect(observed).toEqual([hostParent]);
+        el.remove();
+      } finally {
+        globalThis.ResizeObserver = original;
+      }
+    });
+  });
+
 });

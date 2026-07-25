@@ -116,6 +116,13 @@ export class NyxmapCard extends LitElement {
    * Cleared in _teardown() because the rebuilt services all start visible
    * again (see that method), which is precisely the state this reconciles. */
   private readonly _appliedOverlayVisibility = new Map<string, boolean>();
+  /** Backs _reuseIfUnchanged(): the last array handed to the layer switcher for
+   * each of its two list properties, with the serialized form it was built
+   * from. Purely a render-identity cache — it holds no state of its own, so
+   * nothing needs to reset it on teardown (the next render simply misses). */
+  private readonly _switcherItemCache: Partial<
+    Record<"base" | "overlay", { serialized: string; items: unknown[] }>
+  > = {};
   /** Live "(prefers-color-scheme: dark)" query, watched while connected so
    * theme_mode: "auto" reacts to the OS flipping to dark — see
    * _watchColorScheme(). */
@@ -441,22 +448,54 @@ export class NyxmapCard extends LitElement {
     this._applyStyle(this._resolveActiveStyleUrl());
   }
 
+  /**
+   * Returns `next` unless it is value-equal to the previously returned array,
+   * in which case the previous array is handed back **by identity**.
+   *
+   * `render()` runs on every `hass` object — i.e. many times a second — and
+   * these lists almost never change between them. A fresh array each time
+   * fails Lit's identity check on the switcher's properties, so the switcher
+   * re-rendered every tick, and its `updated()` hook does three
+   * `getBoundingClientRect()` reads: a forced synchronous layout, per card, per
+   * tick, to re-derive an offset that had not moved. Reusing the array when
+   * nothing changed means the switcher simply doesn't update.
+   *
+   * JSON comparison is deliberate and cheap here — these are a handful of flat
+   * records of strings and booleans, and it costs far less than the layout it
+   * avoids. It stays correct because every field the switcher renders is in the
+   * compared value: a new overlay, a re-label, a base-style switch or a
+   * visibility toggle all change the JSON and so produce a new array.
+   */
+  private _reuseIfUnchanged<T>(slot: "base" | "overlay", next: T[]): T[] {
+    const serialized = JSON.stringify(next);
+    const cache = this._switcherItemCache[slot];
+    if (cache && cache.serialized === serialized) return cache.items as T[];
+    this._switcherItemCache[slot] = { serialized, items: next };
+    return next;
+  }
+
   private _baseStyleItems(): SwitcherBaseStyleItem[] {
     const activeId = this._manualStyleId ?? this._defaultBaseStyleId();
-    return [...this._layerRegistry.getBaseStyles().entries()].map(([id, entry]) => ({
-      id,
-      label: entry.label,
-      active: id === activeId,
-    }));
+    return this._reuseIfUnchanged(
+      "base",
+      [...this._layerRegistry.getBaseStyles().entries()].map(([id, entry]) => ({
+        id,
+        label: entry.label,
+        active: id === activeId,
+      })),
+    );
   }
 
   private _overlayItems(): SwitcherOverlayItem[] {
-    return [...this._layerRegistry.getOverlays().entries()].map(([id, entry]) => ({
-      id,
-      label: entry.label,
-      group: entry.group,
-      active: this._overlayVisibility.get(id) ?? true,
-    }));
+    return this._reuseIfUnchanged(
+      "overlay",
+      [...this._layerRegistry.getOverlays().entries()].map(([id, entry]) => ({
+        id,
+        label: entry.label,
+        group: entry.group,
+        active: this._overlayVisibility.get(id) ?? true,
+      })),
+    );
   }
 
   private _onSelectBaseStyle(id: string): void {

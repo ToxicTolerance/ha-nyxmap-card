@@ -1495,4 +1495,59 @@ describe("NyxmapCard", () => {
       expect(el._map!.getSource).toHaveBeenCalled();
     });
   });
+
+  describe("layer switcher render identity", () => {
+    // Regression: _baseStyleItems()/_overlayItems() built a fresh array on every
+    // render, so Lit's identity check on the switcher's properties always
+    // reported a change and the switcher re-rendered on every `hass` object --
+    // and its updated() hook does three getBoundingClientRect() reads, i.e. a
+    // forced synchronous layout many times a second, to re-derive an offset
+    // that had not moved.
+    it("reuses the item arrays across hass ticks that change nothing", async () => {
+      el.setConfig({ layer_switcher: true, cluster_markers: false, entities: ["device_tracker.a"] });
+      await el.updateComplete;
+      el._map!.fire("style.load");
+      el.hass = hassWith({});
+      await el.updateComplete;
+
+      const switcher = () =>
+        el.shadowRoot!.querySelector("nyxmap-layer-switcher") as unknown as {
+          baseStyles: unknown[];
+          overlays: unknown[];
+        };
+      const baseBefore = switcher().baseStyles;
+      const overlaysBefore = switcher().overlays;
+
+      el.hass = hassWith({});
+      await el.updateComplete;
+      el.hass = hassWith({});
+      await el.updateComplete;
+
+      expect(switcher().baseStyles).toBe(baseBefore);
+      expect(switcher().overlays).toBe(overlaysBefore);
+    });
+
+    it("hands over a new array as soon as anything the switcher shows changes", async () => {
+      el.setConfig({ layer_switcher: true, cluster_markers: false, entities: ["device_tracker.a"] });
+      await el.updateComplete;
+      el._map!.fire("style.load");
+      el.hass = hassWith({});
+      await el.updateComplete;
+
+      const switcher = () =>
+        el.shadowRoot!.querySelector("nyxmap-layer-switcher") as unknown as {
+          baseStyles: Array<{ id: string; active: boolean }>;
+          onSelectBaseStyle: (id: string) => void;
+        };
+      const before = switcher().baseStyles;
+      expect(before.find((s) => s.id === "dark")?.active).toBe(false);
+
+      switcher().onSelectBaseStyle("dark");
+      await el.updateComplete;
+
+      expect(switcher().baseStyles).not.toBe(before);
+      expect(switcher().baseStyles.find((s) => s.id === "dark")?.active).toBe(true);
+    });
+  });
+
 });
