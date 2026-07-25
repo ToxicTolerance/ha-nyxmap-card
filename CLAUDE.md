@@ -139,13 +139,16 @@ intentional — it keeps the fork diffable against the upstream project's module
 - **`src/types/`** — `home-assistant.d.ts`, `ha-form.d.ts`, `nyxmap-plugin.d.ts`: duck-typed
   contracts for things provided by the surrounding HA frontend or consumed by plugin authors,
   never project dependencies.
-- **`docs/audit/`** — historical only. Point-in-time artifacts of the v0.9.1 audit, each carrying
-  a "Superseded" banner. They describe a tree that no longer exists; `CHANGELOG.md` is what
-  landed and this file is the current architecture.
+- **`docs/audit/`** — point-in-time review artifacts, newest last. The v0.9.1 set
+  (`AUDIT-STATUS.md`, `engineering-audit.md`, `code-review-findings.md`, `fixes/`) is **historical
+  only** and each file carries a "Superseded" banner — they describe a tree that no longer exists.
+  `2026-07-22-code-audit.md` (v0.10.2) and `2026-07-25-code-review.md` (v0.10.3) are dated reviews
+  of the current tree; the latter has **open findings** and is the place to check before
+  re-deriving a defect. `CHANGELOG.md` is what landed and this file is the current architecture.
 
 ### Tests
 
-Tests are **colocated**: `Foo.ts` sits next to `Foo.test.ts` (36 test files today), and
+Tests are **colocated**: `Foo.ts` sits next to `Foo.test.ts` (37 test files today), and
 `vite.config.ts` collects `src/**/*.test.ts`. The default environment is `node`; the ~10 files that
 need a DOM opt in individually with a `// @vitest-environment jsdom` pragma rather than making
 jsdom global. `test/setup.ts` shims `matchMedia`, `ResizeObserver` and `requestAnimationFrame` for
