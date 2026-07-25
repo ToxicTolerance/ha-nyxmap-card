@@ -93,6 +93,10 @@ export class NyxmapCard extends LitElement {
   });
   private _resizeObserver?: ResizeObserver;
   private _resizeRaf?: number;
+  /** Pending coalesced --card-background-color read, and whether the first
+   * (synchronous) one has happened — see _scheduleDarkFlag(). */
+  private _darkFlagRaf?: number;
+  private _darkFlagApplied = false;
   /** Pending deferred teardown — see disconnectedCallback(). */
   private _teardownTimer?: ReturnType<typeof setTimeout>;
   /** The style URL currently handed to the map. Compared against a freshly
@@ -237,6 +241,10 @@ export class NyxmapCard extends LitElement {
       cancelAnimationFrame(this._resizeRaf);
       this._resizeRaf = undefined;
     }
+    if (this._darkFlagRaf !== undefined) {
+      cancelAnimationFrame(this._darkFlagRaf);
+      this._darkFlagRaf = undefined;
+    }
     if (this._teardownTimer === undefined) {
       this._teardownTimer = setTimeout(() => this._teardown(), 0);
     }
@@ -302,15 +310,7 @@ export class NyxmapCard extends LitElement {
     // shrink to that external height instead of sizing to its content,
     // clipping the bottom of the map (and whatever control lived there)
     // even though nothing was actually configured to fill 100% of anything.
-    // Flag a dark control background so the map controls (MapLibre's own
-    // NavigationControl in particular, whose baked icons are dark) get their
-    // light-on-dark treatment — see NyxmapCard.styles.ts. Keyed off the actual
-    // resolved --card-background-color (HA's theme) rather than the map's
-    // light/dark style, so the controls always match the surface they sit on.
-    this.toggleAttribute(
-      "data-dark",
-      isColorDark(getComputedStyle(this).getPropertyValue("--card-background-color")),
-    );
+    this._scheduleDarkFlag();
 
     const usesCssLengthHeight = typeof this._config?.height === "string";
     this.style.height = usesCssLengthHeight ? "100%" : "";
@@ -367,6 +367,43 @@ export class NyxmapCard extends LitElement {
         </div>
       </ha-card>
     `;
+  }
+
+  /**
+   * Flags a dark control background so the map controls (MapLibre's own
+   * NavigationControl in particular, whose baked icons are dark) get their
+   * light-on-dark treatment — see NyxmapCard.styles.ts. Keyed off the actual
+   * resolved --card-background-color (HA's theme) rather than the map's
+   * light/dark style, so the controls always match the surface they sit on.
+   *
+   * Coalesced to at most one read per frame, because `getComputedStyle` flushes
+   * pending style and this used to run inline in `updated()` — i.e. on every
+   * `hass` object, many times a second, per card — while the only thing that
+   * changes the answer is the user switching HA themes. There is no event we
+   * can key off instead (`hass` carries no theme signal this card types), so
+   * the read stays, just bounded.
+   *
+   * The first pass is synchronous on purpose: deferring it too would render one
+   * frame of light-styled controls on a dark theme before correcting itself.
+   */
+  private _scheduleDarkFlag(): void {
+    if (!this._darkFlagApplied) {
+      this._darkFlagApplied = true;
+      this._applyDarkFlag();
+      return;
+    }
+    if (this._darkFlagRaf !== undefined) return;
+    this._darkFlagRaf = requestAnimationFrame(() => {
+      this._darkFlagRaf = undefined;
+      this._applyDarkFlag();
+    });
+  }
+
+  private _applyDarkFlag(): void {
+    this.toggleAttribute(
+      "data-dark",
+      isColorDark(getComputedStyle(this).getPropertyValue("--card-background-color")),
+    );
   }
 
   private _scheduleResize(): void {

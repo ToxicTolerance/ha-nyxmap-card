@@ -1550,4 +1550,76 @@ describe("NyxmapCard", () => {
     });
   });
 
+
+  describe("dark-control flag (--card-background-color read)", () => {
+    // Regression: this ran inline in updated(), so getComputedStyle -- which
+    // flushes pending style -- fired on every hass object, many times a second
+    // per card, while only an HA theme switch changes the answer.
+    function spyComputedStyle(background: string) {
+      const original = window.getComputedStyle.bind(window);
+      const spy = vi.fn((el: Element, pseudo?: string | null) => {
+        const real = original(el, pseudo ?? undefined);
+        return {
+          ...real,
+          getPropertyValue: (name: string) =>
+            name === "--card-background-color" ? background : real.getPropertyValue(name),
+        } as CSSStyleDeclaration;
+      });
+      window.getComputedStyle = spy as unknown as typeof window.getComputedStyle;
+      return { spy, restore: () => (window.getComputedStyle = original) };
+    }
+
+    it("applies the flag synchronously on an element's very first update, with no flash of the wrong theme", async () => {
+      // Deliberately a fresh element: beforeEach already mounted `el`, and Lit
+      // performs an initial update on connection, so `el`'s first update has
+      // been and gone. It is that first one that must not be deferred.
+      const { restore } = spyComputedStyle("#111111");
+      try {
+        const fresh = asTestable(document.createElement("nyxmap-card") as InstanceType<typeof NyxmapCard>);
+        fresh.setConfig({});
+        document.body.appendChild(fresh);
+        await fresh.updateComplete;
+
+        expect(fresh.hasAttribute("data-dark")).toBe(true);
+        fresh.remove();
+      } finally {
+        restore();
+      }
+    });
+
+    it("does not re-read the computed style on every subsequent hass tick", async () => {
+      el.setConfig({});
+      await el.updateComplete;
+
+      const { spy, restore } = spyComputedStyle("#ffffff");
+      try {
+        for (let i = 0; i < 5; i++) {
+          el.hass = hassWith({});
+          await el.updateComplete;
+        }
+        // Coalesced to a pending frame rather than one read per tick.
+        const readsOnThisElement = spy.mock.calls.filter((c) => c[0] === el).length;
+        expect(readsOnThisElement).toBeLessThan(5);
+      } finally {
+        restore();
+      }
+    });
+
+    it("still tracks a theme change, one frame later", async () => {
+      el.setConfig({});
+      await el.updateComplete;
+      expect(el.hasAttribute("data-dark")).toBe(false);
+
+      const { restore } = spyComputedStyle("#111111");
+      try {
+        el.hass = hassWith({});
+        await el.updateComplete;
+        await flushMicrotasks(); // let the coalescing frame run
+        expect(el.hasAttribute("data-dark")).toBe(true);
+      } finally {
+        restore();
+      }
+    });
+  });
+
 });
