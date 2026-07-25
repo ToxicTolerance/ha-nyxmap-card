@@ -346,4 +346,78 @@ describe("CircleRenderService", () => {
       expect(rebuilt.every((l) => l.layout?.visibility === "none")).toBe(true);
     });
   });
+
+  describe("data push guard (dataKey)", () => {
+    // HA replaces `hass` on every state change anywhere in the instance, so
+    // update() runs many times per second. setData() makes MapLibre
+    // re-tessellate the polygon, so an unchanged circle must not be re-pushed.
+    const movingEntity = (lng: number) =>
+      EntityConfig.from({ entity: "device_tracker.phone", fixed_x: lng, fixed_y: 2, circle: { radius: 25, source: "config" } } as never);
+
+    it("skips setData when centre and radius are unchanged", () => {
+      const map = createFakeMaplibreMap();
+      const setData = vi.fn();
+      map.getSource.mockReturnValue({ setData });
+      const service = new CircleRenderService(map as never, new StyleReattach(), new LayerRegistry());
+
+      service.update([movingEntity(1)], hassWith({}), false);
+      const afterFirst = setData.mock.calls.length;
+      service.update([movingEntity(1)], hassWith({}), false);
+      service.update([movingEntity(1)], hassWith({}), false);
+
+      expect(setData.mock.calls.length).toBe(afterFirst);
+    });
+
+    it("still pushes when the entity moves", () => {
+      const map = createFakeMaplibreMap();
+      const setData = vi.fn();
+      map.getSource.mockReturnValue({ setData });
+      const service = new CircleRenderService(map as never, new StyleReattach(), new LayerRegistry());
+
+      service.update([movingEntity(1)], hassWith({}), false);
+      setData.mockClear();
+      service.update([movingEntity(5)], hassWith({}), false);
+
+      expect(setData).toHaveBeenCalledTimes(1);
+    });
+
+    it("still pushes when the radius changes", () => {
+      const map = createFakeMaplibreMap();
+      const setData = vi.fn();
+      map.getSource.mockReturnValue({ setData });
+      const service = new CircleRenderService(map as never, new StyleReattach(), new LayerRegistry());
+      const withRadius = (r: number) =>
+        EntityConfig.from({ entity: "device_tracker.phone", fixed_x: 1, fixed_y: 2, circle: { radius: r, source: "config" } } as never);
+
+      service.update([withRadius(25)], hassWith({}), false);
+      setData.mockClear();
+      service.update([withRadius(90)], hassWith({}), false);
+
+      expect(setData).toHaveBeenCalledTimes(1);
+    });
+
+    it("recolouring pushes paint but not data", () => {
+      // Colour lives in layer paint, not in the source data — paintKey's job,
+      // not dataKey's.
+      const map = createFakeMaplibreMap();
+      const setData = vi.fn();
+      map.getSource.mockReturnValue({ setData });
+      const service = new CircleRenderService(map as never, new StyleReattach(), new LayerRegistry());
+      const coloured = (color: string) =>
+        EntityConfig.from({ entity: "device_tracker.phone", fixed_x: 1, fixed_y: 2, circle: { radius: 25, source: "config", color } } as never);
+
+      service.update([coloured("#ff0000")], hassWith({}), false);
+      setData.mockClear();
+      map.setPaintProperty.mockClear();
+      service.update([coloured("#00ff00")], hassWith({}), false);
+
+      expect(setData).not.toHaveBeenCalled();
+      expect(map.setPaintProperty).toHaveBeenCalledWith(
+        "circle-device_tracker.phone-fill",
+        "fill-color",
+        "#00ff00",
+      );
+    });
+  });
+
 });
