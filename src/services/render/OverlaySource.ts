@@ -141,6 +141,31 @@ export interface OverlayBuild {
  */
 export abstract class OverlaySource<TKey, TItem> {
   private readonly activeKeys = new Set<TKey>();
+  /**
+   * The layer switcher's visibility *intent* per source id — and it deliberately
+   * **outlives `remove()`**, so an overlay that goes away and comes back is
+   * rebuilt hidden if that is how the user left it.
+   *
+   * `remove()` used to delete the entry, which desynced the card: `NyxmapCard`
+   * keeps both the intent (`_overlayVisibility`) and what it last pushed
+   * (`_appliedOverlayVisibility`) across a removal, so once this side forgot,
+   * a re-added overlay was built `visible` while the card read desired `false`
+   * === applied `false` and skipped re-pushing it. The layer was visible with
+   * its checkbox unchecked, and it took two clicks to hide again.
+   *
+   * Removal is routine, not exceptional, which is what made that reachable with
+   * no config edit at all: `CircleRenderService` drops an entity's circle for as
+   * long as clustering absorbs it, and `HistoryRenderService` drops a trail
+   * whose latest fetch has fewer than two points. Both come back on the next
+   * camera settle or poll.
+   *
+   * Keeping it also makes every overlay producer agree on one rule — intent
+   * survives removal. `ClusterRenderService._enabled` and
+   * `PluginHost._overlayVisible` already worked this way; this was the odd one
+   * out. Growth is bounded by the number of distinct overlay ids the card has
+   * ever shown, the same bound `_overlayVisibility` already accepts, and a
+   * teardown drops the whole service anyway.
+   */
   private readonly visibility = new Map<string, boolean>();
   private readonly layerIds = new Map<string, string[]>();
   private readonly paintKeys = new Map<string, string>();
@@ -271,7 +296,7 @@ export abstract class OverlaySource<TKey, TItem> {
     this.onRemoving(id, key);
     this.reattach.unregister(id);
     this.layerRegistry.unregister(id);
-    this.visibility.delete(id);
+    // `visibility` is deliberately NOT deleted here — see its declaration.
     this.paintKeys.delete(id);
     this.sourceKeys.delete(id);
     this.dataKeys.delete(id);

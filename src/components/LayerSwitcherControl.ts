@@ -97,6 +97,13 @@ export class LayerSwitcherControl extends LitElement {
     window.removeEventListener("pointerdown", this._onOutsidePointerDown, true);
   }
 
+  /** Measures, and attaches the resize observer if it can. Idempotent, and
+   * safe to retry: `offsetParent` is null while the element (or any ancestor)
+   * is `display: none` — an HA conditional card, or a dashboard tab that
+   * hasn't been shown yet — and there is nothing to observe until it isn't.
+   * Retried from `updated()` rather than attempted once from `firstUpdated()`,
+   * which left a switcher first rendered while hidden with no resize tracking
+   * for the life of the page. */
   private _observeParent(): void {
     this._measure();
     const parent = this.offsetParent as HTMLElement | null;
@@ -108,8 +115,16 @@ export class LayerSwitcherControl extends LitElement {
   protected override updated(): void {
     // The control column's height can change without a resize (the Toggle
     // grouping button is added/removed with cluster state, which also changes
-    // this component's own props → an update) — re-measure so we re-stack.
-    this._measure();
+    // this component's own props → an update) — so re-measure here, and take
+    // the same opportunity to retry the observer attach.
+    //
+    // This runs on every *real* prop change, not on every `hass` tick: the card
+    // hands over item arrays that are reused when their contents are unchanged
+    // (see NyxmapCard._baseStyleItems/_overlayItems), so Lit's identity check
+    // reports no change and this element doesn't update at all. Without that,
+    // _measure()'s three getBoundingClientRect() reads were a forced synchronous
+    // layout many times a second.
+    this._observeParent();
   }
 
   /** Reads the rendered rects and hands them to the DOM-free math in

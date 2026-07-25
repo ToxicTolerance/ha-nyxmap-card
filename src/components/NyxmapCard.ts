@@ -93,6 +93,10 @@ export class NyxmapCard extends LitElement {
   });
   private _resizeObserver?: ResizeObserver;
   private _resizeRaf?: number;
+  /** Pending coalesced --card-background-color read, and whether the first
+   * (synchronous) one has happened — see _scheduleDarkFlag(). */
+  private _darkFlagRaf?: number;
+  private _darkFlagApplied = false;
   /** Pending deferred teardown — see disconnectedCallback(). */
   private _teardownTimer?: ReturnType<typeof setTimeout>;
   /** The style URL currently handed to the map. Compared against a freshly
@@ -116,6 +120,13 @@ export class NyxmapCard extends LitElement {
    * Cleared in _teardown() because the rebuilt services all start visible
    * again (see that method), which is precisely the state this reconciles. */
   private readonly _appliedOverlayVisibility = new Map<string, boolean>();
+  /** Backs _reuseIfUnchanged(): the last array handed to the layer switcher for
+   * each of its two list properties, with the serialized form it was built
+   * from. Purely a render-identity cache — it holds no state of its own, so
+   * nothing needs to reset it on teardown (the next render simply misses). */
+  private readonly _switcherItemCache: Partial<
+    Record<"base" | "overlay", { serialized: string; items: unknown[] }>
+  > = {};
   /** Live "(prefers-color-scheme: dark)" query, watched while connected so
    * theme_mode: "auto" reacts to the OS flipping to dark — see
    * _watchColorScheme(). */
@@ -230,6 +241,10 @@ export class NyxmapCard extends LitElement {
       cancelAnimationFrame(this._resizeRaf);
       this._resizeRaf = undefined;
     }
+    if (this._darkFlagRaf !== undefined) {
+      cancelAnimationFrame(this._darkFlagRaf);
+      this._darkFlagRaf = undefined;
+    }
     if (this._teardownTimer === undefined) {
       this._teardownTimer = setTimeout(() => this._teardown(), 0);
     }
@@ -295,15 +310,7 @@ export class NyxmapCard extends LitElement {
     // shrink to that external height instead of sizing to its content,
     // clipping the bottom of the map (and whatever control lived there)
     // even though nothing was actually configured to fill 100% of anything.
-    // Flag a dark control background so the map controls (MapLibre's own
-    // NavigationControl in particular, whose baked icons are dark) get their
-    // light-on-dark treatment — see NyxmapCard.styles.ts. Keyed off the actual
-    // resolved --card-background-color (HA's theme) rather than the map's
-    // light/dark style, so the controls always match the surface they sit on.
-    this.toggleAttribute(
-      "data-dark",
-      isColorDark(getComputedStyle(this).getPropertyValue("--card-background-color")),
-    );
+    this._scheduleDarkFlag();
 
     const usesCssLengthHeight = typeof this._config?.height === "string";
     this.style.height = usesCssLengthHeight ? "100%" : "";
@@ -349,17 +356,54 @@ export class NyxmapCard extends LitElement {
               ? html`<nyxmap-layer-switcher
                   .baseStyles=${this._baseStyleItems()}
                   .overlays=${this._overlayItems()}
-                  .onSelectBaseStyle=${(id: string) => this._onSelectBaseStyle(id)}
-                  .onToggleOverlay=${(id: string) => this._onToggleOverlay(id)}
-                  .showThemeToggle=${(this._config.mapStyles.length ?? 0) > 0}
+                  .onSelectBaseStyle=${this._onSelectBaseStyle}
+                  .onToggleOverlay=${this._onToggleOverlay}
+                  .showThemeToggle=${this._config.mapStyles.length > 0}
                   .themeMode=${this._effectiveThemeMode()}
-                  .onSelectThemeMode=${(mode: ThemeMode) => this._onSelectThemeMode(mode)}
+                  .onSelectThemeMode=${this._onSelectThemeMode}
                 ></nyxmap-layer-switcher>`
               : null}
           </div>
         </div>
       </ha-card>
     `;
+  }
+
+  /**
+   * Flags a dark control background so the map controls (MapLibre's own
+   * NavigationControl in particular, whose baked icons are dark) get their
+   * light-on-dark treatment — see NyxmapCard.styles.ts. Keyed off the actual
+   * resolved --card-background-color (HA's theme) rather than the map's
+   * light/dark style, so the controls always match the surface they sit on.
+   *
+   * Coalesced to at most one read per frame, because `getComputedStyle` flushes
+   * pending style and this used to run inline in `updated()` — i.e. on every
+   * `hass` object, many times a second, per card — while the only thing that
+   * changes the answer is the user switching HA themes. There is no event we
+   * can key off instead (`hass` carries no theme signal this card types), so
+   * the read stays, just bounded.
+   *
+   * The first pass is synchronous on purpose: deferring it too would render one
+   * frame of light-styled controls on a dark theme before correcting itself.
+   */
+  private _scheduleDarkFlag(): void {
+    if (!this._darkFlagApplied) {
+      this._darkFlagApplied = true;
+      this._applyDarkFlag();
+      return;
+    }
+    if (this._darkFlagRaf !== undefined) return;
+    this._darkFlagRaf = requestAnimationFrame(() => {
+      this._darkFlagRaf = undefined;
+      this._applyDarkFlag();
+    });
+  }
+
+  private _applyDarkFlag(): void {
+    this.toggleAttribute(
+      "data-dark",
+      isColorDark(getComputedStyle(this).getPropertyValue("--card-background-color")),
+    );
   }
 
   private _scheduleResize(): void {
@@ -435,31 +479,70 @@ export class NyxmapCard extends LitElement {
   /** Handles the layer switcher's own Theme (Auto/Light/Dark) control —
    * independent of _onSelectBaseStyle: which named style is active and
    * which of its own light/dark variants to show are different questions. */
-  private _onSelectThemeMode(mode: ThemeMode): void {
+  private readonly _onSelectThemeMode = (mode: ThemeMode): void => {
     this._manualThemeMode = mode;
     if (!this._map || !this._config) return;
     this._applyStyle(this._resolveActiveStyleUrl());
   }
 
+  /**
+   * Returns `next` unless it is value-equal to the previously returned array,
+   * in which case the previous array is handed back **by identity**.
+   *
+   * `render()` runs on every `hass` object — i.e. many times a second — and
+   * these lists almost never change between them. A fresh array each time
+   * fails Lit's identity check on the switcher's properties, so the switcher
+   * re-rendered every tick, and its `updated()` hook does three
+   * `getBoundingClientRect()` reads: a forced synchronous layout, per card, per
+   * tick, to re-derive an offset that had not moved. Reusing the array when
+   * nothing changed means the switcher simply doesn't update.
+   *
+   * The three callback properties beside them (`onSelectBaseStyle`,
+   * `onToggleOverlay`, `onSelectThemeMode`) are bound once as arrow-function
+   * fields for exactly the same reason, and memoizing the arrays without them
+   * achieves nothing: a fresh arrow per render fails the identity check on its
+   * own, so the switcher still updated every tick. That was measured, not
+   * assumed — see docs/audit/2026-07-25-profile.md.
+   *
+   * JSON comparison is deliberate and cheap here — these are a handful of flat
+   * records of strings and booleans, and it costs far less than the layout it
+   * avoids. It stays correct because every field the switcher renders is in the
+   * compared value: a new overlay, a re-label, a base-style switch or a
+   * visibility toggle all change the JSON and so produce a new array.
+   */
+  private _reuseIfUnchanged<T>(slot: "base" | "overlay", next: T[]): T[] {
+    const serialized = JSON.stringify(next);
+    const cache = this._switcherItemCache[slot];
+    if (cache && cache.serialized === serialized) return cache.items as T[];
+    this._switcherItemCache[slot] = { serialized, items: next };
+    return next;
+  }
+
   private _baseStyleItems(): SwitcherBaseStyleItem[] {
     const activeId = this._manualStyleId ?? this._defaultBaseStyleId();
-    return [...this._layerRegistry.getBaseStyles().entries()].map(([id, entry]) => ({
-      id,
-      label: entry.label,
-      active: id === activeId,
-    }));
+    return this._reuseIfUnchanged(
+      "base",
+      [...this._layerRegistry.getBaseStyles().entries()].map(([id, entry]) => ({
+        id,
+        label: entry.label,
+        active: id === activeId,
+      })),
+    );
   }
 
   private _overlayItems(): SwitcherOverlayItem[] {
-    return [...this._layerRegistry.getOverlays().entries()].map(([id, entry]) => ({
-      id,
-      label: entry.label,
-      group: entry.group,
-      active: this._overlayVisibility.get(id) ?? true,
-    }));
+    return this._reuseIfUnchanged(
+      "overlay",
+      [...this._layerRegistry.getOverlays().entries()].map(([id, entry]) => ({
+        id,
+        label: entry.label,
+        group: entry.group,
+        active: this._overlayVisibility.get(id) ?? true,
+      })),
+    );
   }
 
-  private _onSelectBaseStyle(id: string): void {
+  private readonly _onSelectBaseStyle = (id: string): void => {
     this._manualStyleId = id;
     if (!this._map || !this._config) return;
     this._applyStyle(this._resolveActiveStyleUrl());
@@ -474,7 +557,7 @@ export class NyxmapCard extends LitElement {
     const { maxZoom, minZoom } = baseStyleZoomRange(entry, this._config);
     this._map.setMaxZoom(maxZoom);
     this._map.setMinZoom(minZoom);
-  }
+  };
 
   /** Records the click as intent, then reconciles the live services with it.
    * The write and the apply are deliberately separate: entry.setVisible()
@@ -487,11 +570,11 @@ export class NyxmapCard extends LitElement {
    * *shown* while the UI insisted otherwise. Now the click is never lost: it
    * lands in _overlayVisibility (so the UI is right immediately) and
    * _syncOverlayVisibility() applies it as soon as the style is loaded. */
-  private _onToggleOverlay(id: string): void {
+  private readonly _onToggleOverlay = (id: string): void => {
     this._overlayVisibility.set(id, !(this._overlayVisibility.get(id) ?? true));
     this._syncOverlayVisibility();
     this.requestUpdate();
-  }
+  };
 
   /** Pushes any overlay whose desired visibility differs from what the live
    * services were last told into those services. Deferred toggles (clicked

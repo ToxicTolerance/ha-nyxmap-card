@@ -5,6 +5,82 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Security / tooling
+
+- **`npm audit` is clean (0 vulnerabilities), down from 13** (2 critical, 8 high,
+  3 moderate). None ever reached the shipped bundle — `npm audit --omit=dev` was
+  already 0, since the runtime dependencies are only `maplibre-gl`, `lit` and
+  `@turf/circle`. `vitest`/`@vitest/coverage-v8` 2 → 4 (clears a critical
+  arbitrary-file-read in the Vitest UI server, plus nested vulnerable
+  `vite`/`esbuild` copies), `eslint` 9 → 10 with `eslint-plugin-lit` 1 → 2 (clears
+  the last `brace-expansion` DoS path, reachable only through `minimatch@3`, which
+  eslint 9 pinned and which has no fixed 1.x release). CI moves to Node 22:
+  eslint 10 requires `^20.19 || ^22.13 || >=24`, which `node-version: 20` met only
+  by resolving to the newest 20.x.
+- **Coverage figures shift on this release and are not comparable with earlier
+  ones.** `@vitest/coverage-v8` v4 maps V8 counts onto the AST
+  (`ast-v8-to-istanbul`) instead of through source-map line ranges — more precise,
+  and it reports lower. The same tests over the same source moved from ~99% to
+  ~96% statements on the bump alone. Eight tests were added to
+  `NyxmapFormListEditor`/`NyxmapCardEditor` to restore headroom over the unchanged
+  70% per-file floor, which the new measurement had narrowed to 0.83pp on one
+  file; the tightest margin is now ~8pp. Thresholds themselves were not lowered.
+
+### Fixed
+
+- **WMS overlays on the default protocol version.** GetMap requests always sent
+  `CRS=EPSG:3857`, but WMS renamed that parameter from `SRS` in 1.3.0 — and the
+  card defaults `options.version` to `1.1.1`. Spec-compliant servers
+  (MapServer, GeoServer) answered with a `ServiceException` instead of an image,
+  so the overlay rendered blank with no card-level error. The parameter is now
+  chosen from the version. `version: 1.3.0` was unaffected.
+- **A hidden overlay coming back visible.** An overlay switched off in the layer
+  switcher returned *visible* — with its checkbox still unchecked, needing two
+  clicks to re-hide — if it was ever removed and re-registered.
+  `OverlaySource.remove()` dropped its visibility state while the card kept
+  both the intent and what it had last pushed, so the re-added overlay was never
+  re-hidden. Reachable with no config change at all: clustering removes an
+  entity's accuracy circle for as long as it absorbs it, and a history trail is
+  removed whenever a refresh returns fewer than two points.
+- **Single-sample dots-only history trails.** With `history_show_lines: false`
+  and `history_show_dots: true`, a trail with one recorded position was
+  discarded on the "a line needs two points" rule, taking its layer-switcher
+  entry with it.
+- **The layer switcher's resize tracking.** Its `ResizeObserver` was never
+  attached if the card first rendered while hidden (an HA conditional card, or a
+  dashboard tab not yet opened), and nothing retried.
+
+### Performance
+
+Three costs that ran on every `hass` object — which Home Assistant replaces on
+every state change anywhere in the instance, many times a second:
+
+- Accuracy circles pushed byte-identical polygon geometry through `setData()`,
+  re-tessellating 64 vertices per entity per tick. Now guarded by `dataKey`.
+- The layer switcher re-rendered every tick, because both its item arrays and
+  its three callback props were rebuilt on every render and so failed Lit's
+  identity check; each re-render then did three `getBoundingClientRect()` reads.
+  Arrays are now reused when unchanged and the callbacks are bound once.
+- The card re-read `--card-background-color` via `getComputedStyle`, flushing
+  pending style, to set its dark-controls flag. Now coalesced to one read per
+  animation frame; an element's first update still reads synchronously so there
+  is no flash of wrongly-themed controls.
+
+### Internal
+
+- `EntitiesRenderService.update()` no longer builds and returns a
+  `LngLatBounds` no caller read, letting `MapLibreGlLike` drop the constructor
+  that only fed it.
+- Review, remediation and browser-profile records in
+  [`docs/audit/2026-07-25-code-review.md`](docs/audit/2026-07-25-code-review.md),
+  [`docs/audit/2026-07-25-remediation.md`](docs/audit/2026-07-25-remediation.md)
+  and [`docs/audit/2026-07-25-profile.md`](docs/audit/2026-07-25-profile.md).
+  Suite 479 → 505 tests; branch coverage 92.0% → 92.8%. Measured on **Home
+  Assistant 2024.3.3**, card installed as a Lovelace resource beside four
+  ordinary HA cards, over 300 real state changes: `setData` 3000 → 0,
+  `getComputedStyle` 302 → 35, `getBoundingClientRect` 900 → 0, layout count
+  111 → 32, and total main-thread task time 1117 ms → 506 ms.
+
 ## [0.10.3] - 2026-07-23
 
 This release is the remediation of a full, orchestrated code audit (correctness,

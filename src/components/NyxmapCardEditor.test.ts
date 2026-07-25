@@ -280,4 +280,67 @@ describe("NyxmapCardEditor", () => {
     const detail = (spy.mock.calls[0]![0] as CustomEvent<{ config: MapConfigRaw }>).detail;
     expect(detail.config.map_styles).toEqual([{ name: "Streets", map_style: "https://example.com/streets.json" }]);
   });
+
+  it("seeds a blank row through each list's own Add button", async () => {
+    // Covers the newItemDefaults callbacks the editor hands to each list --
+    // previously never invoked, because every other test drives the lists by
+    // dispatching items-changed rather than clicking through them.
+    el.setConfig({ type: "custom:nyxmap-card", entities: ["device_tracker.a"] } as MapConfigRaw);
+    await el.updateComplete;
+    const spy = onConfigChanged(el);
+
+    const [entityList, styleList] = listEditors(el);
+    await entityList!.updateComplete;
+    (entityList!.shadowRoot!.querySelector("button.add") as HTMLButtonElement).click();
+    await el.updateComplete;
+
+    let cfg = (spy.mock.calls.at(-1)![0] as CustomEvent<{ config: MapConfigRaw }>).detail.config;
+    expect(cfg.entities!.at(-1)).toEqual({ entity: "" });
+
+    await styleList!.updateComplete;
+    (styleList!.shadowRoot!.querySelector("button.add") as HTMLButtonElement).click();
+    await el.updateComplete;
+
+    cfg = (spy.mock.calls.at(-1)![0] as CustomEvent<{ config: MapConfigRaw }>).detail.config;
+    expect(cfg.map_styles!.at(-1)).toEqual({ name: "" });
+    // And a half-built config still parses, which is what keeps the live
+    // preview from being replaced by an HA error card mid-edit.
+    expect(() => new MapConfig(cfg)).not.toThrow();
+  });
+
+  describe("list row summaries", () => {
+    // The summary falls back label -> entity -> placeholder, so a half-filled
+    // row (the normal intermediate state while typing) still reads as something
+    // rather than rendering blank.
+    async function summariesOf(listIndex: number): Promise<string[]> {
+      const list = listEditors(el)[listIndex]!;
+      await list.updateComplete;
+      return [...list.shadowRoot!.querySelectorAll(".summary")].map((n) => n.textContent?.trim() ?? "");
+    }
+
+    it("labels entity rows by label, then entity id, then a placeholder", async () => {
+      el.setConfig({
+        type: "custom:nyxmap-card",
+        entities: [
+          { entity: "device_tracker.a", label: "Alice" },
+          { entity: "device_tracker.b" },
+          { entity: "" },
+        ],
+      } as MapConfigRaw);
+      await el.updateComplete;
+
+      expect(await summariesOf(0)).toEqual(["Alice", "device_tracker.b", "New entity"]);
+    });
+
+    it("labels map_styles rows by name, with a placeholder while blank", async () => {
+      el.setConfig({
+        type: "custom:nyxmap-card",
+        map_styles: [{ name: "Aerial", map_style: "https://example.com/a.json" }, { name: "" }],
+      } as MapConfigRaw);
+      await el.updateComplete;
+
+      expect(await summariesOf(1)).toEqual(["Aerial", "New style"]);
+    });
+  });
+
 });

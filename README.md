@@ -218,7 +218,10 @@ wms:
 
 WMS requests are built as a MapLibre raster tile-URL template around its
 `{bbox-epsg-3857}` substitution token — not hand-rolled BBOX math — so tiles
-load exactly like any other raster source.
+load exactly like any other raster source. The coordinate-reference parameter
+follows `options.version`: WMS 1.3.0 and later get `CRS=EPSG:3857`, earlier
+versions (including the `1.1.1` default) get `SRS=EPSG:3857`, since 1.3.0 is
+where the parameter was renamed.
 
 ## Plugins
 

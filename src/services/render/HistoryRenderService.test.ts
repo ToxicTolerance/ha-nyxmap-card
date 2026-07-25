@@ -242,4 +242,24 @@ describe("HistoryRenderService", () => {
       );
     });
   });
+
+  it("draws a single-sample dots-only trail, with no degenerate LineString", () => {
+    // Pairs with EntityHistory.hasPath: one coordinate is a drawable dot, but a
+    // one-coordinate LineString is invalid GeoJSON and draws nothing, so the
+    // line feature must be omitted rather than emitted empty.
+    const map = createFakeMaplibreMap();
+    const service = new HistoryRenderService(map as never, new StyleReattach(), new LayerRegistry());
+    const history = new EntityHistory("device_tracker.phone", [[1, 2]], "#ff0000", false, true);
+
+    service.update(new Map([["device_tracker.phone", history]]));
+
+    const source = map.addSource.mock.calls.find((c) => c[0] === "history-device_tracker.phone")!;
+    const data = (source[1] as { data: { features: Array<{ geometry: { type: string } }> } }).data;
+    expect(data.features).toHaveLength(1);
+    expect(data.features[0]!.geometry.type).toBe("Point");
+    expect(map.addLayer).toHaveBeenCalledTimes(1);
+    expect(map.addLayer).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "history-device_tracker.phone-dots", type: "circle" }),
+    );
+  });
 });

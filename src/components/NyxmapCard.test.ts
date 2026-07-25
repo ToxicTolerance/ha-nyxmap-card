@@ -47,6 +47,7 @@ interface TestableNyxmapCard extends HTMLElement {
     getMaxZoom: ReturnType<typeof vi.fn>;
   };
   _entities?: EntitiesRenderService;
+  _circles?: { has(entityId: string): boolean };
   _cluster?: { getAbsorbed(): ReadonlyMap<string, [number, number]> };
   _clusterToggleControl?: IconButtonControl;
 }
@@ -890,6 +891,71 @@ describe("NyxmapCard", () => {
       expect(el._clusterToggleControl!.options.isPressed?.()).toBe(false);
       expect(el._cluster!.getAbsorbed().size).toBe(0);
     });
+
+    it("keeps a circle hidden across the cluster absorb/release round trip that removes it", async () => {
+      // Regression, end to end: hiding an accuracy circle in the switcher, then
+      // zooming out until clustering absorbs its entity (which makes
+      // CircleRenderService reconcile the overlay away) and back in, used to
+      // bring the circle back *visible* while its checkbox still read
+      // unchecked. No config edit involved — just the camera moving.
+      const entities = [
+        { entity: "device_tracker.a", fixed_x: 1, fixed_y: 2 },
+        { entity: "device_tracker.b", fixed_x: 3, fixed_y: 4 },
+      ];
+      el.setConfig({ layer_switcher: true, cluster_markers: true, show_accuracy_circles: true, entities });
+      await el.updateComplete;
+      el._map!.fire("style.load");
+      const states = {
+        "device_tracker.a": {
+          entity_id: "device_tracker.a",
+          state: "home",
+          attributes: { gps_accuracy: 30 },
+        },
+      } as unknown as HomeAssistant["states"];
+      el.hass = hassWith(states);
+      await el.updateComplete;
+      // Overlays register during updated(), i.e. after that render — so the
+      // switcher only sees them on the next tick. HA supplies those constantly.
+      el.hass = hassWith(states);
+      await el.updateComplete;
+
+      const switcherEl = () =>
+        el.shadowRoot!.querySelector("nyxmap-layer-switcher") as unknown as {
+          overlays: Array<{ id: string; active: boolean }>;
+          onToggleOverlay: (id: string) => void;
+        };
+      const circleId = "circle-device_tracker.a";
+      expect(switcherEl().overlays.map((o) => o.id)).toContain(circleId);
+
+      switcherEl().onToggleOverlay(circleId);
+      await el.updateComplete;
+      expect(switcherEl().overlays.find((o) => o.id === circleId)?.active).toBe(false);
+
+      // Zoom out until both markers collide -> both absorbed -> circle removed.
+      el._map!.project.mockReturnValue({ x: 0, y: 0 });
+      el._map!.fire("zoomend");
+      expect(el._cluster!.getAbsorbed().size).toBe(2);
+      expect(el._circles!.has("device_tracker.a")).toBe(false);
+
+      // Zoom back in -> released -> the circle is rebuilt from scratch.
+      el._map!.addLayer.mockClear();
+      el._map!.project.mockImplementation((lngLat: [number, number]) => ({
+        x: lngLat[0] * 1e6,
+        y: lngLat[1] * 1e6,
+      }));
+      el._map!.fire("zoomend");
+      expect(el._cluster!.getAbsorbed().size).toBe(0);
+      expect(el._circles!.has("device_tracker.a")).toBe(true);
+      await el.updateComplete;
+
+      // It must come back hidden, and the checkbox must still say so.
+      const rebuilt = el
+        ._map!.addLayer.mock.calls.map((c) => c[0] as { id: string; layout?: { visibility?: string } })
+        .filter((l) => l.id.startsWith(circleId));
+      expect(rebuilt.length).toBeGreaterThan(0);
+      expect(rebuilt.every((l) => l.layout?.visibility === "none")).toBe(true);
+      expect(switcherEl().overlays.find((o) => o.id === circleId)?.active).toBe(false);
+    });
   });
 
   describe("theme_mode: auto", () => {
@@ -997,11 +1063,21 @@ describe("NyxmapCard", () => {
   describe("history refresh", () => {
     const HISTORY_ENTITY = { entity: "device_tracker.phone", fixed_x: 1, fixed_y: 2, history_start: "1 hour ago" };
 
-    function hassFetching(callWS: ReturnType<typeof vi.fn>): HomeAssistant {
+    /**
+     * `HomeAssistant.callWS` is generic — `<T>(msg) => Promise<T>` — so no mock
+     * can satisfy it without a cast: a mock resolves one concrete value, while
+     * the signature promises whatever `T` the caller asks for. vitest 2 typed
+     * `vi.fn()` loosely enough (`Mock<any[], any>`) that this was an implicit
+     * any; vitest 4 types it precisely, so the cast is now written down once
+     * here instead of happening invisibly at every call site.
+     */
+    type CallWSMock = ReturnType<typeof vi.fn> & HomeAssistant["callWS"];
+
+    function hassFetching(callWS: CallWSMock): HomeAssistant {
       return { states: {}, language: "en", callWS };
     }
 
-    async function bootWithHistory(callWS: ReturnType<typeof vi.fn>, config: Record<string, unknown> = {}) {
+    async function bootWithHistory(callWS: CallWSMock, config: Record<string, unknown> = {}) {
       el.setConfig({ cluster_markers: false, entities: [HISTORY_ENTITY], ...config });
       await el.updateComplete;
       el._map!.fire("style.load");
@@ -1018,7 +1094,7 @@ describe("NyxmapCard", () => {
       // further out of date.
       vi.useFakeTimers();
       try {
-        const callWS = vi.fn().mockResolvedValue({ "device_tracker.phone": [{ a: { latitude: 1, longitude: 2 } }, { a: { latitude: 3, longitude: 4 } }] });
+        const callWS: CallWSMock = vi.fn().mockResolvedValue({ "device_tracker.phone": [{ a: { latitude: 1, longitude: 2 } }, { a: { latitude: 3, longitude: 4 } }] });
         el.setConfig({ cluster_markers: false, entities: [HISTORY_ENTITY] });
         await el.updateComplete;
         el._map!.fire("style.load");
@@ -1039,7 +1115,7 @@ describe("NyxmapCard", () => {
     it("installs no timer when nothing configures history", async () => {
       vi.useFakeTimers();
       try {
-        const callWS = vi.fn().mockResolvedValue({});
+        const callWS: CallWSMock = vi.fn().mockResolvedValue({});
         el.setConfig({ cluster_markers: false, entities: [{ entity: "device_tracker.phone", fixed_x: 1, fixed_y: 2 }] });
         await el.updateComplete;
         el._map!.fire("style.load");
@@ -1056,7 +1132,7 @@ describe("NyxmapCard", () => {
     it("clears the refresh timer on teardown, so a destroyed map is never touched again", async () => {
       vi.useFakeTimers();
       try {
-        const callWS = vi.fn().mockResolvedValue({ "device_tracker.phone": [{ a: { latitude: 1, longitude: 2 } }, { a: { latitude: 3, longitude: 4 } }] });
+        const callWS: CallWSMock = vi.fn().mockResolvedValue({ "device_tracker.phone": [{ a: { latitude: 1, longitude: 2 } }, { a: { latitude: 3, longitude: 4 } }] });
         el.setConfig({ cluster_markers: false, entities: [HISTORY_ENTITY] });
         await el.updateComplete;
         el._map!.fire("style.load");
@@ -1429,4 +1505,163 @@ describe("NyxmapCard", () => {
       expect(el._map!.getSource).toHaveBeenCalled();
     });
   });
+
+  describe("layer switcher render identity", () => {
+    // Regression: _baseStyleItems()/_overlayItems() built a fresh array on every
+    // render, so Lit's identity check on the switcher's properties always
+    // reported a change and the switcher re-rendered on every `hass` object --
+    // and its updated() hook does three getBoundingClientRect() reads, i.e. a
+    // forced synchronous layout many times a second, to re-derive an offset
+    // that had not moved.
+    it("reuses the item arrays across hass ticks that change nothing", async () => {
+      el.setConfig({ layer_switcher: true, cluster_markers: false, entities: ["device_tracker.a"] });
+      await el.updateComplete;
+      el._map!.fire("style.load");
+      el.hass = hassWith({});
+      await el.updateComplete;
+
+      const switcher = () =>
+        el.shadowRoot!.querySelector("nyxmap-layer-switcher") as unknown as {
+          baseStyles: unknown[];
+          overlays: unknown[];
+        };
+      const baseBefore = switcher().baseStyles;
+      const overlaysBefore = switcher().overlays;
+
+      el.hass = hassWith({});
+      await el.updateComplete;
+      el.hass = hassWith({});
+      await el.updateComplete;
+
+      expect(switcher().baseStyles).toBe(baseBefore);
+      expect(switcher().overlays).toBe(overlaysBefore);
+    });
+
+    it("keeps the switcher's callback props identical across ticks", async () => {
+      // Regression, caught by profiling rather than by review: memoizing the
+      // item arrays achieved nothing on its own, because render() also passed
+      // three freshly-created arrow functions. Those fail Lit's identity check
+      // by themselves, so the switcher still updated on every hass object and
+      // still re-measured. Browser profile: getBoundingClientRect stayed at
+      // 3/tick until these were bound once. See docs/audit/2026-07-25-profile.md.
+      el.setConfig({ layer_switcher: true, cluster_markers: false, entities: ["device_tracker.a"] });
+      await el.updateComplete;
+      el._map!.fire("style.load");
+      el.hass = hassWith({});
+      await el.updateComplete;
+
+      const switcher = () =>
+        el.shadowRoot!.querySelector("nyxmap-layer-switcher") as unknown as {
+          onSelectBaseStyle: unknown;
+          onToggleOverlay: unknown;
+          onSelectThemeMode: unknown;
+        };
+      const before = switcher();
+      const [sel, tog, theme] = [before.onSelectBaseStyle, before.onToggleOverlay, before.onSelectThemeMode];
+
+      el.hass = hassWith({});
+      await el.updateComplete;
+      el.hass = hassWith({});
+      await el.updateComplete;
+
+      expect(switcher().onSelectBaseStyle).toBe(sel);
+      expect(switcher().onToggleOverlay).toBe(tog);
+      expect(switcher().onSelectThemeMode).toBe(theme);
+    });
+
+    it("hands over a new array as soon as anything the switcher shows changes", async () => {
+      el.setConfig({ layer_switcher: true, cluster_markers: false, entities: ["device_tracker.a"] });
+      await el.updateComplete;
+      el._map!.fire("style.load");
+      el.hass = hassWith({});
+      await el.updateComplete;
+
+      const switcher = () =>
+        el.shadowRoot!.querySelector("nyxmap-layer-switcher") as unknown as {
+          baseStyles: Array<{ id: string; active: boolean }>;
+          onSelectBaseStyle: (id: string) => void;
+        };
+      const before = switcher().baseStyles;
+      expect(before.find((s) => s.id === "dark")?.active).toBe(false);
+
+      switcher().onSelectBaseStyle("dark");
+      await el.updateComplete;
+
+      expect(switcher().baseStyles).not.toBe(before);
+      expect(switcher().baseStyles.find((s) => s.id === "dark")?.active).toBe(true);
+    });
+  });
+
+
+  describe("dark-control flag (--card-background-color read)", () => {
+    // Regression: this ran inline in updated(), so getComputedStyle -- which
+    // flushes pending style -- fired on every hass object, many times a second
+    // per card, while only an HA theme switch changes the answer.
+    function spyComputedStyle(background: string) {
+      const original = window.getComputedStyle.bind(window);
+      const spy = vi.fn((el: Element, pseudo?: string | null) => {
+        const real = original(el, pseudo ?? undefined);
+        return {
+          ...real,
+          getPropertyValue: (name: string) =>
+            name === "--card-background-color" ? background : real.getPropertyValue(name),
+        } as CSSStyleDeclaration;
+      });
+      window.getComputedStyle = spy as unknown as typeof window.getComputedStyle;
+      return { spy, restore: () => (window.getComputedStyle = original) };
+    }
+
+    it("applies the flag synchronously on an element's very first update, with no flash of the wrong theme", async () => {
+      // Deliberately a fresh element: beforeEach already mounted `el`, and Lit
+      // performs an initial update on connection, so `el`'s first update has
+      // been and gone. It is that first one that must not be deferred.
+      const { restore } = spyComputedStyle("#111111");
+      try {
+        const fresh = asTestable(document.createElement("nyxmap-card") as InstanceType<typeof NyxmapCard>);
+        fresh.setConfig({});
+        document.body.appendChild(fresh);
+        await fresh.updateComplete;
+
+        expect(fresh.hasAttribute("data-dark")).toBe(true);
+        fresh.remove();
+      } finally {
+        restore();
+      }
+    });
+
+    it("does not re-read the computed style on every subsequent hass tick", async () => {
+      el.setConfig({});
+      await el.updateComplete;
+
+      const { spy, restore } = spyComputedStyle("#ffffff");
+      try {
+        for (let i = 0; i < 5; i++) {
+          el.hass = hassWith({});
+          await el.updateComplete;
+        }
+        // Coalesced to a pending frame rather than one read per tick.
+        const readsOnThisElement = spy.mock.calls.filter((c) => c[0] === el).length;
+        expect(readsOnThisElement).toBeLessThan(5);
+      } finally {
+        restore();
+      }
+    });
+
+    it("still tracks a theme change, one frame later", async () => {
+      el.setConfig({});
+      await el.updateComplete;
+      expect(el.hasAttribute("data-dark")).toBe(false);
+
+      const { restore } = spyComputedStyle("#111111");
+      try {
+        el.hass = hassWith({});
+        await el.updateComplete;
+        await flushMicrotasks(); // let the coalescing frame run
+        expect(el.hasAttribute("data-dark")).toBe(true);
+      } finally {
+        restore();
+      }
+    });
+  });
+
 });

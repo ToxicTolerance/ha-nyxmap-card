@@ -208,25 +208,11 @@ export class FakeMarker {
   }
 }
 
-export class FakeLngLatBounds {
-  private points: Array<[number, number]> = [];
-
-  extend(lngLat?: [number, number]): this {
-    if (lngLat) this.points.push(lngLat);
-    return this;
-  }
-
-  getExtended(): Array<[number, number]> {
-    return this.points;
-  }
-}
-
 export class FakeNavigationControl {}
 
 export function createFakeMaplibreGl() {
   return {
     Marker: FakeMarker,
-    LngLatBounds: FakeLngLatBounds,
   };
 }
 
@@ -252,7 +238,6 @@ export function createFakeMapLibreLoaderModule() {
     maplibregl: {
       Map: BoundFakeMap,
       Marker: FakeMarker,
-      LngLatBounds: FakeLngLatBounds,
       NavigationControl: FakeNavigationControl,
     },
     maplibreCss: "",

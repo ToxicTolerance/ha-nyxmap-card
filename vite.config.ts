@@ -63,11 +63,17 @@ export default defineConfig({
       // other, and the per-file form is what closes the actual hole — with
       // aggregate-only thresholds a single module can rot to 0% while the rest
       // of the tree carries the average and the gate stays green. Actuals are
-      // far above this (~98% statements/lines, ~96% functions, ~91% branches
-      // overall); the weakest single file is LayerSwitcherControl.ts at ~80%
-      // lines / 75% functions / 76% branches, so the floors sit a few points
-      // under that rather than being pinned to today's numbers. Raise them when
-      // the weakest file improves; do not lower them to make a red run pass.
+      // far above this (~96% statements, ~92% branches, ~96% functions, ~98%
+      // lines overall); the weakest single metric on any one file is Circle.ts
+      // at ~78% branches, so the floors sit a few points under that rather than
+      // being pinned to today's numbers. Raise them when the weakest file
+      // improves; do not lower them to make a red run pass.
+      //
+      // Those figures are not comparable with anything recorded before v0.10.4:
+      // @vitest/coverage-v8 v4 maps V8 counts onto the AST (ast-v8-to-istanbul)
+      // instead of through source-map line ranges, which is more precise and
+      // reports lower. The same tests over the same source moved from ~99% to
+      // ~96% statements on the bump alone.
       thresholds: {
         perFile: true,
         lines: 70,

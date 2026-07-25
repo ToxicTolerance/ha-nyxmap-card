@@ -83,6 +83,15 @@ export class CircleRenderService extends OverlaySource<string, CircleItem> {
       // rebuild — setData() alone always suffices.
       sourceKey: "geojson",
       paintKey: JSON.stringify([item.color, item.fillOpacity]),
+      // The polygon is a pure function of centre + radius, and nothing else,
+      // so an unchanged pair means an unchanged source. Without this guard
+      // every `hass` object -- which HA replaces on every state change anywhere
+      // in the instance, many times a second -- pushed a byte-identical polygon
+      // through setData(), making MapLibre re-tessellate 64 vertices per entity
+      // per tick for no visual change. Colour and fill-opacity are deliberately
+      // absent: they live in layer paint, not in the data, and are already
+      // handled by paintKey above.
+      dataKey: JSON.stringify([item.center, item.radiusMeters]),
     };
   }
 

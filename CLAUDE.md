@@ -29,7 +29,9 @@ work (a version number repeated in prose only drifts, so there isn't one here):
 | `npm run lint` | `eslint . --max-warnings 0` — the whole project, matching what `tsconfig.json` type-checks (`src`, `test`, `dev`, `vite.config.ts`); **type-aware** over `src/**` |
 | `npm run typecheck` | `tsc --noEmit` |
 
-Vite 6 + vitest 2 + TypeScript 5.7 + eslint 9 (with `typescript-eslint` and `eslint-plugin-lit`).
+Vite 6 + vitest 4 + TypeScript 5.7 + eslint 10 (with `typescript-eslint` and `eslint-plugin-lit`).
+CI runs Node 22: eslint 10 requires `^20.19 || ^22.13 || >=24`, which the previous `node-version: 20`
+satisfied only by resolving to the newest 20.x.
 `tsconfig.json` is `strict` **plus** `noUncheckedIndexedAccess`, `forceConsistentCasingInFileNames`
 and `isolatedModules` — assume new code has to clear that bar. Runtime dependencies are just
 `maplibre-gl`, `lit` and `@turf/circle`. `.github/workflows/test.yml` runs typecheck → lint →
@@ -50,13 +52,20 @@ scoped to shipped code rather than everything.
 
 Coverage thresholds live in `vite.config.ts` and are **per-file** floors (70% of each metric,
 `perFile: true`) rather than aggregate ones — an aggregate gate lets one module rot to 0% while the
-rest of the tree carries the average. Actuals are far above the floor on most metrics (~99%
-statements/lines, ~97% functions, ~92% branches). **Branch** coverage is the binding constraint on
-raising it: `LayerSwitcherControl.ts` sits around 71%, because what is left uncovered there is the
-`getBoundingClientRect()`-driven code that jsdom cannot exercise at all (it implements no layout,
-so every rect is zeros and the assertions would be vacuous). The arithmetic itself was moved to
-`LayerSwitcherLayout.ts` for exactly this reason and *is* fully tested; the residue is the DOM
-plumbing around it.
+rest of the tree carries the average. Actuals are comfortably above the floor (~96% statements,
+~92% branches, ~96% functions, ~98% lines). **Branch** coverage is the binding constraint on
+raising it; the weakest single metric anywhere is `Circle.ts` at ~78% branches, with
+`NyxmapCard.ts` (~87% branches) close behind — the residue there is error paths and lifecycle
+races that only a real browser reaches. `LayerSwitcherControl.ts` is the other one: what is left
+uncovered is the `getBoundingClientRect()`-driven code that jsdom cannot exercise at all (it
+implements no layout, so every rect is zeros and the assertions would be vacuous). The arithmetic
+itself was moved to `LayerSwitcherLayout.ts` for exactly this reason and *is* fully tested; the
+residue is the DOM plumbing around it.
+
+**Coverage figures before and after v0.10.4 are not comparable.** `@vitest/coverage-v8` v4 maps V8
+counts onto the AST (`ast-v8-to-istanbul`) rather than through source-map line ranges. It is more
+precise and reports lower: the same tests over the same source moved from ~99% to ~96% statements
+on the toolchain bump alone. Don't read that as a regression, and don't chase the old numbers.
 
 ### Dev loop
 
@@ -117,8 +126,13 @@ intentional — it keeps the fork diffable against the upstream project's module
   `StyleReattach` + `LayerRegistry`, tear all of it down symmetrically). Subclasses supply only
   what differs: the id, the source spec, the layer specs, a `paintKey`, a `sourceKey`, a `dataKey`
   (the identity of the data a live update pushes — an unchanged one skips the push, which is what
-  stops raster/WMS overlays reloading their source on every `hass` tick), and how to update a live
-  source. The reattach + layer-switcher registration itself is shared with `PluginHost` via the
+  stops raster/WMS overlays reloading their source, and accuracy circles re-tessellating their
+  polygon, on every `hass` tick), and how to update a live source. One rule the base enforces for
+  everyone: **an overlay's switcher visibility outlives its removal** — `remove()` deliberately
+  keeps the `visibility` entry, so an overlay that disappears and comes back (a circle while
+  clustering absorbs its entity; a trail whose latest fetch is too short) is rebuilt hidden if that
+  is how the user left it. `NyxmapCard` and `PluginHost` keep their own copies of that intent
+  across a removal too; this side forgetting was a real desync. The reattach + layer-switcher registration itself is shared with `PluginHost` via the
   exported **`registerOverlayLifecycle`** helper, so that wiring lives in one place. **`OverlayIds`**
   is the single source of truth for overlay id prefixes *and* for the non-prefixed reserved ids
   (`entity-clusters`), and is what `PluginHost` reads for its reserved list — see "Adding an overlay
@@ -139,13 +153,17 @@ intentional — it keeps the fork diffable against the upstream project's module
 - **`src/types/`** — `home-assistant.d.ts`, `ha-form.d.ts`, `nyxmap-plugin.d.ts`: duck-typed
   contracts for things provided by the surrounding HA frontend or consumed by plugin authors,
   never project dependencies.
-- **`docs/audit/`** — historical only. Point-in-time artifacts of the v0.9.1 audit, each carrying
-  a "Superseded" banner. They describe a tree that no longer exists; `CHANGELOG.md` is what
-  landed and this file is the current architecture.
+- **`docs/audit/`** — point-in-time review artifacts, newest last. The v0.9.1 set
+  (`AUDIT-STATUS.md`, `engineering-audit.md`, `code-review-findings.md`, `fixes/`) is **historical
+  only** and each file carries a "Superseded" banner — they describe a tree that no longer exists.
+  `2026-07-22-code-audit.md` (v0.10.2) and the v0.10.3 set — `2026-07-25-code-review.md`,
+  its `-remediation.md`, and `-profile.md` (a real-browser profile of the performance findings,
+  which caught a shipped fix that did not work) — are dated reviews of the current tree, all
+  findings resolved. Check them before re-deriving a defect. `CHANGELOG.md` is what landed and this file is the current architecture.
 
 ### Tests
 
-Tests are **colocated**: `Foo.ts` sits next to `Foo.test.ts` (36 test files today), and
+Tests are **colocated**: `Foo.ts` sits next to `Foo.test.ts` (37 test files today), and
 `vite.config.ts` collects `src/**/*.test.ts`. The default environment is `node`; the ~10 files that
 need a DOM opt in individually with a `// @vitest-environment jsdom` pragma rather than making
 jsdom global. `test/setup.ts` shims `matchMedia`, `ResizeObserver` and `requestAnimationFrame` for
