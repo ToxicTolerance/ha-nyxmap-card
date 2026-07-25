@@ -25,7 +25,7 @@ The constraint was "fix these without creating new ones", so:
 
 | | Before | After |
 |---|---|---|
-| Tests | 479 | **504** (+25) |
+| Tests | 479 | **505** (+26) |
 | Test files | 37 | 37 |
 | Statements / lines | 99.0% | 99.1% |
 | Branches | 92.0% | **92.8%** |
@@ -42,7 +42,7 @@ Bundle: 1,721.61 kB raw / 375.31 kB gzip. No runtime dependency changed.
 | F2 | High | `OverlaySource` keeps visibility intent across `remove()` | `Keep an overlay's visibility intent when the overlay is removed` |
 | F5 | Low | dots-only trails draw from a single sample | `Draw a dots-only history trail that has a single sample` |
 | F3(c) | Medium | `dataKey` on accuracy circles | `Stop re-pushing unchanged accuracy-circle geometry on every hass tick` |
-| F3(b)+F6 | Medium+Low | switcher item arrays reused; observer attach retried | `Stop the layer switcher forcing a layout on every hass tick…` |
+| F3(b)+F6 | Medium+Low | switcher item arrays reused; callbacks bound once; observer attach retried | `Stop the layer switcher forcing a layout on every hass tick…` + `Bind the layer switcher's callback props once` |
 | F3(a) | Medium | `--card-background-color` read coalesced per frame | `Coalesce the card's --card-background-color read to one per frame` |
 | F4 | Low | dead `LngLatBounds` return removed | `Drop EntitiesRenderService's unused bounds computation` |
 | F7 | Low | resolved by design decision — see below | (F2 commit) |
@@ -114,6 +114,14 @@ skipped.
 
 ### F3(b) + F6 — switcher layout and observer
 
+> **This fix was initially incomplete and shipped that way.** Browser profiling
+> afterwards showed `getBoundingClientRect` unchanged at 3 per tick: `render()`
+> also passed three freshly-created arrow functions, which fail Lit's identity
+> check on their own, so the switcher updated every tick regardless of the
+> memoized arrays. Fixed by binding them once; see
+> [`2026-07-25-profile.md`](2026-07-25-profile.md). The array-identity test
+> passed the whole time, because it asserted the change rather than the outcome.
+
 Landed together, as the review said they had to be. `_baseStyleItems()` /
 `_overlayItems()` now return the previous array when the contents serialize
 identically, so Lit's identity check reports no change and the switcher doesn't
@@ -181,9 +189,11 @@ outright.
 
 ## What this pass did not cover
 
-Unchanged from the review's own closing caveat, and still true: no run against a
-real Home Assistant instance, no execution of the built bundle in a browser, no
-review of the `*.styles.ts` files or `dev/`, and no dependency/supply-chain pass
-(the 0.10.2 audit ran `npm audit`; this one did not). The performance findings
-are reasoned from the code and the tests pin the call counts — none of them was
-profiled.
+No run against a real Home Assistant instance, no review of the `*.styles.ts`
+files or `dev/`, and no dependency/supply-chain pass (the 0.10.2 audit ran
+`npm audit`; this one did not).
+
+The "not profiled" caveat that originally stood here has since been closed —
+see [`2026-07-25-profile.md`](2026-07-25-profile.md), which measured the F3
+findings against the real bundle in Chromium, caught an ineffective fix, and
+corrected the mechanism claimed for F3(b).

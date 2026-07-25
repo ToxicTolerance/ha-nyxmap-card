@@ -12,6 +12,9 @@ records how it was verified and what the fix would be.
 > record, including one approach that was abandoned mid-implementation because
 > it would have introduced a new bug. Suite 479 → 504 tests, branch coverage
 > 92.0% → 92.8%, full gate green. Status is marked per finding below.
+> The F3 performance findings were subsequently **measured in a real browser**
+> ([`2026-07-25-profile.md`](2026-07-25-profile.md)), which caught an F3(b) fix
+> that did not work and corrected the stated mechanism behind it.
 
 ## Baseline: the gate is green
 
@@ -178,7 +181,7 @@ carry `visibility: "none"`.
 
 ---
 
-### F3 — three per-`hass`-tick costs · Medium · ✅ All three fixed
+### F3 — three per-`hass`-tick costs · Medium · ✅ All three fixed · ⚠️ (b)'s mechanism corrected by profiling
 
 Home Assistant replaces the whole `hass` object on **every state change anywhere
 in the instance** — the codebase says so itself (`OverlaySource.ts:107-113`,
@@ -205,6 +208,15 @@ re-derive an offset that only changes when the control column's height changes.
 `_overlayVisibility` actually changed) or gate `_measure()` on the inputs that
 can move it. The `_measure()` body already no-ops the style write when the
 numbers match — it's the three rect reads that cost.
+
+> **Corrected by measurement.** Calling this "a forced synchronous layout" was
+> wrong. A browser profile shows CDP `LayoutCount` and `RecalcStyleCount` at
+> **0 in both bundles** (the counters were control-tested and do work): Lit's
+> re-render wrote no DOM mutations, so nothing invalidated layout and the rect
+> reads hit cached geometry. The real cost was the Lit update machinery plus
+> three cheap reads — visible in `ScriptDuration`, not layout. Memoizing the
+> arrays also turned out to be *insufficient* on its own; see
+> [`2026-07-25-profile.md`](2026-07-25-profile.md).
 
 **(c) A full geodesic circle rebuilt per entity per tick.**
 `CircleRenderService.build()` calls `circlePolygonCoordinates()` →

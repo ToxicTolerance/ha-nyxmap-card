@@ -148,9 +148,10 @@ intentional — it keeps the fork diffable against the upstream project's module
 - **`docs/audit/`** — point-in-time review artifacts, newest last. The v0.9.1 set
   (`AUDIT-STATUS.md`, `engineering-audit.md`, `code-review-findings.md`, `fixes/`) is **historical
   only** and each file carries a "Superseded" banner — they describe a tree that no longer exists.
-  `2026-07-22-code-audit.md` (v0.10.2) and `2026-07-25-code-review.md` (v0.10.3) are dated reviews
-  of the current tree; the latter has **open findings** and is the place to check before
-  re-deriving a defect. `CHANGELOG.md` is what landed and this file is the current architecture.
+  `2026-07-22-code-audit.md` (v0.10.2) and the v0.10.3 set — `2026-07-25-code-review.md`,
+  its `-remediation.md`, and `-profile.md` (a real-browser profile of the performance findings,
+  which caught a shipped fix that did not work) — are dated reviews of the current tree, all
+  findings resolved. Check them before re-deriving a defect. `CHANGELOG.md` is what landed and this file is the current architecture.
 
 ### Tests
 

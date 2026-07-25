@@ -36,9 +36,10 @@ every state change anywhere in the instance, many times a second:
 
 - Accuracy circles pushed byte-identical polygon geometry through `setData()`,
   re-tessellating 64 vertices per entity per tick. Now guarded by `dataKey`.
-- The layer switcher re-rendered every tick (fresh item arrays failed Lit's
-  identity check), and each re-render did three `getBoundingClientRect()` reads
-  — a forced synchronous layout. The arrays are now reused when unchanged.
+- The layer switcher re-rendered every tick, because both its item arrays and
+  its three callback props were rebuilt on every render and so failed Lit's
+  identity check; each re-render then did three `getBoundingClientRect()` reads.
+  Arrays are now reused when unchanged and the callbacks are bound once.
 - The card re-read `--card-background-color` via `getComputedStyle`, flushing
   pending style, to set its dark-controls flag. Now coalesced to one read per
   animation frame; an element's first update still reads synchronously so there
@@ -49,10 +50,13 @@ every state change anywhere in the instance, many times a second:
 - `EntitiesRenderService.update()` no longer builds and returns a
   `LngLatBounds` no caller read, letting `MapLibreGlLike` drop the constructor
   that only fed it.
-- Review and remediation records in
-  [`docs/audit/2026-07-25-code-review.md`](docs/audit/2026-07-25-code-review.md)
-  and [`docs/audit/2026-07-25-remediation.md`](docs/audit/2026-07-25-remediation.md).
-  Suite 479 → 504 tests; branch coverage 92.0% → 92.8%.
+- Review, remediation and browser-profile records in
+  [`docs/audit/2026-07-25-code-review.md`](docs/audit/2026-07-25-code-review.md),
+  [`docs/audit/2026-07-25-remediation.md`](docs/audit/2026-07-25-remediation.md)
+  and [`docs/audit/2026-07-25-profile.md`](docs/audit/2026-07-25-profile.md).
+  Suite 479 → 505 tests; branch coverage 92.0% → 92.8%. Measured over 300 `hass`
+  ticks with 10 entities in Chromium: `setData` 3000 → 0, `getComputedStyle`
+  300 → 1, `getBoundingClientRect` 900 → 0, script duration 24.6 ms → 2.0 ms.
 
 ## [0.10.3] - 2026-07-23
 
