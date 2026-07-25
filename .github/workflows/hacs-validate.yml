@@ -3,10 +3,11 @@ name: HACS Validate
 permissions:
   contents: read
 
+# Release-time validation lives in release.yml, as a job that waits for the
+# release to exist: HACS looks for the plugin file in the latest release's
+# assets, so validating on the tag push races the asset upload. What is left
+# here is the standing check against the default branch.
 on:
-  push:
-    tags:
-      - 'v*'
   schedule:
     - cron: "0 0 * * *"
   workflow_dispatch:
