@@ -14,7 +14,10 @@ function dotsLayerId(id: string): string {
 
 function toGeoJson(coordinates: Array<[number, number]>, showLines: boolean, showDots: boolean) {
   const features: unknown[] = [];
-  if (showLines) {
+  // A one-coordinate LineString is not valid GeoJSON and draws nothing, so it
+  // is left out rather than emitted — reachable now that a dots-only trail is
+  // admitted on a single sample (see EntityHistory.hasPath).
+  if (showLines && coordinates.length >= 2) {
     features.push({
       type: "Feature" as const,
       properties: {},
