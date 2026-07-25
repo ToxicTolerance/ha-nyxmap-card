@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { EntityConfig } from "../../configs/EntityConfig";
 import type { HomeAssistant } from "../../types/home-assistant";
 import { createFakeMaplibreGl, createFakeMaplibreMap, type FakeMaplibreMap, FakeMarker } from "../../../test/fakes/FakeMaplibreMap";
-import { ClusterRenderService, computeExpansionZoom } from "./ClusterRenderService";
+import { ClusterRenderService } from "./ClusterRenderService";
 import { LayerRegistry } from "./LayerRegistry";
 
 function hassWith(states: HomeAssistant["states"] = {}): HomeAssistant {
@@ -114,7 +114,33 @@ describe("ClusterRenderService", () => {
     expect([...bubbles(service).values()][0]!.count).toBe(9);
   });
 
-  it("anchors a bubble at the mean of member SCREEN positions, not of their lng/lat", () => {
+  it("anchors a bubble between its members regardless of how they are bunched up", () => {
+    const map = createFakeMaplibreMap();
+    const service = makeService(map);
+
+    // Four in a knot at x≈0 plus one at x=44, all one group. The arithmetic
+    // mean of the five is x≈8.8 — sitting on the knot, with the fifth member
+    // stranded a bubble-and-a-half away. The middle of the footprint is x=22.
+    service.update(
+      [
+        entityAt("a", 0, 0),
+        entityAt("b", 2, 1),
+        entityAt("c", 4, 0),
+        entityAt("d", 2, -1),
+        entityAt("e", 44, 0),
+      ],
+      hassWith(),
+    );
+
+    expect(bubbles(service).size).toBe(1);
+    const bubble = [...bubbles(service).values()][0]!;
+    expect(bubble.count).toBe(5);
+    expect(bubble.centroid[0]).toBeCloseTo(22, 6);
+    // Equidistant from the two extremes, which the mean is emphatically not.
+    expect(Math.abs(bubble.centroid[0] - 0)).toBeCloseTo(Math.abs(bubble.centroid[0] - 44), 6);
+  });
+
+  it("anchors a bubble in member SCREEN space, not in lng/lat space", () => {
     const map = createFakeMaplibreMap();
     // A deliberately nonlinear projection — as both Web Mercator (log latitude)
     // and the default globe really are. y = lat^2/40, so lat 0 -> y 0 and
@@ -206,8 +232,44 @@ describe("ClusterRenderService", () => {
 
     expect(map.easeTo).toHaveBeenCalledTimes(1);
     const arg = map.easeTo.mock.calls[0]![0] as { center: [number, number]; zoom: number };
-    expect(arg.center).toEqual([20, 0]); // mean of [0,0] and [40,0]
+    expect(arg.center).toEqual([20, 0]); // midpoint of [0,0] and [40,0]
     expect(arg.zoom).toBeGreaterThan(10);
+  });
+
+  it("click-to-expand never zooms past cluster_max_zoom, even for co-located entities", () => {
+    const map = createFakeMaplibreMap();
+    map.getZoom.mockReturnValue(10);
+    const service = makeService(map);
+    // Byte-identical positions: no zoom will ever separate them, so the old
+    // "+6 levels" fallback threw the whole map away to reveal two markers still
+    // exactly on top of each other. cluster_max_zoom is the ceiling now — at it,
+    // clustering is off and both render individually, which is the most a zoom
+    // can achieve here.
+    service.update([entityAt("a", 5, 5), entityAt("b", 5, 5)], hassWith(), { maxZoom: 12 });
+
+    [...bubbles(service).values()][0]!.inner.dispatchEvent(new Event("click"));
+
+    const arg = map.easeTo.mock.calls[0]![0] as { zoom: number };
+    expect(arg.zoom).toBeLessThanOrEqual(12);
+    expect(arg.zoom).toBeGreaterThan(10);
+  });
+
+  it("click-to-expand stops short of zooming a group's own members off screen", () => {
+    const map = createFakeMaplibreMap();
+    map.getZoom.mockReturnValue(10);
+    // A short, wide card: only 120px of height to play with.
+    map.getCanvas.mockReturnValue({ clientWidth: 800, clientHeight: 120 });
+    const service = makeService(map);
+    // Two markers 40px apart vertically. Separating them wants ~0.64 levels,
+    // but the group's footprint is already 40 + 48 = 88px of the 120px
+    // available, so the fit ceiling (log2(120/88) ~ 0.45) binds first.
+    service.update([entityAt("a", 0, 0), entityAt("b", 0, 40)], hassWith());
+
+    [...bubbles(service).values()][0]!.inner.dispatchEvent(new Event("click"));
+
+    const arg = map.easeTo.mock.calls[0]![0] as { zoom: number };
+    expect(arg.zoom).toBeGreaterThan(10);
+    expect(arg.zoom).toBeLessThan(10.65);
   });
 
   it("removeAll() removes every bubble, clears hidden ids, and unregisters the overlay", () => {
@@ -286,24 +348,6 @@ describe("ClusterRenderService", () => {
       bubble.inner.dispatchEvent(new Event("transitionend"));
       expect(bubble.marker.remove).toHaveBeenCalledTimes(1);
     });
-  });
-});
-
-describe("computeExpansionZoom", () => {
-  it("zooms in at least one level even when members are already nearly separated", () => {
-    const members = [
-      { xy: { x: 0, y: 0 }, size: 48 },
-      { xy: { x: 100, y: 0 }, size: 48 },
-    ];
-    expect(computeExpansionZoom(members, 10, 22)).toBe(11);
-  });
-
-  it("zooms in further for a tighter group and caps at maxZoom", () => {
-    const members = [
-      { xy: { x: 0, y: 0 }, size: 48 },
-      { xy: { x: 1, y: 0 }, size: 48 },
-    ];
-    expect(computeExpansionZoom(members, 21, 22)).toBe(22);
   });
 });
 

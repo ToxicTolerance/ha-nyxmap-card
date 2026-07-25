@@ -7,6 +7,33 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **Cluster bubbles sat off-centre from the entities they stood for**, part two:
+  the *mean* is a centre of mass, so it is dragged by how members bunch up. Four
+  entities in a knot plus one a marker-width away — an ordinary "everyone home
+  except one" arrangement — put the bubble on the knot rather than between the
+  five. Measured against a real browser, that was 11.6px, a third of the bubble's
+  own diameter. A bubble is now anchored at the centre of the smallest circle
+  enclosing its members' screen positions: the point whose greatest distance to
+  any member is as small as possible, i.e. the actual middle of the group's
+  footprint, and equidistant from the outermost members however the rest are
+  distributed. That point is also rotation-invariant, so the bubble no longer
+  needs to be re-derived from an axis-aligned box that would slide relative to
+  its members as the compass is turned.
+- **Clicking a cluster no longer throws its own entities off screen, or slams to
+  full zoom.** The target zoom considered only how far apart the tightest
+  colliding pair needed to be pulled, so a group containing one tight pair zoomed
+  in far enough to push the group's outer members outside the viewport — clicking
+  a cluster to see what was in it could leave you seeing less of it. Worse,
+  entities reporting byte-identical coordinates (two phones at the same desk) can
+  never be separated at any zoom, and hit a flat "+6 levels" fallback capped only
+  by the *map's* maximum: measured as z15 → z21, discarding all context to reveal
+  two markers still exactly on top of each other. The zoom is now the lesser of
+  what separation needs and what keeps the whole group on screen, capped at
+  `cluster_max_zoom` — at or above which clustering is off entirely, so the group
+  has certainly expanded and going deeper achieves nothing — and floored so a
+  click always responds. The same real-browser fixtures now give +1.77 levels
+  with all five members still visible, and +2.38 instead of +6.00 for the
+  co-located pair.
 - **Cluster bubbles sat off-centre from the entities they stood for.** A bubble
   was anchored at the arithmetic mean of its members' longitude/latitude, but
   every other part of clustering — which entities group at all — is decided in

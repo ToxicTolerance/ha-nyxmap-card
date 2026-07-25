@@ -2,6 +2,7 @@ import type { EntityConfig } from "../../configs/EntityConfig";
 import { animateConverge, animateEmerge } from "../../maplibre/MarkerAnimator";
 import { applyClusterBubbleVisual, buildClusterBubbleElement, wrapAnimatedMarker } from "../../maplibre/MarkerFactory";
 import type { HomeAssistant } from "../../types/home-assistant";
+import { type ClusterMember as Member, computeExpansionZoom, smallestEnclosingCircle } from "./ClusterGeometry";
 import type { LayerRegistry } from "./LayerRegistry";
 import { CLUSTER_OVERLAY_ID as OVERLAY_ID } from "./OverlayIds";
 import type { MapLibreGlLike, MarkerLike } from "./EntitiesRenderService";
@@ -42,10 +43,16 @@ export interface ClusterMapLike {
   project(lngLat: [number, number]): { x: number; y: number };
   /** Inverse of `project()`. Needed because a bubble's anchor is derived in
    * screen space and has to be handed back to MapLibre as lng/lat — see
-   * `_centroidOf`. */
+   * `_anchorOf`. */
   unproject(point: [number, number]): { lng: number; lat: number };
   getZoom(): number;
   getMaxZoom(): number;
+  /** The rendered map viewport, in CSS pixels — what bounds how far a
+   * click-to-expand may zoom before throwing the group's own members off
+   * screen. `clientWidth`/`clientHeight` rather than the canvas's backing-store
+   * `width`/`height`, which are multiplied by devicePixelRatio and so do not
+   * match `project()`'s coordinate space. */
+  getCanvas(): { clientWidth: number; clientHeight: number };
   easeTo(options: { center: [number, number]; zoom: number }): unknown;
   on(event: string, handler: (e?: unknown) => void): unknown;
 }
@@ -53,11 +60,6 @@ export interface ClusterMapLike {
 interface Point {
   id: string;
   lngLat: [number, number];
-  size: number;
-}
-
-interface Member {
-  xy: { x: number; y: number };
   size: number;
 }
 
@@ -122,9 +124,9 @@ class UnionFind {
  * continuously as the camera moves, with per-pair hysteresis to avoid flicker
  * and a cap on how far one group may sprawl (MAX_GROUP_SPREAD_FACTOR) so a
  * chain of just-touching markers doesn't collapse into one viewport-wide
- * bubble. A bubble is anchored at the mean of its members' *screen* positions
- * (see `_centroidOf`), which is the point that actually looks centred among
- * them under both projections the card offers.
+ * bubble. A bubble is anchored at the middle of its members' *screen*
+ * footprint (see `_anchorOf`), which is the point that actually looks centred
+ * among them under both projections the card offers.
  *
  * Bubbles render as HTML `maplibregl.Marker`s (same substrate as individual
  * entity markers), NOT a GeoJSON layer — so they survive `map.setStyle()` for
@@ -231,7 +233,7 @@ export class ClusterRenderService {
       const memberIds = group.map((m) => m.id);
       const count = group.length;
       const members: Member[] = group.map((m) => ({ xy: m.xy, size: m.size }));
-      const centroid = this._centroidOf(members);
+      const centroid = this._anchorOf(members);
       for (const id of memberIds) newAbsorbed.set(id, centroid);
 
       const prevId = this._bestOverlap(memberIds, usedPrev);
@@ -271,35 +273,29 @@ export class ClusterRenderService {
   }
 
   /**
-   * The point a bubble is anchored at: the mean of its members' **screen**
-   * positions, converted back to lng/lat.
+   * The point a bubble is anchored at: the centre of the smallest circle
+   * enclosing its members' **screen** positions, converted back to lng/lat.
+   * `smallestEnclosingCircle` documents why that particular point and not the
+   * arithmetic mean, which is density-biased.
    *
-   * Averaging the members' raw lng/lat instead — which is what this did — is
-   * only the visual midpoint under a linear projection, and neither projection
-   * this card offers is linear. Web Mercator's latitude axis is logarithmic, so
-   * the mean latitude of a group sits off its own pixel midpoint by an amount
-   * that grows with the group's latitude span and with distance from the
-   * equator; the default `projection: globe` is nonlinear in *both* axes, and
-   * increasingly so away from the globe's centre, where a lng/lat mean can land
-   * visibly outside the members it stands for. The mean of the projected
-   * positions has neither problem — it is the pixel midpoint by construction,
-   * for whatever projection is active — and it also survives the antimeridian,
-   * where averaging lng 179 and −179 yields 0 and throws the bubble half a
-   * world away.
+   * Working in screen space and unprojecting is the other half of it. Averaging
+   * the members' raw lng/lat — which is what this did — only finds the visual
+   * midpoint under a linear projection, and neither projection this card offers
+   * is linear. Web Mercator's latitude axis is logarithmic, so the error grows
+   * with the group's latitude span and with distance from the equator; the
+   * default `projection: globe` is nonlinear in *both* axes, and increasingly
+   * so away from the globe's centre, where a lng/lat mean can land outside the
+   * members it stands for. It also survives the antimeridian, where averaging
+   * lng 179 and −179 yields 0 and throws the bubble half a world away.
    *
    * The `xy` values here are the same ones grouping was decided from
    * (`_computeGroups` projected them this pass), so no extra projection work is
    * done and the anchor cannot disagree with the collision test that formed the
    * group.
    */
-  private _centroidOf(members: Member[]): [number, number] {
-    let x = 0;
-    let y = 0;
-    for (const m of members) {
-      x += m.xy.x;
-      y += m.xy.y;
-    }
-    const { lng, lat } = this.map.unproject([x / members.length, y / members.length]);
+  private _anchorOf(members: Member[]): [number, number] {
+    const centre = smallestEnclosingCircle(members.map((m) => m.xy));
+    const { lng, lat } = this.map.unproject([centre.x, centre.y]);
     return [lng, lat];
   }
 
@@ -401,7 +397,16 @@ export class ClusterRenderService {
       members,
     };
     inner.addEventListener("click", () => {
-      const zoom = computeExpansionZoom(bubble.members, this.map.getZoom(), this.map.getMaxZoom());
+      const canvas = this.map.getCanvas();
+      // cluster_max_zoom, not the map's own maximum: at or above it clustering
+      // is off entirely, so the group has certainly expanded and going deeper
+      // only discards context. (Clamped by the map's ceiling in case a config
+      // sets cluster_max_zoom above it.)
+      const ceiling = Math.min(this._maxZoom, this.map.getMaxZoom());
+      const zoom = computeExpansionZoom(bubble.members, this.map.getZoom(), ceiling, {
+        width: canvas.clientWidth,
+        height: canvas.clientHeight,
+      });
       this.map.easeTo({ center: bubble.centroid, zoom });
     });
     // Bubble scales/fades in place (offset 0) as its members converge into it.
@@ -431,29 +436,4 @@ function mergeExtents(a: Extent, b: Extent): Extent {
 /** Diagonal of the bounding box, in pixels — the group's widest reach. */
 function spreadOf(e: Extent): number {
   return Math.hypot(e.maxX - e.minX, e.maxY - e.minY);
-}
-
-/** Target zoom that visually separates a clicked group's members. Uses the
- * Web-Mercator identity that the pixel distance between two fixed lng/lat
- * points doubles per +1 zoom level (at a fixed center), so for the closest
- * colliding pair we can solve for how many levels are needed to clear them
- * without moving the camera to test. Always zooms in at least one level. */
-export function computeExpansionZoom(
-  members: Member[],
-  currentZoom: number,
-  maxZoom: number,
-): number {
-  let maxDelta = 1;
-  for (let i = 0; i < members.length; i++) {
-    for (let j = i + 1; j < members.length; j++) {
-      const a = members[i]!;
-      const b = members[j]!;
-      const dist = Math.hypot(a.xy.x - b.xy.x, a.xy.y - b.xy.y);
-      const need = ((a.size + b.size) / 2) * 1.3; // 30% past bare "just touching"
-      if (dist >= need) continue;
-      const delta = dist < 1e-6 ? 6 : Math.log2(need / dist);
-      maxDelta = Math.max(maxDelta, delta);
-    }
-  }
-  return Math.min(currentZoom + maxDelta, maxZoom);
 }
