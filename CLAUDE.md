@@ -305,15 +305,31 @@ an explicit per-entity `circle:` config always overrides both.
 
 Marker clustering (`ClusterRenderService`) groups entities whose on-screen marker circles overlap
 (screen-space collision via `map.project()`, union-find, recomputed on every camera move with
-hysteresis), rendering each group as an animated HTML-marker bubble. Two things about it are
-deliberate and easy to regress: the union is **bounded** — merges are taken closest-pair-first and
-refused once the group's screen bounding-box diagonal would exceed `MAX_GROUP_SPREAD_FACTOR` ×
-its largest marker, because unbounded single-linkage lets a row of just-touching markers chain into
-one viewport-wide bubble — and a bubble is anchored at the mean of its members' **screen**
-positions, unprojected (`_centroidOf`), not at their mean lng/lat. Neither projection the card
-offers is linear (Mercator's latitude axis is logarithmic; `globe`, the default, is nonlinear in
-both axes), so a lng/lat mean is not the pixel midpoint and the bubble reads as offset from its own
-members. That is also why `ClusterMapLike` carries `unproject`. Defaults on
+hysteresis), rendering each group as an animated HTML-marker bubble. `ClusterGeometry.ts` holds the
+pure screen-space math (`smallestEnclosingCircle`, `computeExpansionZoom`) so it tests under `node`;
+the service is lifecycle only. Three things about it are deliberate and easy to regress:
+
+- The union is **bounded** — merges are taken closest-pair-first and refused once the group's screen
+  bounding-box diagonal would exceed `MAX_GROUP_SPREAD_FACTOR` × its largest marker, because
+  unbounded single-linkage lets a row of just-touching markers chain into one viewport-wide bubble.
+- A bubble is anchored at the **centre of the smallest circle enclosing its members' screen
+  positions**, unprojected (`_anchorOf`) — not their mean lng/lat, and not their mean anything. Two
+  separate errors were in that one line. Working in lng/lat is wrong because neither projection is
+  linear (Mercator's latitude axis is logarithmic; `globe`, the default, is nonlinear in both axes),
+  which is also why `ClusterMapLike` carries `unproject`. Using the *mean* is wrong because it is a
+  centre of mass: measured in a real browser, four entities in a knot plus one a marker-width away
+  put the bubble 11.6px — a third of its own diameter — off the middle of the footprint, sitting on
+  the knot. The enclosing-circle centre is also rotation-invariant, which a bounding-box midpoint is
+  not (the card ships a compass).
+- **Click-to-expand is bounded by the viewport**, via `getCanvas()` on the seam: the target zoom is
+  the lesser of "enough to separate the tightest pair" and "before the group's own footprint
+  outgrows the viewport", capped at `cluster_max_zoom` (at which clustering is off by definition, so
+  deeper buys nothing) and floored so a click always does something. The pathology this closes:
+  entities at byte-identical coordinates can never be separated, so the separation term is infinite
+  and the old code fell back to a flat +6 levels — measured as z15 → z21, discarding the whole map
+  to reveal two markers still exactly on top of each other.
+
+Defaults on
 (`cluster_markers`, matching HA's built-in map); `cluster_max_zoom` caps the zoom above which it
 stops. Individual-marker hide/show and bubble merge/split share the `MarkerAnimator` CSS-transition
 helper, and both marker kinds go through `wrapAnimatedMarker()` so their scale animation doesn't

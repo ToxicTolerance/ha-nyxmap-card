@@ -151,6 +151,11 @@ export class FakeMaplibreMap {
   unproject: ReturnType<typeof vi.fn>;
   getZoom = vi.fn(() => this.zoom);
   getMaxZoom = vi.fn(() => 22);
+  // ClusterRenderService bounds click-to-expand by the viewport so a cluster's
+  // own members can't be zoomed off screen. jsdom reports 0 for every layout
+  // box, so the fake states a plausible card-sized viewport outright rather
+  // than pretending to measure one.
+  getCanvas = vi.fn(() => ({ clientWidth: 800, clientHeight: 400 }));
 
   // `on`/`off` stay spies (ClusterRenderService's test reads
   // `map.on.mock.calls` to fish out the zoomend handler) while also recording
