@@ -34,8 +34,40 @@ jobs:
             }
             found { print }
           ' CHANGELOG.md > release-notes.md
+      # Two ways a release gets cut, and both have to attach the bundle:
+      #   * `git push` of a `v*` tag — no release exists yet, this creates it.
+      #   * "Draft a new release" in the GitHub UI — publishing it creates the
+      #     tag, so by the time this workflow runs the release already exists.
+      # Without `allowUpdates` the second case fails with
+      # `422 already_exists (tag_name)` and `nyxmap-card.js` is never attached,
+      # which in turn makes HACS validation fail: HACS resolves a plugin's file
+      # from the latest release's assets, and `dist/` is gitignored, so an
+      # asset-less release leaves it nothing to find.
+      # The `omit*DuringUpdate` flags keep a UI-authored release's own notes,
+      # title and prerelease flag intact — this step only adds the artifact.
       - uses: ncipollo/release-action@v1
         with:
           artifacts: "dist/nyxmap-card.js"
           bodyFile: "release-notes.md"
           generateReleaseNotes: true
+          allowUpdates: true
+          omitBodyDuringUpdate: true
+          omitNameDuringUpdate: true
+          omitPrereleaseDuringUpdate: true
+
+  # Deliberately not triggered by the tag push itself (see hacs-validate.yml):
+  # that runs in parallel with `release`, so it checks the release for its
+  # `nyxmap-card.js` asset while this workflow is still building and uploading
+  # it, and fails on a release that is about to become valid.
+  validate-hacs:
+    needs: release
+    if: github.repository == 'ToxicTolerance/ha-nyxmap-card'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: HACS validation
+        uses: hacs/action@main
+        with:
+          category: plugin
