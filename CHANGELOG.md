@@ -26,8 +26,38 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   70% per-file floor, which the new measurement had narrowed to 0.83pp on one
   file; the tightest margin is now ~8pp. Thresholds themselves were not lowered.
 
+### Documentation
+
+- **A visual guide, shot against a real Home Assistant instance**
+  (`docs/visual-guide.md`, 20 screenshots in `docs/images/`). Every option with a
+  visual result is pictured next to the YAML that produced it: marker kinds,
+  accuracy and configured circles, history trails (line and dots), clustering on
+  and off, GeoJSON `Polygon`/`MultiPolygon`/`LineString` from entity attributes,
+  raster tile and WMS overlays, the layer switcher, both projections, both themes,
+  and the visual editor. Captures come from HA Core 2026.2.3 with the built bundle
+  registered as an ordinary `/local/` Lovelace resource, real entities, and real
+  recorder history read back through the same websocket call the card uses in
+  production; the README gains a screenshot section linking into it. Two
+  behaviours that the live run showed were easy to misread are now called out in
+  the README: `circle: {radius: N}` is ignored on an entity reporting
+  `gps_accuracy` unless `source: config` is set, and clustering hides an absorbed
+  entity's circle along with its marker.
+
 ### Fixed
 
+- **Icon markers rendered off-centre.** `.nyxmap-marker ha-icon` set
+  `--mdc-icon-size: 60%` but no box around it, so `ha-icon` laid out as a
+  full-width block whose inner `<svg>` sat flush left inside it — putting the glyph
+  half the difference off-centre (measured 9.6px on a 48px marker). The marker's
+  own flex centering only ever centred the `ha-icon` box, not the glyph within it.
+  Picture, initials and `display: state` markers were unaffected, which is why only
+  icon markers looked wrong. `ha-icon` is now a full-size flex centring box;
+  measured offset drops from 9.6px to 0.01px.
+- **`focus_on_fit` shown as off in the visual editor.** `EntityConfig` defaults it
+  to `true`, but the editor's `ha-form` boolean carried no `default`, so an unset
+  value rendered unchecked — telling the opposite of what the card does. It now
+  declares `default: true`, matching how the `circle` toggle already handled the
+  same problem.
 - **WMS overlays on the default protocol version.** GetMap requests always sent
   `CRS=EPSG:3857`, but WMS renamed that parameter from `SRS` in 1.3.0 — and the
   card defaults `options.version` to `1.1.1`. Spec-compliant servers

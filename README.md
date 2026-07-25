@@ -12,9 +12,12 @@ minimal changes, while the entire draw layer is swapped from Leaflet to
 MapLibre GL: smooth vector styles, a 3D globe projection, and native
 GeoJSON/geometry rendering.
 
+![NyxMap card running in Home Assistant](docs/images/01-hero.png)
+
 ## Contents
 
 - [Features](#features)
+- [Screenshots](#screenshots)
 - [Installation](#installation)
 - [Quick start](#quick-start)
 - [Configuration reference](#configuration-reference)
@@ -48,6 +51,18 @@ GeoJSON/geometry rendering.
   custom overlays, …) can attach without forking the card
 
 See [Roadmap](#roadmap) for what's not built yet.
+
+## Screenshots
+
+Every option below is shown running in a real Home Assistant instance in the
+**[visual guide](docs/visual-guide.md)** — with the YAML that produced each one.
+A few highlights:
+
+| | |
+|---|---|
+| [![3D globe projection](docs/images/05-projection-globe.png)](docs/visual-guide.md#projection)<br>**`projection: globe`** — the default | [![History trail](docs/images/10-history-lines.png)](docs/visual-guide.md#history-trails)<br>**History trails** from HA's recorder |
+| [![Marker clustering](docs/images/12-clustering-on.png)](docs/visual-guide.md#clustering)<br>**Clustering** on screen-space overlap | [![GeoJSON shapes](docs/images/14-geojson.png)](docs/visual-guide.md#geojson)<br>**GeoJSON** from entity attributes |
+| [![Layer switcher](docs/images/17-layer-switcher.png)](docs/visual-guide.md#layer-switcher)<br>**Layer switcher** panel | [![Visual editor](docs/images/19-visual-editor.png)](docs/visual-guide.md#visual-editor)<br>**Visual editor** with live preview |
 
 ## Installation
 
@@ -87,6 +102,8 @@ framed, and optionally trail their recent history.
 
 ### Visual editor
 
+[![The NyxMap visual editor](docs/images/19-visual-editor.png)](docs/visual-guide.md#visual-editor)
+
 Open **Edit card** on a NyxMap card and you'll get a visual form instead of
 raw YAML: every [card option](#card-options) above, plus a full entities list
 (add/remove/reorder, and every field in [Entity options](#entity-options)).
@@ -98,6 +115,9 @@ dialog) to set those. Keys the form doesn't cover are preserved as-is when you
 save.
 
 ## Configuration reference
+
+Every option here is pictured, with its YAML, in the
+**[visual guide](docs/visual-guide.md)**.
 
 ### Card options
 
@@ -168,11 +188,31 @@ entities:
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| `source` | `auto` \| `config` \| `attribute` \| `gps_accuracy` \| `radius` | `auto` (or `attribute` if `attribute` is set) | Where the radius comes from. `auto` prefers the `gps_accuracy` attribute, then a `radius` attribute, then falls back to `radius` below. |
+| `source` | `auto` \| `config` \| `attribute` \| `gps_accuracy` \| `radius` | `auto` (or `attribute` if `attribute` is set) | Where the radius comes from. `auto` prefers the `gps_accuracy` attribute, then a `radius` attribute, then falls back to `radius` below. **Set `source: config` to force the configured `radius`** — see the note below. |
 | `attribute` | string | — | State attribute holding the radius (meters), used when `source: attribute`. |
 | `radius` | number (meters) | `0` | Fixed radius, used when `source: config`, or as `auto`'s last resort. |
 | `color` | string (CSS color) | entity's `color` | |
 | `fill_opacity` | number | `0.1` | |
+
+> **`radius` alone may not do what you expect.** Because the default `source: auto`
+> prefers the entity's `gps_accuracy`/`radius` *attribute*, a bare
+> `circle: { radius: 4000 }` on an entity that reports `gps_accuracy` draws the
+> accuracy circle and ignores the 4000. Add `source: config` to override the
+> attribute:
+>
+> ```yaml
+> entities:
+>   - entity: person.alice
+>     circle:
+>       source: config     # ignore gps_accuracy; use the radius below
+>       radius: 4000
+>       color: '#7c3aed'
+>       fill_opacity: 0.25
+> ```
+>
+> Also note that [clustering](#card-options) absorbs the markers it groups, and an
+> absorbed entity's circle goes with it — set `cluster_markers: false` when showing
+> circles on entities that sit close together.
 
 ### GeoJSON options (per-entity `geojson:`)
 

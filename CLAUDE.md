@@ -160,6 +160,17 @@ intentional — it keeps the fork diffable against the upstream project's module
   its `-remediation.md`, and `-profile.md` (a real-browser profile of the performance findings,
   which caught a shipped fix that did not work) — are dated reviews of the current tree, all
   findings resolved. Check them before re-deriving a defect. `CHANGELOG.md` is what landed and this file is the current architecture.
+- **`docs/visual-guide.md` + `docs/images/`** — the user-facing screenshot tour: every option
+  with a visual result, pictured next to the YAML that produced it. Captured against a **real
+  Home Assistant instance** (Core 2026.2.3, the built bundle registered as an ordinary
+  `/local/` Lovelace resource, real entities, real recorder history). Its
+  "How these were produced" section is the honest caveat list — notably that the basemap in
+  the shots is a local offline Natural Earth style rather than the default OpenFreeMap/CARTO
+  ones, because the capture environment has no egress to those hosts. Two defects were found
+  by that run rather than by review or tests, both since fixed: icon markers rendered 9.6px
+  off-centre (`ha-icon` had a size but no centring box), and the editor's `focus_on_fit`
+  toggle displayed as off against a `true` default. Re-shooting is manual and not wired into
+  CI; if a change alters what the card looks like, the affected images need regenerating.
 
 ### Tests
 

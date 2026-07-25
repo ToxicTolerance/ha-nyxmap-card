@@ -62,7 +62,11 @@ export function buildEntitySchema(): HaFormSchema[] {
       ],
     },
     { name: "z_index_offset", selector: { number: {} } },
-    { name: "focus_on_fit", selector: { boolean: {} } },
+    // `default: true` mirrors EntityConfig's own `focus_on_fit ?? true`. An
+    // ha-form boolean with no default renders an unset value as *off*, which
+    // told the opposite of what the card actually does — same reason `circle`
+    // below carries one.
+    { name: "focus_on_fit", default: true, selector: { boolean: {} } },
     { name: "history_start", selector: { text: {} } },
     { name: "history_end", selector: { text: {} } },
     { name: "history_line_color", selector: { color_rgb: {} } },

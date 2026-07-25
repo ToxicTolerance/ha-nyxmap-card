@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { EntityConfigRaw } from "../configs/EntityConfig";
+import type { HaFormSelectorSchema } from "../types/ha-form";
 import { buildEntitySchema, entityRawToFormData, formDataToEntityRaw } from "./EntityFormSchema";
 
 describe("buildEntitySchema", () => {
@@ -36,6 +37,24 @@ describe("entityRawToFormData", () => {
 
   it("omits a non-hex color (e.g. a named/rgb() value) from the picker rather than mangling it", () => {
     expect(entityRawToFormData({ entity: "person.alice", color: "red" }).color).toBeUndefined();
+  });
+
+  it("declares focus_on_fit's schema default as true, matching EntityConfig", () => {
+    // Narrow off the HaFormSchema union: only the selector variant carries a
+    // `default`, and focus_on_fit is one.
+    const field = buildEntitySchema().find(
+      (f): f is HaFormSelectorSchema => "selector" in f && f.name === "focus_on_fit",
+    );
+    expect(field?.default).toBe(true);
+  });
+
+  it("omits focus_on_fit from form data when unset, so the schema default (checked) applies", () => {
+    expect(entityRawToFormData({ entity: "person.alice" }).focus_on_fit).toBeUndefined();
+  });
+
+  it("unchecking the focus_on_fit toggle writes focus_on_fit: false", () => {
+    const next = formDataToEntityRaw({ entity: "person.alice", focus_on_fit: false }, { entity: "person.alice" });
+    expect(next.focus_on_fit).toBe(false);
   });
 
   it("omits circle from form data when unset, so the schema default (checked) applies", () => {
