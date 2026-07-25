@@ -189,11 +189,14 @@ outright.
 
 ## What this pass did not cover
 
-No run against a real Home Assistant instance, no review of the `*.styles.ts`
-files or `dev/`, and no dependency/supply-chain pass (the 0.10.2 audit ran
+No review of the `*.styles.ts` files or `dev/`, and no dependency/supply-chain pass (the 0.10.2 audit ran
 `npm audit`; this one did not).
 
-The "not profiled" caveat that originally stood here has since been closed —
-see [`2026-07-25-profile.md`](2026-07-25-profile.md), which measured the F3
-findings against the real bundle in Chromium, caught an ineffective fix, and
-corrected the mechanism claimed for F3(b).
+Both caveats that originally stood here — "not profiled" and "never run against
+a real Home Assistant instance" — are now closed. See
+[`2026-07-25-profile.md`](2026-07-25-profile.md): the F3 findings were measured
+against the real bundle in Chromium, then against HA core 2024.3.3 with the card
+installed as a Lovelace resource beside four ordinary HA cards. That caught an
+ineffective fix, and established that F3(b)'s forced layout is real in a
+dashboard (111 layouts per 300 state changes, 10 with the switcher ablated) after
+the isolated benchmark had appeared to disprove it.

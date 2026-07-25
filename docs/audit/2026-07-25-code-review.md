@@ -12,9 +12,11 @@ records how it was verified and what the fix would be.
 > record, including one approach that was abandoned mid-implementation because
 > it would have introduced a new bug. Suite 479 → 504 tests, branch coverage
 > 92.0% → 92.8%, full gate green. Status is marked per finding below.
-> The F3 performance findings were subsequently **measured in a real browser**
+> The F3 performance findings were subsequently **measured in a real browser and
+> then against a real Home Assistant instance**
 > ([`2026-07-25-profile.md`](2026-07-25-profile.md)), which caught an F3(b) fix
-> that did not work and corrected the stated mechanism behind it.
+> that did not work, and confirmed F3(b)'s forced-layout mechanism after an
+> isolated benchmark had appeared to disprove it.
 
 ## Baseline: the gate is green
 
@@ -209,13 +211,17 @@ re-derive an offset that only changes when the control column's height changes.
 can move it. The `_measure()` body already no-ops the style write when the
 numbers match — it's the three rect reads that cost.
 
-> **Corrected by measurement.** Calling this "a forced synchronous layout" was
-> wrong. A browser profile shows CDP `LayoutCount` and `RecalcStyleCount` at
-> **0 in both bundles** (the counters were control-tested and do work): Lit's
-> re-render wrote no DOM mutations, so nothing invalidated layout and the rect
-> reads hit cached geometry. The real cost was the Lit update machinery plus
-> three cheap reads — visible in `ScriptDuration`, not layout. Memoizing the
-> arrays also turned out to be *insufficient* on its own; see
+> **Measured, twice, with opposite results — the second one stands.** In an
+> isolated harness CDP `LayoutCount` was **0**, and I recorded here that calling
+> this "a forced synchronous layout" had been wrong. Re-run against a **real
+> Home Assistant instance**, with four ordinary HA cards sharing the page, it is
+> **111 layouts per 300 state changes** before the fix and 32 after; an ablation
+> (same pre-fix bundle, `layer_switcher` off) drops it to **10**, with script and
+> task time unchanged. So the forced layout is real, it *was* the switcher, and
+> the isolated harness simply had nothing to dirty the DOM. Two qualifications
+> the profile adds: it is a *dashboard* effect rather than a card-in-isolation
+> one, and it was ~1 layout per 2.7 ticks rather than one per tick. Memoizing the
+> arrays also turned out to be *insufficient* on its own. Full sequence in
 > [`2026-07-25-profile.md`](2026-07-25-profile.md).
 
 **(c) A full geodesic circle rebuilt per entity per tick.**
