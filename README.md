@@ -1,8 +1,8 @@
 # NyxMap Card
 
-[![Release](https://img.shields.io/github/v/release/ToxicTolerance/ha-nyxmap-card?color=41BDF5&label=release)](https://github.com/ToxicTolerance/ha-nyxmap-card/releases/latest)
-[![HACS custom repository](https://img.shields.io/badge/HACS-custom%20repository-41BDF5)](https://hacs.xyz/docs/faq/custom_repositories/)
-[![License: MIT](https://img.shields.io/github/license/ToxicTolerance/ha-nyxmap-card?color=blue)](https://github.com/ToxicTolerance/ha-nyxmap-card/blob/master/LICENSE)
+[![Release](https://img.shields.io/github/v/release/ToxicTolerance/ha-nyxmap-card)](https://github.com/ToxicTolerance/ha-nyxmap-card/releases/latest)
+[![HACS custom repository](https://img.shields.io/badge/HACS-custom--repository-41BDF5.svg)](https://hacs.xyz/docs/faq/custom_repositories/)
+[![MIT licensed](https://img.shields.io/badge/license-MIT-41BDF5.svg)](https://github.com/ToxicTolerance/ha-nyxmap-card/blob/master/LICENSE)
 
 A Home Assistant Lovelace map card rendered with **[MapLibre GL](https://maplibre.org/)**
 (vector tiles, GPU-accelerated) instead of Leaflet — smooth vector styles, a 3D

@@ -37,10 +37,18 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   which works identically on GitHub. The 15-entry `## Contents` list of `#anchor`
   links — dead in HACS for the same reason, and the second thing a phone user saw
   — is replaced by a one-line nav of absolute links. The hero screenshot moved
-  above the fold, the license badge moved to the canonical
-  `img.shields.io/github/license/…` endpoint (the hand-built static one was
-  rendering broken), and a `## License` section was added so the license is
-  readable as text even if a badge image fails.
+  above the fold, and a `## License` section was added so the license is readable
+  as text even if a badge image fails.
+- **The license badge renders again.** It was the only badge in the row that
+  showed as a broken image inside HACS, and the only distinguishing feature
+  across the four URLs tried is the color: the two that specified the *named*
+  shields.io color `blue` (`/badge/license-MIT-blue.svg`, and then
+  `/github/license/…?color=blue`) both failed, while the two that used a hex
+  color or no color at all both rendered. The badge is now
+  `/badge/license-MIT-41BDF5.svg` — structurally identical to the HACS badge
+  beside it, which is the one form there is positive evidence for on a real HACS
+  install. The other two badges are back to their exact previously-working URLs
+  rather than the lightly-restyled variants, for the same reason.
 - **The JS plugin hook is now documented visually too**, with a runnable demo
   plugin (`docs/examples/nyxmap-demo-plugin.js`) loaded into that same instance
   as an ordinary Lovelace JavaScript-module resource. One screenshot shows every
