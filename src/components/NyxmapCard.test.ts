@@ -1527,6 +1527,38 @@ describe("NyxmapCard", () => {
       expect(switcher().overlays).toBe(overlaysBefore);
     });
 
+    it("keeps the switcher's callback props identical across ticks", async () => {
+      // Regression, caught by profiling rather than by review: memoizing the
+      // item arrays achieved nothing on its own, because render() also passed
+      // three freshly-created arrow functions. Those fail Lit's identity check
+      // by themselves, so the switcher still updated on every hass object and
+      // still re-measured. Browser profile: getBoundingClientRect stayed at
+      // 3/tick until these were bound once. See docs/audit/2026-07-25-profile.md.
+      el.setConfig({ layer_switcher: true, cluster_markers: false, entities: ["device_tracker.a"] });
+      await el.updateComplete;
+      el._map!.fire("style.load");
+      el.hass = hassWith({});
+      await el.updateComplete;
+
+      const switcher = () =>
+        el.shadowRoot!.querySelector("nyxmap-layer-switcher") as unknown as {
+          onSelectBaseStyle: unknown;
+          onToggleOverlay: unknown;
+          onSelectThemeMode: unknown;
+        };
+      const before = switcher();
+      const [sel, tog, theme] = [before.onSelectBaseStyle, before.onToggleOverlay, before.onSelectThemeMode];
+
+      el.hass = hassWith({});
+      await el.updateComplete;
+      el.hass = hassWith({});
+      await el.updateComplete;
+
+      expect(switcher().onSelectBaseStyle).toBe(sel);
+      expect(switcher().onToggleOverlay).toBe(tog);
+      expect(switcher().onSelectThemeMode).toBe(theme);
+    });
+
     it("hands over a new array as soon as anything the switcher shows changes", async () => {
       el.setConfig({ layer_switcher: true, cluster_markers: false, entities: ["device_tracker.a"] });
       await el.updateComplete;

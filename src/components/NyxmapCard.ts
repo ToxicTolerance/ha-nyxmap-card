@@ -356,11 +356,11 @@ export class NyxmapCard extends LitElement {
               ? html`<nyxmap-layer-switcher
                   .baseStyles=${this._baseStyleItems()}
                   .overlays=${this._overlayItems()}
-                  .onSelectBaseStyle=${(id: string) => this._onSelectBaseStyle(id)}
-                  .onToggleOverlay=${(id: string) => this._onToggleOverlay(id)}
-                  .showThemeToggle=${(this._config.mapStyles.length ?? 0) > 0}
+                  .onSelectBaseStyle=${this._onSelectBaseStyle}
+                  .onToggleOverlay=${this._onToggleOverlay}
+                  .showThemeToggle=${this._config.mapStyles.length > 0}
                   .themeMode=${this._effectiveThemeMode()}
-                  .onSelectThemeMode=${(mode: ThemeMode) => this._onSelectThemeMode(mode)}
+                  .onSelectThemeMode=${this._onSelectThemeMode}
                 ></nyxmap-layer-switcher>`
               : null}
           </div>
@@ -479,7 +479,7 @@ export class NyxmapCard extends LitElement {
   /** Handles the layer switcher's own Theme (Auto/Light/Dark) control —
    * independent of _onSelectBaseStyle: which named style is active and
    * which of its own light/dark variants to show are different questions. */
-  private _onSelectThemeMode(mode: ThemeMode): void {
+  private readonly _onSelectThemeMode = (mode: ThemeMode): void => {
     this._manualThemeMode = mode;
     if (!this._map || !this._config) return;
     this._applyStyle(this._resolveActiveStyleUrl());
@@ -496,6 +496,13 @@ export class NyxmapCard extends LitElement {
    * `getBoundingClientRect()` reads: a forced synchronous layout, per card, per
    * tick, to re-derive an offset that had not moved. Reusing the array when
    * nothing changed means the switcher simply doesn't update.
+   *
+   * The three callback properties beside them (`onSelectBaseStyle`,
+   * `onToggleOverlay`, `onSelectThemeMode`) are bound once as arrow-function
+   * fields for exactly the same reason, and memoizing the arrays without them
+   * achieves nothing: a fresh arrow per render fails the identity check on its
+   * own, so the switcher still updated every tick. That was measured, not
+   * assumed — see docs/audit/2026-07-25-profile.md.
    *
    * JSON comparison is deliberate and cheap here — these are a handful of flat
    * records of strings and booleans, and it costs far less than the layout it
@@ -535,7 +542,7 @@ export class NyxmapCard extends LitElement {
     );
   }
 
-  private _onSelectBaseStyle(id: string): void {
+  private readonly _onSelectBaseStyle = (id: string): void => {
     this._manualStyleId = id;
     if (!this._map || !this._config) return;
     this._applyStyle(this._resolveActiveStyleUrl());
@@ -550,7 +557,7 @@ export class NyxmapCard extends LitElement {
     const { maxZoom, minZoom } = baseStyleZoomRange(entry, this._config);
     this._map.setMaxZoom(maxZoom);
     this._map.setMinZoom(minZoom);
-  }
+  };
 
   /** Records the click as intent, then reconciles the live services with it.
    * The write and the apply are deliberately separate: entry.setVisible()
@@ -563,11 +570,11 @@ export class NyxmapCard extends LitElement {
    * *shown* while the UI insisted otherwise. Now the click is never lost: it
    * lands in _overlayVisibility (so the UI is right immediately) and
    * _syncOverlayVisibility() applies it as soon as the style is loaded. */
-  private _onToggleOverlay(id: string): void {
+  private readonly _onToggleOverlay = (id: string): void => {
     this._overlayVisibility.set(id, !(this._overlayVisibility.get(id) ?? true));
     this._syncOverlayVisibility();
     this.requestUpdate();
-  }
+  };
 
   /** Pushes any overlay whose desired visibility differs from what the live
    * services were last told into those services. Deferred toggles (clicked
