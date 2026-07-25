@@ -143,6 +143,41 @@ describe("TileLayersRenderService", () => {
     expect(url).toContain("BBOX={bbox-epsg-3857}");
   });
 
+  describe("WMS coordinate-reference parameter (SRS vs CRS)", () => {
+    // WMS 1.3.0 renamed SRS to CRS. Sending the wrong one is not ignored: a
+    // 1.1.1 server answers a CRS-only request with a ServiceException instead
+    // of an image, and MapLibre reports that only as a source-load failure, so
+    // the overlay silently renders blank. The card defaults VERSION to 1.1.1,
+    // which made this the *default* behaviour.
+    const urlFor = (options: Record<string, unknown>): string => {
+      const map = createFakeMaplibreMap();
+      const service = new TileLayersRenderService(map as never, new StyleReattach(), new LayerRegistry());
+      service.update([], [new LayerConfig({ url: "https://example.com/wms", options })], hassWith({}));
+      const call = map.addSource.mock.calls.find((c) => c[0] === "wms-layer-x")!;
+      return (call[1] as { tiles: string[] }).tiles[0]!;
+    };
+
+    it.each([
+      ["default (no version given)", undefined, "SRS"],
+      ["1.1.1", "1.1.1", "SRS"],
+      ["1.1.0", "1.1.0", "SRS"],
+      ["1.0.0", "1.0.0", "SRS"],
+      ["1.3.0", "1.3.0", "CRS"],
+      ["1.3", "1.3", "CRS"],
+      ["2.0.0", "2.0.0", "CRS"],
+      // Unparseable: every numeric comparison is false, so this lands on SRS —
+      // the same side the 1.1.1 default lands on.
+      ["garbage", "not-a-version", "SRS"],
+    ])("uses %s -> %s", (_label, version, expected) => {
+      const url = urlFor({ name: "x", layers: "l", ...(version === undefined ? {} : { version }) });
+      const other = expected === "CRS" ? "SRS" : "CRS";
+      expect(url).toContain(`${expected}=EPSG%3A3857`);
+      // Exactly one of the two — a server validating its version's parameter
+      // list rejects the foreign one rather than ignoring it.
+      expect(url).not.toContain(`${other}=`);
+    });
+  });
+
   it("calls setTiles on the existing source instead of re-adding it", () => {
     const map = createFakeMaplibreMap();
     const setTiles = vi.fn();

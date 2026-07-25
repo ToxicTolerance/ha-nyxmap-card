@@ -37,6 +37,27 @@ function hashToken(s: string): string {
   return (h >>> 0).toString(36);
 }
 
+/**
+ * Which GetMap parameter names the coordinate reference system, for a given
+ * WMS version. **1.3.0 renamed `SRS` to `CRS`**, so this is not cosmetic: a
+ * 1.1.1 server answers a request carrying `CRS` (and no `SRS`) with a
+ * `ServiceException` XML document instead of an image, and MapLibre surfaces
+ * that only as a source-load failure — the overlay just renders blank.
+ *
+ * Parsed numerically rather than compared as a string (`version >= "1.3"`,
+ * which is what Leaflet's own `L.TileLayer.WMS` does): lexicographic ordering
+ * happens to be right for the four versions that exist today, but silently
+ * inverts for any future two-digit minor. An unparseable version yields NaN,
+ * every comparison is false, and we fall back to `SRS` — consistent with the
+ * `1.1.1` default this same option bag falls back to.
+ */
+function crsParamName(version: string): "CRS" | "SRS" {
+  const parts = version.split(".");
+  const major = Number(parts[0]);
+  const minor = Number(parts[1] ?? 0);
+  return major > 1 || (major === 1 && minor >= 3) ? "CRS" : "SRS";
+}
+
 /** Builds a WMS GetMap request as a MapLibre raster tile-URL template,
  * anchored on the `{bbox-epsg-3857}` token MapLibre substitutes per-tile —
  * deliberately not hand-rolled BBOX math.
@@ -59,17 +80,20 @@ function buildWmsUrl(baseUrl: string, options: Record<string, unknown>): string 
     return String(fallback);
   };
 
+  const version = param(options.version, "1.1.1");
   const params = new URLSearchParams();
   params.set("SERVICE", "WMS");
   params.set("REQUEST", "GetMap");
-  params.set("VERSION", param(options.version, "1.1.1"));
+  params.set("VERSION", version);
   params.set("LAYERS", param(options.layers, ""));
   params.set("STYLES", param(options.styles, ""));
   params.set("FORMAT", param(options.format, "image/png"));
   params.set("TRANSPARENT", param(options.transparent, true));
   params.set("WIDTH", "256");
   params.set("HEIGHT", "256");
-  params.set("CRS", "EPSG:3857");
+  // Exactly one of SRS/CRS — never both. A server that validates its version's
+  // parameter list rejects the foreign one rather than ignoring it.
+  params.set(crsParamName(version), "EPSG:3857");
   const separator = baseUrl.includes("?") ? "&" : "?";
   // {bbox-epsg-3857} must stay a literal token for MapLibre to substitute —
   // appended outside URLSearchParams so it isn't percent-encoded.
