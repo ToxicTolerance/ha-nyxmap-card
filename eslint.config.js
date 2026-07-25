@@ -44,6 +44,17 @@ export default tseslint.config(
     },
   },
   {
+    // The plugin examples under docs/ are plain browser scripts, not project
+    // sources: no build step, no TS, loaded straight from /config/www/ as a
+    // Lovelace JS-module resource. They are still linted (a shipped example
+    // that doesn't parse is worse than no example), but they need the browser
+    // globals the rest of the project gets from TS's DOM lib.
+    files: ["docs/examples/**/*.js"],
+    languageOptions: {
+      globals: { window: "readonly", document: "readonly", console: "readonly" },
+    },
+  },
+  {
     ignores: ["dist/**", "coverage/**", "node_modules/**"],
   },
 );

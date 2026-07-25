@@ -63,6 +63,7 @@ A few highlights:
 | [![3D globe projection](docs/images/05-projection-globe.png)](docs/visual-guide.md#projection)<br>**`projection: globe`** — the default | [![History trail](docs/images/10-history-lines.png)](docs/visual-guide.md#history-trails)<br>**History trails** from HA's recorder |
 | [![Marker clustering](docs/images/12-clustering-on.png)](docs/visual-guide.md#clustering)<br>**Clustering** on screen-space overlap | [![GeoJSON shapes](docs/images/14-geojson.png)](docs/visual-guide.md#geojson)<br>**GeoJSON** from entity attributes |
 | [![Layer switcher](docs/images/17-layer-switcher.png)](docs/visual-guide.md#layer-switcher)<br>**Layer switcher** panel | [![Visual editor](docs/images/19-visual-editor.png)](docs/visual-guide.md#visual-editor)<br>**Visual editor** with live preview |
+| [![Plugin overlay and control](docs/images/21-plugin.png)](docs/visual-guide.md#plugins)<br>**[JS plugin hook](#plugins)** — overlays, controls, popups | [![Plugin fault isolation](docs/images/23-plugin-isolation.png)](docs/visual-guide.md#fault-isolation)<br>**Fault isolation** — broken plugins can't break the card |
 
 ## Installation
 
@@ -264,6 +265,12 @@ versions (including the `1.1.1` default) get `SRS=EPSG:3857`, since 1.3.0 is
 where the parameter was renamed.
 
 ## Plugins
+
+[![A plugin's heatmap overlay, legend control and popup](docs/images/21-plugin.png)](docs/visual-guide.md#plugins)
+
+*A plugin adding a heatmap overlay, a custom legend control and a popup — full
+source in [`docs/examples/nyxmap-demo-plugin.js`](docs/examples/nyxmap-demo-plugin.js),
+walked through in the [visual guide](docs/visual-guide.md#plugins).*
 
 The card bundles MapLibre GL and hands third-party code the **live map** and the
 **exact bundled `maplibregl` module** through a small JS extension hook, so you

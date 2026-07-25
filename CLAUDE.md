@@ -171,6 +171,16 @@ intentional — it keeps the fork diffable against the upstream project's module
   off-centre (`ha-icon` had a size but no centring box), and the editor's `focus_on_fit`
   toggle displayed as off against a `true` default. Re-shooting is manual and not wired into
   CI; if a change alters what the card looks like, the affected images need regenerating.
+- **`docs/examples/`** — the two plugin scripts the guide's Plugins section is shot from,
+  kept as real runnable files rather than prose snippets so they can be dropped into
+  `/config/www/` and registered as a Lovelace JS-module resource verbatim.
+  `nyxmap-demo-plugin.js` exercises every `NyxmapPluginContext` member in one plugin;
+  `nyxmap-plugin-faults.js` is three deliberately broken plugins (throwing `setup()`,
+  reserved-prefix overlay id, throwing control `onAdd()`) that exist to demonstrate — and,
+  if run, to keep honest — the "a misbehaving plugin can't take the card down" guarantee.
+  They are plain JS with no build step and are **not** covered by `tsc`, eslint or the test
+  suite, so a change to the plugin contract will not break them automatically; check them
+  when `PluginHost`/`nyxmap-plugin.d.ts` changes.
 
 ### Tests
 
