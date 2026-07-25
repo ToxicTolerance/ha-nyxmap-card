@@ -41,10 +41,9 @@ describe("EntitiesRenderService", () => {
       vi.fn(),
     );
     const entities = [EntityConfig.from("device_tracker.phone")];
-    const bounds = service.update(entities, hassWith({}));
+    service.update(entities, hassWith({}));
 
     expect(service.has("device_tracker.phone")).toBe(false);
-    expect(bounds).toBeNull();
   });
 
   it("moves an existing marker instead of recreating it", () => {

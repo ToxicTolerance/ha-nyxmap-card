@@ -18,17 +18,18 @@ export interface MarkerLike {
   remove(): this;
 }
 
-/** The subset of a maplibregl.LngLatBounds instance EntitiesRenderService needs. */
-export interface LngLatBoundsLike {
-  extend(lngLat: [number, number]): this;
-}
-
 /** The subset of the maplibre-gl module EntitiesRenderService needs —
- * narrowed so tests can inject a fake Marker/LngLatBounds implementation
- * instead of requiring a real WebGL context. */
+ * narrowed so tests can inject a fake Marker implementation instead of
+ * requiring a real WebGL context.
+ *
+ * Deliberately does not include `LngLatBounds`. `update()` used to build one
+ * and return it, but no caller ever read it: auto-fit is served entirely by
+ * InitialViewRenderService, which derives its own bounds from config + hass
+ * (`_boundsOf`). The constructor's only purpose was to feed that dead path,
+ * while every fake and every future implementer of this seam had to provide
+ * it. */
 export interface MapLibreGlLike {
   Marker: new (options: { element: HTMLElement }) => MarkerLike;
-  LngLatBounds: new () => LngLatBoundsLike;
 }
 
 /** Creates/updates/removes HTML Markers for configured entities. Markers
@@ -71,16 +72,13 @@ export class EntitiesRenderService {
    * cluster bubble at that centroid — and reattaching it once it's no longer
    * absorbed. `absorbed` maps each hidden entity id to the lng/lat of the
    * bubble it belongs to, so the marker can spring toward/away from it (see
-   * MarkerAnimator). Returns bounds covering all positioned entities, or null
-   * if none were positioned. */
+   * MarkerAnimator). */
   update(
     entities: EntityConfig[],
     hass: HomeAssistant,
     absorbed?: ReadonlyMap<string, [number, number]>,
-  ): LngLatBoundsLike | null {
+  ): void {
     const seen = new Set<string>();
-    const bounds = new this.gl.LngLatBounds();
-    let any = false;
 
     for (const ent of entities) {
       // geojson: {hide_marker: true} suppresses the entity's own marker so
@@ -93,7 +91,6 @@ export class EntitiesRenderService {
       if (!Number.isFinite(lng) || !Number.isFinite(lat)) continue;
 
       seen.add(ent.id);
-      any = true;
       const lngLat: [number, number] = [lng as number, lat as number];
 
       const visualKey = markerVisualKey(ent, st);
@@ -125,8 +122,6 @@ export class EntitiesRenderService {
           tracked.visualKey = visualKey;
         }
       }
-      bounds.extend(lngLat);
-
       const { marker, inner } = tracked;
       const centroid = absorbed?.get(ent.id);
       const shouldHide = centroid !== undefined;
@@ -153,8 +148,6 @@ export class EntitiesRenderService {
     for (const id of this.markers.keys()) {
       if (!seen.has(id)) this.remove(id);
     }
-
-    return any ? bounds : null;
   }
 
   /** Pixel vector from `from` (a marker's own lng/lat) to `to` (the cluster
