@@ -112,4 +112,73 @@ describe("NyxmapFormListEditor", () => {
     const event = onItemsChanged.mock.calls[0]![0] as CustomEvent<{ items: Item[] }>;
     expect(event.detail.items).toEqual([{ name: "Alicia" }]);
   });
+
+  describe("expanded-row tracking across reorder and removal", () => {
+    // The expanded row is tracked by index, so any reorder or removal has to
+    // move it with the item the user actually opened. Untested until now: the
+    // branches where the expanded row is the *target* of a swap, or sits after
+    // a removed row.
+    it("follows its item when another row is moved onto it", async () => {
+      el.items = [{ name: "a" }, { name: "b" }, { name: "c" }];
+      await el.updateComplete;
+
+      rowButtons(el, 2).expand.click(); // open "c" (index 2)
+      await el.updateComplete;
+      // Move "b" (index 1) down, so it swaps into index 2 and "c" lands at 1.
+      rowButtons(el, 1).down.click();
+      await el.updateComplete;
+
+      const forms = el.shadowRoot!.querySelectorAll("ha-form");
+      expect(forms).toHaveLength(1);
+      expect((forms[0] as unknown as { data: Item }).data.name).toBe("c");
+    });
+
+    it("shifts down when a row before it is removed", async () => {
+      el.items = [{ name: "a" }, { name: "b" }, { name: "c" }];
+      await el.updateComplete;
+
+      rowButtons(el, 2).expand.click(); // open "c"
+      await el.updateComplete;
+      rowButtons(el, 0).remove.click(); // drop "a" -> "c" moves to index 1
+      await el.updateComplete;
+
+      const forms = el.shadowRoot!.querySelectorAll("ha-form");
+      expect(forms).toHaveLength(1);
+      expect((forms[0] as unknown as { data: Item }).data.name).toBe("c");
+    });
+
+    it("closes when the expanded row itself is removed", async () => {
+      el.items = [{ name: "a" }, { name: "b" }];
+      await el.updateComplete;
+
+      rowButtons(el, 1).expand.click();
+      await el.updateComplete;
+      expect(el.shadowRoot!.querySelectorAll("ha-form")).toHaveLength(1);
+
+      rowButtons(el, 1).remove.click();
+      await el.updateComplete;
+      expect(el.shadowRoot!.querySelectorAll("ha-form")).toHaveLength(0);
+    });
+  });
+
+  it("falls back to a positional summary when no computeRowSummary is given", async () => {
+    el.items = [{ name: "a" }, { name: "b" }];
+    await el.updateComplete;
+
+    const summaries = [...el.shadowRoot!.querySelectorAll(".summary")].map((n) => n.textContent?.trim());
+    expect(summaries).toEqual(["Item 1", "Item 2"]);
+  });
+
+  it("adds an empty item when no newItemDefaults is given", async () => {
+    el.items = [];
+    await el.updateComplete;
+
+    (el.shadowRoot!.querySelector("button.add") as HTMLButtonElement).click();
+    await el.updateComplete;
+
+    expect(onItemsChanged).toHaveBeenCalled();
+    const detail = onItemsChanged.mock.calls.at(-1)![0] as CustomEvent<{ items: Item[] }>;
+    expect(detail.detail.items).toEqual([{}]);
+  });
+
 });

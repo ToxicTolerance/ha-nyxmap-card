@@ -29,7 +29,9 @@ work (a version number repeated in prose only drifts, so there isn't one here):
 | `npm run lint` | `eslint . --max-warnings 0` — the whole project, matching what `tsconfig.json` type-checks (`src`, `test`, `dev`, `vite.config.ts`); **type-aware** over `src/**` |
 | `npm run typecheck` | `tsc --noEmit` |
 
-Vite 6 + vitest 2 + TypeScript 5.7 + eslint 9 (with `typescript-eslint` and `eslint-plugin-lit`).
+Vite 6 + vitest 4 + TypeScript 5.7 + eslint 10 (with `typescript-eslint` and `eslint-plugin-lit`).
+CI runs Node 22: eslint 10 requires `^20.19 || ^22.13 || >=24`, which the previous `node-version: 20`
+satisfied only by resolving to the newest 20.x.
 `tsconfig.json` is `strict` **plus** `noUncheckedIndexedAccess`, `forceConsistentCasingInFileNames`
 and `isolatedModules` — assume new code has to clear that bar. Runtime dependencies are just
 `maplibre-gl`, `lit` and `@turf/circle`. `.github/workflows/test.yml` runs typecheck → lint →
@@ -50,14 +52,20 @@ scoped to shipped code rather than everything.
 
 Coverage thresholds live in `vite.config.ts` and are **per-file** floors (70% of each metric,
 `perFile: true`) rather than aggregate ones — an aggregate gate lets one module rot to 0% while the
-rest of the tree carries the average. Actuals are far above the floor on most metrics (~99%
-statements/lines, ~97.5% functions, ~93% branches). **Branch** coverage is the binding constraint
-on raising it, and `NyxmapCard.ts` (~86%) is now the lowest — the residue there is error paths and
-lifecycle races that only a real browser reaches. `LayerSwitcherControl.ts` (~86%) is the other
-one: what is left uncovered is the `getBoundingClientRect()`-driven code that jsdom cannot exercise
-at all (it implements no layout, so every rect is zeros and the assertions would be vacuous). The
-arithmetic itself was moved to `LayerSwitcherLayout.ts` for exactly this reason and *is* fully
-tested; the residue is the DOM plumbing around it.
+rest of the tree carries the average. Actuals are comfortably above the floor (~96% statements,
+~92% branches, ~96% functions, ~98% lines). **Branch** coverage is the binding constraint on
+raising it; the weakest single metric anywhere is `Circle.ts` at ~78% branches, with
+`NyxmapCard.ts` (~87% branches) close behind — the residue there is error paths and lifecycle
+races that only a real browser reaches. `LayerSwitcherControl.ts` is the other one: what is left
+uncovered is the `getBoundingClientRect()`-driven code that jsdom cannot exercise at all (it
+implements no layout, so every rect is zeros and the assertions would be vacuous). The arithmetic
+itself was moved to `LayerSwitcherLayout.ts` for exactly this reason and *is* fully tested; the
+residue is the DOM plumbing around it.
+
+**Coverage figures before and after v0.10.4 are not comparable.** `@vitest/coverage-v8` v4 maps V8
+counts onto the AST (`ast-v8-to-istanbul`) rather than through source-map line ranges. It is more
+precise and reports lower: the same tests over the same source moved from ~99% to ~96% statements
+on the toolchain bump alone. Don't read that as a regression, and don't chase the old numbers.
 
 ### Dev loop
 

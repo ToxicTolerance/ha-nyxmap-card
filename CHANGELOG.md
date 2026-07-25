@@ -5,6 +5,27 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Security / tooling
+
+- **`npm audit` is clean (0 vulnerabilities), down from 13** (2 critical, 8 high,
+  3 moderate). None ever reached the shipped bundle — `npm audit --omit=dev` was
+  already 0, since the runtime dependencies are only `maplibre-gl`, `lit` and
+  `@turf/circle`. `vitest`/`@vitest/coverage-v8` 2 → 4 (clears a critical
+  arbitrary-file-read in the Vitest UI server, plus nested vulnerable
+  `vite`/`esbuild` copies), `eslint` 9 → 10 with `eslint-plugin-lit` 1 → 2 (clears
+  the last `brace-expansion` DoS path, reachable only through `minimatch@3`, which
+  eslint 9 pinned and which has no fixed 1.x release). CI moves to Node 22:
+  eslint 10 requires `^20.19 || ^22.13 || >=24`, which `node-version: 20` met only
+  by resolving to the newest 20.x.
+- **Coverage figures shift on this release and are not comparable with earlier
+  ones.** `@vitest/coverage-v8` v4 maps V8 counts onto the AST
+  (`ast-v8-to-istanbul`) instead of through source-map line ranges — more precise,
+  and it reports lower. The same tests over the same source moved from ~99% to
+  ~96% statements on the bump alone. Eight tests were added to
+  `NyxmapFormListEditor`/`NyxmapCardEditor` to restore headroom over the unchanged
+  70% per-file floor, which the new measurement had narrowed to 0.83pp on one
+  file; the tightest margin is now ~8pp. Thresholds themselves were not lowered.
+
 ### Fixed
 
 - **WMS overlays on the default protocol version.** GetMap requests always sent

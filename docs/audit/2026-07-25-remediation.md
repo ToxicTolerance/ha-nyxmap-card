@@ -25,14 +25,20 @@ The constraint was "fix these without creating new ones", so:
 
 | | Before | After |
 |---|---|---|
-| Tests | 479 | **505** (+26) |
+| Tests | 479 | **513** (+34) |
 | Test files | 37 | 37 |
-| Statements / lines | 99.0% | 99.1% |
-| Branches | 92.0% | **92.8%** |
-| Functions | 97.5% | 97.5% |
+| Statements / lines | 99.0% | 95.9% / 98.4% † |
+| Branches | 92.0% | 91.7% † |
+| Functions | 97.5% | 96.4% † |
 | `typecheck` · `lint --max-warnings 0` · `build` | pass | pass |
 
-Bundle: 1,721.61 kB raw / 375.31 kB gzip. No runtime dependency changed.
+† Not comparable across the row: the v0.10.4 toolchain bump moved
+`@vitest/coverage-v8` to v4, which maps V8 counts onto the AST instead of
+through source-map line ranges. Same tests, same source, more precise (lower)
+measurement — see `CLAUDE.md`. Measured on the *old* provider the after-state
+was 99.1% / 92.8% / 97.5%.
+
+Bundle: 1,721.01 kB raw / 375.08 kB gzip. No runtime dependency changed.
 
 ## Fix-by-fix
 

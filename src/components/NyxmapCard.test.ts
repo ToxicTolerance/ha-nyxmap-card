@@ -1063,11 +1063,21 @@ describe("NyxmapCard", () => {
   describe("history refresh", () => {
     const HISTORY_ENTITY = { entity: "device_tracker.phone", fixed_x: 1, fixed_y: 2, history_start: "1 hour ago" };
 
-    function hassFetching(callWS: ReturnType<typeof vi.fn>): HomeAssistant {
+    /**
+     * `HomeAssistant.callWS` is generic — `<T>(msg) => Promise<T>` — so no mock
+     * can satisfy it without a cast: a mock resolves one concrete value, while
+     * the signature promises whatever `T` the caller asks for. vitest 2 typed
+     * `vi.fn()` loosely enough (`Mock<any[], any>`) that this was an implicit
+     * any; vitest 4 types it precisely, so the cast is now written down once
+     * here instead of happening invisibly at every call site.
+     */
+    type CallWSMock = ReturnType<typeof vi.fn> & HomeAssistant["callWS"];
+
+    function hassFetching(callWS: CallWSMock): HomeAssistant {
       return { states: {}, language: "en", callWS };
     }
 
-    async function bootWithHistory(callWS: ReturnType<typeof vi.fn>, config: Record<string, unknown> = {}) {
+    async function bootWithHistory(callWS: CallWSMock, config: Record<string, unknown> = {}) {
       el.setConfig({ cluster_markers: false, entities: [HISTORY_ENTITY], ...config });
       await el.updateComplete;
       el._map!.fire("style.load");
@@ -1084,7 +1094,7 @@ describe("NyxmapCard", () => {
       // further out of date.
       vi.useFakeTimers();
       try {
-        const callWS = vi.fn().mockResolvedValue({ "device_tracker.phone": [{ a: { latitude: 1, longitude: 2 } }, { a: { latitude: 3, longitude: 4 } }] });
+        const callWS: CallWSMock = vi.fn().mockResolvedValue({ "device_tracker.phone": [{ a: { latitude: 1, longitude: 2 } }, { a: { latitude: 3, longitude: 4 } }] });
         el.setConfig({ cluster_markers: false, entities: [HISTORY_ENTITY] });
         await el.updateComplete;
         el._map!.fire("style.load");
@@ -1105,7 +1115,7 @@ describe("NyxmapCard", () => {
     it("installs no timer when nothing configures history", async () => {
       vi.useFakeTimers();
       try {
-        const callWS = vi.fn().mockResolvedValue({});
+        const callWS: CallWSMock = vi.fn().mockResolvedValue({});
         el.setConfig({ cluster_markers: false, entities: [{ entity: "device_tracker.phone", fixed_x: 1, fixed_y: 2 }] });
         await el.updateComplete;
         el._map!.fire("style.load");
@@ -1122,7 +1132,7 @@ describe("NyxmapCard", () => {
     it("clears the refresh timer on teardown, so a destroyed map is never touched again", async () => {
       vi.useFakeTimers();
       try {
-        const callWS = vi.fn().mockResolvedValue({ "device_tracker.phone": [{ a: { latitude: 1, longitude: 2 } }, { a: { latitude: 3, longitude: 4 } }] });
+        const callWS: CallWSMock = vi.fn().mockResolvedValue({ "device_tracker.phone": [{ a: { latitude: 1, longitude: 2 } }, { a: { latitude: 3, longitude: 4 } }] });
         el.setConfig({ cluster_markers: false, entities: [HISTORY_ENTITY] });
         await el.updateComplete;
         el._map!.fire("style.load");
