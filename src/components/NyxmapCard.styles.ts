@@ -160,8 +160,20 @@ export const nyxmapCardStyles = css`
     line-height: var(--nyxmap-marker-size, 48px);
     text-align: center;
   }
+  /* --mdc-icon-size sizes the glyph itself; the flex box around it is what
+   * actually centres it. Without these, ha-icon lays out as a full-width
+   * block whose inner <svg> is only --mdc-icon-size wide and sits flush
+   * left inside it, so the glyph renders off-centre by half the difference
+   * (measured 9.6px on a 48px marker: (48 - 48*0.6) / 2). Initials/state
+   * markers are unaffected because they centre their own text, which is why
+   * only icon markers looked wrong. */
   .nyxmap-marker ha-icon {
     --mdc-icon-size: 60%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
   }
   /* MapLibre positions its control corners flush against the container
    * edge (bottom:0/right:0 etc, zero inset) — fine against a square box,
