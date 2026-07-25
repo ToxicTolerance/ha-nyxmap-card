@@ -28,6 +28,19 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Documentation
 
+- **The JS plugin hook is now documented visually too**, with a runnable demo
+  plugin (`docs/examples/nyxmap-demo-plugin.js`) loaded into that same instance
+  as an ordinary Lovelace JavaScript-module resource. One screenshot shows every
+  part of `NyxmapPluginContext` working at once — `getHass()` seeding a heatmap
+  overlay from live state, `registerOverlay` adding it, `registerControl` +
+  `injectStyle` adding a legend that renders *because* its CSS reaches the shadow
+  root, and `ctx.maplibregl` building a popup — plus one showing the overlay
+  under its own `group:` heading in the layer switcher. A third demonstrates the
+  fault-isolation guarantee: three deliberately broken plugins
+  (`docs/examples/nyxmap-plugin-faults.js` — a throwing `setup()`, an overlay id
+  claiming the reserved `circle-` prefix, and a control whose `onAdd()` throws)
+  registered *before* the working one, with the card, its markers and the working
+  plugin's overlay/control/popup all intact and the real console output quoted.
 - **A visual guide, shot against a real Home Assistant instance**
   (`docs/visual-guide.md`, 20 screenshots in `docs/images/`). Every option with a
   visual result is pictured next to the YAML that produced it: marker kinds,

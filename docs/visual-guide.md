@@ -20,6 +20,7 @@ Options that have no visual result of their own (`card_size`, `plugins`,
 - [GeoJSON](#geojson)
 - [Raster overlays: tile layers and WMS](#raster-overlays-tile-layers-and-wms)
 - [Layer switcher](#layer-switcher)
+- [Plugins](#plugins)
 - [Visual editor](#visual-editor)
 - [How these were produced](#how-these-were-produced)
 
@@ -96,20 +97,27 @@ zoom: 2.4
 
 ### `display`
 
-`marker` (the default) uses the entity's picture, falling back to its icon, then
-to initials. `icon` skips the picture even when one exists. `state` renders the
+`marker` (the default) walks a fallback chain: the entity's **picture**
+(`entity_picture` or a `picture:` override), then its **icon**, then its
+**initials**. `icon` skips the picture even when one exists. `state` renders the
 entity's current state value, widening into a pill for longer values.
 
-![display: marker, icon and state side by side](images/07-marker-display.png)
+All four are below, left to right — Alice has an `entity_picture`, Bob is forced
+to an icon, Dave has neither so falls through to initials, and the river gauge
+renders its own state:
+
+![The picture, icon, initials and state marker treatments side by side](images/07-marker-display.png)
 
 ```yaml
 entities:
   - entity: person.alice
-    display: marker          # picture → icon → initials
+    display: marker          # has entity_picture → picture marker
   - entity: person.bob
-    display: icon            # skip the picture
+    display: icon            # skip the picture even though one exists
     icon: mdi:account
     color: '#e05252'
+  - entity: person.dave
+    display: marker          # no picture, no icon → initials ("DM")
   - entity: sensor.river_gauge
     display: state           # render the state value itself
     color: '#2f7fd6'
@@ -305,6 +313,95 @@ map_styles:
 An overlay's on/off state survives it disappearing and coming back — a trail whose
 latest fetch was too short, or a circle absorbed by clustering, returns hidden if
 that is how you left it.
+
+## Plugins
+
+`plugins` (on by default) exposes the live `maplibregl.Map` and the **exact
+bundled `maplibregl` module** to third-party JavaScript, so MapLibre-ecosystem
+plugins and custom overlays attach without forking the card. A plugin is just an
+object with a `setup(ctx)` method, pushed onto `window.nyxmapPlugins` from an
+ordinary Lovelace JavaScript-module resource.
+
+The screenshot below is one such plugin — the complete source is
+[`docs/examples/nyxmap-demo-plugin.js`](examples/nyxmap-demo-plugin.js), loaded
+into the demo instance exactly as a dashboard author would load it. It uses every
+part of the context at once:
+
+![A plugin's heatmap overlay, custom legend control and popup](images/21-plugin.png)
+
+- **`getHass()`** seeds the overlay from live Home Assistant state — the heat is
+  sampled around every entity that reports a position.
+- **`registerOverlay(id, spec)`** adds the heatmap source + layer. It is replayed
+  after every theme swap and listed in the layer switcher, like the card's own
+  overlays.
+- **`registerControl(control, position)`** adds the legend, a plain MapLibre
+  `IControl`, in the bottom-left.
+- **`injectStyle(css)`** puts the legend's CSS **inside the card's shadow root**.
+  This is the load-bearing, non-obvious one: without it the control still
+  attaches but renders invisibly at 0×0, because a global stylesheet cannot reach
+  into the shadow root.
+- **`ctx.maplibregl`** builds the popup. Handing out the *bundled* module is the
+  whole point — a plugin script loaded as a separate resource has no other way to
+  reach the card's copy of MapLibre.
+
+```yaml
+plugins: true    # default; set false to withhold the map from plugins entirely
+```
+
+```js
+window.nyxmapPlugins = window.nyxmapPlugins ?? [];
+window.nyxmapPlugins.push({
+  setup(ctx) {
+    ctx.injectStyle(".my-legend { background: var(--card-background-color); }");
+    ctx.registerOverlay("plugin:coverage", {
+      label: "Signal coverage",
+      group: "Demo plugin",
+      source: { type: "geojson", data: myGeoJson },
+      layers: [{ id: "plugin:coverage-heat", type: "heatmap", source: "plugin:coverage" }],
+    });
+    ctx.registerControl(new MyLegendControl(), "bottom-left");
+  },
+});
+```
+
+Registering per-card instead of globally: listen for the bubbling, composed
+`nyxmap-map-ready` `CustomEvent` on the `<nyxmap-card>` element — `event.detail`
+is the same context object.
+
+### Plugin overlays in the layer switcher
+
+A plugin overlay is a first-class switcher entry. `group:` names its section —
+any value the card doesn't recognise is used verbatim as the heading, so a plugin
+gets its own labelled block rather than being mixed into a generic list:
+
+![The plugin's overlay under its own heading in the layer switcher](images/22-plugin-switcher.png)
+
+### Fault isolation
+
+The card's guarantee is that **a misbehaving plugin can't take the card down**.
+Below, three deliberately broken plugins
+([`docs/examples/nyxmap-plugin-faults.js`](examples/nyxmap-plugin-faults.js)) are
+registered *before* the working one — so if isolation failed, everything after
+them would be lost:
+
+![The card rendering normally despite three failing plugins](images/23-plugin-isolation.png)
+
+The card, its markers, and the working plugin's overlay, legend and popup are all
+intact. Each failure is reported on the console and skipped:
+
+```
+[nyxmap-card] plugin setup() failed: Error: demo: this plugin's setup() threw
+[nyxmap-card] plugin overlay id "circle-person.alice" uses the reserved "circle-"
+  prefix (owned by the card's own overlays) — rejected. Namespace it,
+  e.g. "plugin:circle-person.alice".
+[nyxmap-card] plugin registerControl() failed: Error: demo: this control's onAdd() threw
+```
+
+That third case is worth reading twice: overlay ids share **one flat namespace**
+with the card's own overlays, so an id that collides — or that starts with a
+reserved prefix (`history-`, `circle-`, `geojson-`, `tile-layer-`, `wms-layer-`)
+or equals a reserved id (`entity-clusters`) — is rejected outright rather than
+allowed to clobber them. Namespace your ids; `plugin:` is the convention.
 
 ## Visual editor
 
