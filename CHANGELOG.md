@@ -5,6 +5,55 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **WMS overlays on the default protocol version.** GetMap requests always sent
+  `CRS=EPSG:3857`, but WMS renamed that parameter from `SRS` in 1.3.0 — and the
+  card defaults `options.version` to `1.1.1`. Spec-compliant servers
+  (MapServer, GeoServer) answered with a `ServiceException` instead of an image,
+  so the overlay rendered blank with no card-level error. The parameter is now
+  chosen from the version. `version: 1.3.0` was unaffected.
+- **A hidden overlay coming back visible.** An overlay switched off in the layer
+  switcher returned *visible* — with its checkbox still unchecked, needing two
+  clicks to re-hide — if it was ever removed and re-registered.
+  `OverlaySource.remove()` dropped its visibility state while the card kept
+  both the intent and what it had last pushed, so the re-added overlay was never
+  re-hidden. Reachable with no config change at all: clustering removes an
+  entity's accuracy circle for as long as it absorbs it, and a history trail is
+  removed whenever a refresh returns fewer than two points.
+- **Single-sample dots-only history trails.** With `history_show_lines: false`
+  and `history_show_dots: true`, a trail with one recorded position was
+  discarded on the "a line needs two points" rule, taking its layer-switcher
+  entry with it.
+- **The layer switcher's resize tracking.** Its `ResizeObserver` was never
+  attached if the card first rendered while hidden (an HA conditional card, or a
+  dashboard tab not yet opened), and nothing retried.
+
+### Performance
+
+Three costs that ran on every `hass` object — which Home Assistant replaces on
+every state change anywhere in the instance, many times a second:
+
+- Accuracy circles pushed byte-identical polygon geometry through `setData()`,
+  re-tessellating 64 vertices per entity per tick. Now guarded by `dataKey`.
+- The layer switcher re-rendered every tick (fresh item arrays failed Lit's
+  identity check), and each re-render did three `getBoundingClientRect()` reads
+  — a forced synchronous layout. The arrays are now reused when unchanged.
+- The card re-read `--card-background-color` via `getComputedStyle`, flushing
+  pending style, to set its dark-controls flag. Now coalesced to one read per
+  animation frame; an element's first update still reads synchronously so there
+  is no flash of wrongly-themed controls.
+
+### Internal
+
+- `EntitiesRenderService.update()` no longer builds and returns a
+  `LngLatBounds` no caller read, letting `MapLibreGlLike` drop the constructor
+  that only fed it.
+- Review and remediation records in
+  [`docs/audit/2026-07-25-code-review.md`](docs/audit/2026-07-25-code-review.md)
+  and [`docs/audit/2026-07-25-remediation.md`](docs/audit/2026-07-25-remediation.md).
+  Suite 479 → 504 tests; branch coverage 92.0% → 92.8%.
+
 ## [0.10.3] - 2026-07-23
 
 This release is the remediation of a full, orchestrated code audit (correctness,

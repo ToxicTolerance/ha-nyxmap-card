@@ -51,12 +51,13 @@ scoped to shipped code rather than everything.
 Coverage thresholds live in `vite.config.ts` and are **per-file** floors (70% of each metric,
 `perFile: true`) rather than aggregate ones — an aggregate gate lets one module rot to 0% while the
 rest of the tree carries the average. Actuals are far above the floor on most metrics (~99%
-statements/lines, ~97% functions, ~92% branches). **Branch** coverage is the binding constraint on
-raising it: `LayerSwitcherControl.ts` sits around 71%, because what is left uncovered there is the
-`getBoundingClientRect()`-driven code that jsdom cannot exercise at all (it implements no layout,
-so every rect is zeros and the assertions would be vacuous). The arithmetic itself was moved to
-`LayerSwitcherLayout.ts` for exactly this reason and *is* fully tested; the residue is the DOM
-plumbing around it.
+statements/lines, ~97.5% functions, ~93% branches). **Branch** coverage is the binding constraint
+on raising it, and `NyxmapCard.ts` (~86%) is now the lowest — the residue there is error paths and
+lifecycle races that only a real browser reaches. `LayerSwitcherControl.ts` (~86%) is the other
+one: what is left uncovered is the `getBoundingClientRect()`-driven code that jsdom cannot exercise
+at all (it implements no layout, so every rect is zeros and the assertions would be vacuous). The
+arithmetic itself was moved to `LayerSwitcherLayout.ts` for exactly this reason and *is* fully
+tested; the residue is the DOM plumbing around it.
 
 ### Dev loop
 
@@ -117,8 +118,13 @@ intentional — it keeps the fork diffable against the upstream project's module
   `StyleReattach` + `LayerRegistry`, tear all of it down symmetrically). Subclasses supply only
   what differs: the id, the source spec, the layer specs, a `paintKey`, a `sourceKey`, a `dataKey`
   (the identity of the data a live update pushes — an unchanged one skips the push, which is what
-  stops raster/WMS overlays reloading their source on every `hass` tick), and how to update a live
-  source. The reattach + layer-switcher registration itself is shared with `PluginHost` via the
+  stops raster/WMS overlays reloading their source, and accuracy circles re-tessellating their
+  polygon, on every `hass` tick), and how to update a live source. One rule the base enforces for
+  everyone: **an overlay's switcher visibility outlives its removal** — `remove()` deliberately
+  keeps the `visibility` entry, so an overlay that disappears and comes back (a circle while
+  clustering absorbs its entity; a trail whose latest fetch is too short) is rebuilt hidden if that
+  is how the user left it. `NyxmapCard` and `PluginHost` keep their own copies of that intent
+  across a removal too; this side forgetting was a real desync. The reattach + layer-switcher registration itself is shared with `PluginHost` via the
   exported **`registerOverlayLifecycle`** helper, so that wiring lives in one place. **`OverlayIds`**
   is the single source of truth for overlay id prefixes *and* for the non-prefixed reserved ids
   (`entity-clusters`), and is what `PluginHost` reads for its reserved list — see "Adding an overlay

@@ -4,9 +4,14 @@
 
 A read-only engineering review of the whole `src/` tree, run the way a debugger
 would: read the code, form a hypothesis about a failure mode, then try to make
-it happen. **Nothing in `src/` was changed by this pass** — this document is the
-deliverable. Each finding below states how it was verified and what the fix
-would be.
+it happen. Nothing in `src/` was changed by the review pass itself; each finding
+records how it was verified and what the fix would be.
+
+> **All findings below are now fixed** — see
+> [`2026-07-25-remediation.md`](2026-07-25-remediation.md) for the fix-by-fix
+> record, including one approach that was abandoned mid-implementation because
+> it would have introduced a new bug. Suite 479 → 504 tests, branch coverage
+> 92.0% → 92.8%, full gate green. Status is marked per finding below.
 
 ## Baseline: the gate is green
 
@@ -32,20 +37,20 @@ per-frame cost, which nothing asserts on (F3).
 Ranked by severity. "Verified" means the failure was actually reproduced or the
 wrong value was printed, not just reasoned about.
 
-| # | Severity | Area | Summary |
-|---|---|---|---|
-| F1 | **High** | `TileLayersRenderService` | WMS 1.1.1 requests send `CRS=` instead of `SRS=` — every WMS overlay on the default version is rejected by the server |
-| F2 | **High** | `NyxmapCard` / `OverlaySource` | An overlay hidden in the layer switcher comes back **visible** after it is removed and re-registered, while its checkbox still reads unchecked |
-| F3 | Medium | `NyxmapCard`, `LayerSwitcherControl`, `CircleRenderService` | Three per-`hass`-tick costs: a forced style read, 3× forced layout, and a full geodesic-circle rebuild + `setData` per entity |
-| F4 | Low | `EntitiesRenderService` | `update()` builds and returns a `LngLatBounds` that no caller reads |
-| F5 | Low | `EntityHistory` / `HistoryRenderService` | A dots-only trail with a single sample is dropped, though one dot is drawable |
-| F6 | Low | `LayerSwitcherControl` | `ResizeObserver` is never attached if `offsetParent` is null at first render, and nothing retries |
-| F7 | Low | `NyxmapCard`, `PluginHost` | `_overlayVisibility` / `_overlayVisible` are never pruned when an overlay goes away |
-| F8 | Nit | `CLAUDE.md` | Says "36 test files today"; there are 37 |
+| # | Severity | Area | Summary | Status |
+|---|---|---|---|---|
+| F1 | **High** | `TileLayersRenderService` | WMS 1.1.1 requests send `CRS=` instead of `SRS=` — every WMS overlay on the default version is rejected by the server | **Fixed** |
+| F2 | **High** | `NyxmapCard` / `OverlaySource` | An overlay hidden in the layer switcher comes back **visible** after it is removed and re-registered, while its checkbox still reads unchecked | **Fixed** (in `OverlaySource`, not where proposed) |
+| F3 | Medium | `NyxmapCard`, `LayerSwitcherControl`, `CircleRenderService` | Three per-`hass`-tick costs: a forced style read, 3× forced layout, and a full geodesic-circle rebuild + `setData` per entity | **Fixed** (all three) |
+| F4 | Low | `EntitiesRenderService` | `update()` builds and returns a `LngLatBounds` that no caller reads | **Fixed** |
+| F5 | Low | `EntityHistory` / `HistoryRenderService` | A dots-only trail with a single sample is dropped, though one dot is drawable | **Fixed** |
+| F6 | Low | `LayerSwitcherControl` | `ResizeObserver` is never attached if `offsetParent` is null at first render, and nothing retries | **Fixed** (with F3(b)) |
+| F7 | Low | `NyxmapCard`, `PluginHost` | `_overlayVisibility` / `_overlayVisible` are never pruned when an overlay goes away | **Closed as by-design** — pruning intent would be an active bug; see remediation |
+| F8 | Nit | `CLAUDE.md` | Says "36 test files today"; there are 37 | **Fixed** |
 
 ---
 
-### F1 — WMS 1.1.1 requests send `CRS` instead of `SRS` · **High**
+### F1 — WMS 1.1.1 requests send `CRS` instead of `SRS` · **High** · ✅ Fixed
 
 **Where:** `src/services/render/TileLayersRenderService.ts:65` and `:72`
 
@@ -98,7 +103,7 @@ Worth a parameterized test over `undefined | "1.1.1" | "1.3.0"`.
 
 ---
 
-### F2 — a hidden overlay returns visible while the switcher says hidden · **High**
+### F2 — a hidden overlay returns visible while the switcher says hidden · **High** · ✅ Fixed
 
 **Where:** `src/components/NyxmapCard.ts:501-521` (`_syncOverlayVisibility`) ×
 `src/services/render/OverlaySource.ts:269-281` (`remove`)
@@ -146,8 +151,9 @@ drive it in a test. In normal use:
   points (recorder purge, a tracker that went unavailable) removes the trail;
   the next good refresh brings it back visible.
 
-**Fix.** One place, in `_syncOverlayVisibility()`: drop applied entries for ids
-the registry no longer knows about, before the reconcile loop.
+**Fix as proposed (superseded — see below).** One place, in
+`_syncOverlayVisibility()`: drop applied entries for ids the registry no longer
+knows about, before the reconcile loop.
 
 ```ts
 for (const id of this._appliedOverlayVisibility.keys()) {
@@ -161,9 +167,18 @@ and the method already returns early while `!this._ready`, so a style swap can't
 be mistaken for a removal. A regression test should assert the re-added layers
 carry `visibility: "none"`.
 
+> **What was actually done.** This proposal is wrong, and implementing it is how
+> that came out. The prune never fires on the path that matters — cluster
+> release reaches `_refreshCircles()` without going through
+> `_syncOverlayVisibility()` — and wiring it into that path recurses infinitely,
+> because `setVisible()` runs before the applied entry is written and the cluster
+> overlay's `setVisible` calls straight back in. The shipped fix is one line in
+> `OverlaySource.remove()`: keep the `visibility` entry instead of deleting it.
+> See [`2026-07-25-remediation.md`](2026-07-25-remediation.md).
+
 ---
 
-### F3 — three per-`hass`-tick costs · Medium
+### F3 — three per-`hass`-tick costs · Medium · ✅ All three fixed
 
 Home Assistant replaces the whole `hass` object on **every state change anywhere
 in the instance** — the codebase says so itself (`OverlaySource.ts:107-113`,
@@ -207,7 +222,7 @@ so the turf call still happens; skipping it needs the polygon memoized on
 
 ---
 
-### F4 — `EntitiesRenderService.update()` returns dead work · Low
+### F4 — `EntitiesRenderService.update()` returns dead work · Low · ✅ Fixed
 
 **Where:** `src/services/render/EntitiesRenderService.ts:76-157`
 
@@ -227,7 +242,7 @@ caller, in which case a one-line comment saying so is the cheaper fix.
 
 ---
 
-### F5 — a dots-only trail with one sample renders nothing · Low
+### F5 — a dots-only trail with one sample renders nothing · Low · ✅ Fixed
 
 **Where:** `src/models/EntityHistory.ts:10-13`, `src/services/render/HistoryRenderService.ts:121-125`
 
@@ -244,7 +259,7 @@ or gate on `coordinates.length >= (showLines ? 2 : 1)` at the call site.
 
 ---
 
-### F6 — the switcher's `ResizeObserver` can never attach · Low
+### F6 — the switcher's `ResizeObserver` can never attach · Low · ✅ Fixed
 
 **Where:** `src/components/LayerSwitcherControl.ts:100-106`
 
@@ -271,7 +286,7 @@ safety net and promote this to a visible bug. **Fix these two together.**
 
 ---
 
-### F7 — visibility maps are never pruned · Low
+### F7 — visibility maps are never pruned · Low · ✅ Closed as by-design
 
 `NyxmapCard._overlayVisibility` (`:113`) and `PluginHost._overlayVisible`
 (`:75`) accumulate an entry per overlay id ever touched and never drop one.
@@ -283,7 +298,7 @@ Retaining `_overlayVisibility` across a teardown is deliberate and documented
 
 ---
 
-### F8 — doc drift · Nit
+### F8 — doc drift · Nit · ✅ Fixed
 
 `CLAUDE.md:148` says "36 test files today"; `find src -name '*.test.ts'` returns
 **37**. The neighbouring "~10 files that need a DOM" is accurate (exactly 10).
@@ -324,12 +339,17 @@ Recorded so a later reviewer doesn't re-derive it:
 
 ---
 
-## Suggested order of work
+## Order of work (as executed)
 
-1. **F1** — one-line protocol fix, user-visible, no design question. Add a
-   version-parameterized test.
-2. **F2** — one-line fix in `_syncOverlayVisibility`, plus the regression test.
-   Fold F7's pruning in while there.
-3. **F3(b) + F6 together** — they touch the same method and fixing one alone
+Followed as planned, with one deviation. F2 was fixed in `OverlaySource` rather
+than by the card-side prune suggested below: tracing the callback graph to write
+the test showed the prune never fires on the path that matters, and wiring it
+into that path recurses infinitely. The reasoning is in
+[`2026-07-25-remediation.md`](2026-07-25-remediation.md).
+
+1. **F1** — protocol fix + version-parameterized test.
+2. **F2** — the invariant fix, plus two regression tests. F7 closed alongside it.
+3. **F5**, **F3(c)** — independent, small.
+4. **F3(b) + F6 together** — they touch the same method and fixing one alone
    makes the other worse.
-4. **F3(a)**, **F3(c)**, **F5**, **F4**, **F8** — independent, any order.
+5. **F3(a)**, **F4**.
