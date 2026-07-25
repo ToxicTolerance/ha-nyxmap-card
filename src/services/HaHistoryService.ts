@@ -23,6 +23,18 @@ export class HaHistoryService {
       // whole trail (and its layer switcher entry) vanish.
       minimal_response: false,
       no_attributes: false,
+      // false, not the API's default of true: "significant" means *the state
+      // string changed*. A GPS entity that stays "home" (or "not_home", or in
+      // one zone) all afternoon moves only its latitude/longitude attributes,
+      // and the recorder drops every one of those attribute-only rows unless
+      // its domain is in HA's SIGNIFICANT_DOMAINS — which covers
+      // device_tracker but *not* person, sensor or any template entity. What
+      // survives is the include_start_time_state anchor row plus the handful
+      // of real state changes, so the trail is a point pinned at the window
+      // start and nothing after it: `history_start: "5 hours ago"` shows a
+      // 5-hour-old position, and shortening the window to "2 hours ago" only
+      // appears to fix it because it drags that same anchor forward.
+      significant_changes_only: false,
     });
 
     const rows = result?.[entityId] ?? [];

@@ -5,6 +5,30 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **History trails no longer stop at the start of their window.** The
+  `history/history_during_period` request left `significant_changes_only` at the
+  API's default of `true`, where "significant" means *the state string changed*.
+  An entity that moves while reading `home` all afternoon changes only its
+  `latitude`/`longitude` attributes, and the recorder drops every one of those
+  attribute-only rows unless the entity's domain is in Home Assistant's
+  `SIGNIFICANT_DOMAINS` — which covers `device_tracker` but not `person`,
+  `sensor` or template entities. What came back was the start-of-window anchor
+  row plus the few real state changes, so `history_start: "5 hours ago"` drew a
+  position pinned five hours back and nothing newer, and shortening the window to
+  `"2 hours ago"` only appeared to fix it by dragging that same anchor forward.
+  The request now sends `significant_changes_only: false`.
+
+### Documentation
+
+- **`README.md` documents the history window itself** (new "History window"
+  section): the two accepted `history_start`/`history_end` forms, that only
+  `minute`/`hour`/`day`/`week` are understood and an unrecognized `history_start`
+  silently disables that entity's trail, that the relative window slides with real
+  time on every refresh, and that recorder retention — not the card — bounds how
+  far back points actually exist.
+
 ### Security / tooling
 
 - **`npm audit` is clean (0 vulnerabilities), down from 13** (2 critical, 8 high,

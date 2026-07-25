@@ -67,6 +67,11 @@ describe("HaHistoryService.fetchPath", () => {
       // comment for the full explanation.
       minimal_response: false,
       no_attributes: false,
+      // Must be false, and must be sent explicitly — the API defaults it to
+      // true, which drops every attribute-only row (a moving entity whose
+      // state string stays "home") for domains outside HA's
+      // SIGNIFICANT_DOMAINS, leaving a trail anchored at the window start.
+      significant_changes_only: false,
     });
   });
 });
