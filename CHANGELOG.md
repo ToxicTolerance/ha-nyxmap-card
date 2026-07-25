@@ -28,6 +28,19 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Documentation
 
+- **`README.md` now renders correctly inside HACS.** HACS shows the README in
+  the Home Assistant frontend without rewriting relative URLs, so every
+  `docs/images/…` screenshot — the hero shot included — resolved against the HA
+  origin and silently failed to load, and every `docs/visual-guide.md` link went
+  nowhere. All images and repo-file links are now absolute
+  (`raw.githubusercontent.com` for images, `github.com/…/blob/master` for files),
+  which works identically on GitHub. The 15-entry `## Contents` list of `#anchor`
+  links — dead in HACS for the same reason, and the second thing a phone user saw
+  — is replaced by a one-line nav of absolute links. The hero screenshot moved
+  above the fold, the license badge moved to the canonical
+  `img.shields.io/github/license/…` endpoint (the hand-built static one was
+  rendering broken), and a `## License` section was added so the license is
+  readable as text even if a badge image fails.
 - **The JS plugin hook is now documented visually too**, with a runnable demo
   plugin (`docs/examples/nyxmap-demo-plugin.js`) loaded into that same instance
   as an ordinary Lovelace JavaScript-module resource. One screenshot shows every

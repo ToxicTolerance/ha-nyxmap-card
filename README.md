@@ -1,35 +1,28 @@
 # NyxMap Card
 
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![HACS Custom Repository](https://img.shields.io/badge/HACS-custom--repository-41BDF5.svg)](https://hacs.xyz/docs/faq/custom_repositories/)
-[![Release](https://img.shields.io/github/v/release/ToxicTolerance/ha-nyxmap-card)](https://github.com/ToxicTolerance/ha-nyxmap-card/releases)
+[![Release](https://img.shields.io/github/v/release/ToxicTolerance/ha-nyxmap-card?color=41BDF5&label=release)](https://github.com/ToxicTolerance/ha-nyxmap-card/releases/latest)
+[![HACS custom repository](https://img.shields.io/badge/HACS-custom%20repository-41BDF5)](https://hacs.xyz/docs/faq/custom_repositories/)
+[![License: MIT](https://img.shields.io/github/license/ToxicTolerance/ha-nyxmap-card?color=blue)](https://github.com/ToxicTolerance/ha-nyxmap-card/blob/master/LICENSE)
 
 A Home Assistant Lovelace map card rendered with **[MapLibre GL](https://maplibre.org/)**
-(vector tiles, GPU-accelerated) instead of Leaflet. Forked in spirit from
-[nathan-gs/ha-map-card](https://github.com/nathan-gs/ha-map-card) — the YAML
-config surface stays close to upstream so existing dashboards migrate with
-minimal changes, while the entire draw layer is swapped from Leaflet to
-MapLibre GL: smooth vector styles, a 3D globe projection, and native
-GeoJSON/geometry rendering.
+(vector tiles, GPU-accelerated) instead of Leaflet — smooth vector styles, a 3D
+globe projection, and native GeoJSON/geometry rendering.
 
-![NyxMap card running in Home Assistant](docs/images/01-hero.png)
+![NyxMap card running in Home Assistant](https://raw.githubusercontent.com/ToxicTolerance/ha-nyxmap-card/master/docs/images/01-hero.png)
 
-## Contents
+Forked in spirit from [nathan-gs/ha-map-card](https://github.com/nathan-gs/ha-map-card):
+the YAML config surface stays close to upstream, so existing dashboards migrate
+with minimal changes while the entire draw layer is swapped to MapLibre GL.
 
-- [Features](#features)
-- [Screenshots](#screenshots)
-- [Installation](#installation)
-- [Quick start](#quick-start)
-- [Configuration reference](#configuration-reference)
-  - [Card options](#card-options)
-  - [Entity options](#entity-options)
-  - [Circle options](#circle-options-per-entity-circle)
-  - [GeoJSON options](#geojson-options-per-entity-geojson)
-  - [Tile/WMS layer options](#tilewms-layer-options-tile_layers--wms)
-- [Plugins](#plugins)
-- [Examples](#examples)
-- [Development](#development)
-- [Roadmap](#roadmap)
+**[Features](https://github.com/ToxicTolerance/ha-nyxmap-card#features)** ·
+**[Screenshots](https://github.com/ToxicTolerance/ha-nyxmap-card#screenshots)** ·
+**[Installation](https://github.com/ToxicTolerance/ha-nyxmap-card#installation)** ·
+**[Quick start](https://github.com/ToxicTolerance/ha-nyxmap-card#quick-start)** ·
+**[Configuration](https://github.com/ToxicTolerance/ha-nyxmap-card#configuration-reference)** ·
+**[Plugins](https://github.com/ToxicTolerance/ha-nyxmap-card#plugins)** ·
+**[Examples](https://github.com/ToxicTolerance/ha-nyxmap-card#examples)** ·
+**[Visual guide](https://github.com/ToxicTolerance/ha-nyxmap-card/blob/master/docs/visual-guide.md)** ·
+**[Roadmap](https://github.com/ToxicTolerance/ha-nyxmap-card#roadmap)**
 
 ## Features
 
@@ -55,15 +48,15 @@ See [Roadmap](#roadmap) for what's not built yet.
 ## Screenshots
 
 Every option below is shown running in a real Home Assistant instance in the
-**[visual guide](docs/visual-guide.md)** — with the YAML that produced each one.
+**[visual guide](https://github.com/ToxicTolerance/ha-nyxmap-card/blob/master/docs/visual-guide.md)** — with the YAML that produced each one.
 A few highlights:
 
 | | |
 |---|---|
-| [![3D globe projection](docs/images/05-projection-globe.png)](docs/visual-guide.md#projection)<br>**`projection: globe`** — the default | [![History trail](docs/images/10-history-lines.png)](docs/visual-guide.md#history-trails)<br>**History trails** from HA's recorder |
-| [![Marker clustering](docs/images/12-clustering-on.png)](docs/visual-guide.md#clustering)<br>**Clustering** on screen-space overlap | [![GeoJSON shapes](docs/images/14-geojson.png)](docs/visual-guide.md#geojson)<br>**GeoJSON** from entity attributes |
-| [![Layer switcher](docs/images/17-layer-switcher.png)](docs/visual-guide.md#layer-switcher)<br>**Layer switcher** panel | [![Visual editor](docs/images/19-visual-editor.png)](docs/visual-guide.md#visual-editor)<br>**Visual editor** with live preview |
-| [![Plugin overlay and control](docs/images/21-plugin.png)](docs/visual-guide.md#plugins)<br>**[JS plugin hook](#plugins)** — overlays, controls, popups | [![Plugin fault isolation](docs/images/23-plugin-isolation.png)](docs/visual-guide.md#fault-isolation)<br>**Fault isolation** — broken plugins can't break the card |
+| [![3D globe projection](https://raw.githubusercontent.com/ToxicTolerance/ha-nyxmap-card/master/docs/images/05-projection-globe.png)](https://github.com/ToxicTolerance/ha-nyxmap-card/blob/master/docs/visual-guide.md#projection)<br>**`projection: globe`** — the default | [![History trail](https://raw.githubusercontent.com/ToxicTolerance/ha-nyxmap-card/master/docs/images/10-history-lines.png)](https://github.com/ToxicTolerance/ha-nyxmap-card/blob/master/docs/visual-guide.md#history-trails)<br>**History trails** from HA's recorder |
+| [![Marker clustering](https://raw.githubusercontent.com/ToxicTolerance/ha-nyxmap-card/master/docs/images/12-clustering-on.png)](https://github.com/ToxicTolerance/ha-nyxmap-card/blob/master/docs/visual-guide.md#clustering)<br>**Clustering** on screen-space overlap | [![GeoJSON shapes](https://raw.githubusercontent.com/ToxicTolerance/ha-nyxmap-card/master/docs/images/14-geojson.png)](https://github.com/ToxicTolerance/ha-nyxmap-card/blob/master/docs/visual-guide.md#geojson)<br>**GeoJSON** from entity attributes |
+| [![Layer switcher](https://raw.githubusercontent.com/ToxicTolerance/ha-nyxmap-card/master/docs/images/17-layer-switcher.png)](https://github.com/ToxicTolerance/ha-nyxmap-card/blob/master/docs/visual-guide.md#layer-switcher)<br>**Layer switcher** panel | [![Visual editor](https://raw.githubusercontent.com/ToxicTolerance/ha-nyxmap-card/master/docs/images/19-visual-editor.png)](https://github.com/ToxicTolerance/ha-nyxmap-card/blob/master/docs/visual-guide.md#visual-editor)<br>**Visual editor** with live preview |
+| [![Plugin overlay and control](https://raw.githubusercontent.com/ToxicTolerance/ha-nyxmap-card/master/docs/images/21-plugin.png)](https://github.com/ToxicTolerance/ha-nyxmap-card/blob/master/docs/visual-guide.md#plugins)<br>**[JS plugin hook](#plugins)** — overlays, controls, popups | [![Plugin fault isolation](https://raw.githubusercontent.com/ToxicTolerance/ha-nyxmap-card/master/docs/images/23-plugin-isolation.png)](https://github.com/ToxicTolerance/ha-nyxmap-card/blob/master/docs/visual-guide.md#fault-isolation)<br>**Fault isolation** — broken plugins can't break the card |
 
 ## Installation
 
@@ -103,7 +96,7 @@ framed, and optionally trail their recent history.
 
 ### Visual editor
 
-[![The NyxMap visual editor](docs/images/19-visual-editor.png)](docs/visual-guide.md#visual-editor)
+[![The NyxMap visual editor](https://raw.githubusercontent.com/ToxicTolerance/ha-nyxmap-card/master/docs/images/19-visual-editor.png)](https://github.com/ToxicTolerance/ha-nyxmap-card/blob/master/docs/visual-guide.md#visual-editor)
 
 Open **Edit card** on a NyxMap card and you'll get a visual form instead of
 raw YAML: every [card option](#card-options) above, plus a full entities list
@@ -118,7 +111,7 @@ save.
 ## Configuration reference
 
 Every option here is pictured, with its YAML, in the
-**[visual guide](docs/visual-guide.md)**.
+**[visual guide](https://github.com/ToxicTolerance/ha-nyxmap-card/blob/master/docs/visual-guide.md)**.
 
 ### Card options
 
@@ -266,11 +259,11 @@ where the parameter was renamed.
 
 ## Plugins
 
-[![A plugin's heatmap overlay, legend control and popup](docs/images/21-plugin.png)](docs/visual-guide.md#plugins)
+[![A plugin's heatmap overlay, legend control and popup](https://raw.githubusercontent.com/ToxicTolerance/ha-nyxmap-card/master/docs/images/21-plugin.png)](https://github.com/ToxicTolerance/ha-nyxmap-card/blob/master/docs/visual-guide.md#plugins)
 
 *A plugin adding a heatmap overlay, a custom legend control and a popup — full
-source in [`docs/examples/nyxmap-demo-plugin.js`](docs/examples/nyxmap-demo-plugin.js),
-walked through in the [visual guide](docs/visual-guide.md#plugins).*
+source in [`docs/examples/nyxmap-demo-plugin.js`](https://github.com/ToxicTolerance/ha-nyxmap-card/blob/master/docs/examples/nyxmap-demo-plugin.js),
+walked through in the [visual guide](https://github.com/ToxicTolerance/ha-nyxmap-card/blob/master/docs/visual-guide.md#plugins).*
 
 The card bundles MapLibre GL and hands third-party code the **live map** and the
 **exact bundled `maplibregl` module** through a small JS extension hook, so you
@@ -482,7 +475,7 @@ npm run test:coverage   # vitest + enforced coverage thresholds
 Releases are cut by pushing a `v*` tag — `.github/workflows/release.yml` first
 runs the full test gate, then builds `dist/nyxmap-card.js`, attaches it to a
 GitHub Release, and pulls that version's notes from
-[`CHANGELOG.md`](CHANGELOG.md); `filename` in `hacs.json` points HACS at that
+[`CHANGELOG.md`](https://github.com/ToxicTolerance/ha-nyxmap-card/blob/master/CHANGELOG.md); `filename` in `hacs.json` points HACS at that
 release asset.
 
 ## Roadmap
@@ -494,4 +487,11 @@ Not yet built, tracked as upstream `ha-map-card` feature parity:
 - `history_start`/`history_end` given as an entity id (e.g. `input_number.hours`); relative
   ("5 hours ago") and absolute/ISO values work today
 
-See [`CLAUDE.md`](CLAUDE.md) for the full architecture notes and the porting backlog.
+See [`CLAUDE.md`](https://github.com/ToxicTolerance/ha-nyxmap-card/blob/master/CLAUDE.md) for the full architecture notes and the porting backlog.
+
+## License
+
+[MIT](https://github.com/ToxicTolerance/ha-nyxmap-card/blob/master/LICENSE) © ha-nyxmap-card
+contributors. Bundled [MapLibre GL JS](https://github.com/maplibre/maplibre-gl-js) is
+BSD-3-Clause; the card is forked in spirit from
+[nathan-gs/ha-map-card](https://github.com/nathan-gs/ha-map-card) (MIT).
