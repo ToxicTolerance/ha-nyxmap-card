@@ -7,6 +7,34 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **Cluster bubbles sat off-centre from the entities they stood for.** A bubble
+  was anchored at the arithmetic mean of its members' longitude/latitude, but
+  every other part of clustering — which entities group at all — is decided in
+  screen space via `map.project()`. A lng/lat mean is only the visual midpoint
+  under a linear projection, and neither projection this card offers is linear:
+  Web Mercator's latitude axis is logarithmic, so the error grows with the
+  group's latitude span and with distance from the equator, and the default
+  `projection: globe` is nonlinear in *both* axes and increasingly so away from
+  the globe's centre, where the anchor could land outside the members entirely.
+  (It also put a group straddling the antimeridian half a world away, longitudes
+  179 and −179 averaging to 0.) The bubble — and the point its members spring
+  into and out of — is now the mean of the members' *projected* positions,
+  unprojected back to lng/lat: the pixel midpoint by construction, whatever
+  projection is active. It reuses the coordinates grouping was already decided
+  from, so it costs no extra projection work and cannot disagree with the
+  collision test that formed the group.
+- **A chain of just-touching markers no longer collapses into one
+  viewport-wide bubble.** Grouping is single-linkage (A joins B, B joins C ⇒ one
+  group) and was unbounded, so a row of markers each overlapping only its
+  immediate neighbour fused into a single bubble spanning the whole map, anchored
+  at a centroid that covered the entities in the middle rather than sitting
+  between anything — the other half of why bubbles read as offset. Merges are now
+  taken closest-pair-first and refused once the resulting group's screen bounding
+  box would stretch past three times its largest marker's diameter (~144px at the
+  default marker size), so such a chain breaks at its loosest links into bubbles
+  that each genuinely sit among their own members. A tight blob well inside that
+  bound — the case clustering exists for — groups exactly as before.
+
 - **History trails no longer stop at the start of their window.** The
   `history/history_during_period` request left `significant_changes_only` at the
   API's default of `true`, where "significant" means *the state string changed*.

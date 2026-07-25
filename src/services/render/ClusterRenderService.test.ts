@@ -21,6 +21,7 @@ interface BubbleInternal {
   marker: FakeMarker;
   ids: Set<string>;
   count: number;
+  centroid: [number, number];
 }
 
 function bubbles(service: ClusterRenderService): Map<string, BubbleInternal> {
@@ -74,6 +75,69 @@ describe("ClusterRenderService", () => {
     expect(bubbles(service).size).toBe(1);
     expect([...bubbles(service).values()][0]!.count).toBe(3);
     expect([...service.getAbsorbed().keys()].sort()).toEqual(["a", "b", "c"]);
+  });
+
+  it("breaks a chain that would sprawl past the spread cap into separate bubbles", () => {
+    const map = createFakeMaplibreMap();
+    const service = makeService(map);
+
+    // Six markers in a row, 40px apart: every neighbouring pair overlaps (40 <
+    // 45.6), so pure single-linkage would fuse all six into one bubble spanning
+    // 200px — five times a bubble's own diameter, anchored at x=100 where it
+    // covers the entities in the middle rather than sitting between any of
+    // them. The cap (3 x 48 = 144px) refuses the merge that would cross it.
+    service.update(
+      [0, 40, 80, 120, 160, 200].map((x, i) => entityAt(`e${i}`, x, 0)),
+      hassWith(),
+    );
+
+    const groups = [...bubbles(service).values()];
+    expect(groups.length).toBeGreaterThan(1);
+    for (const g of groups) expect(g.count).toBeLessThan(6);
+    // Every entity is still accounted for: the chain is partitioned, not
+    // thinned out.
+    expect(groups.reduce((n, g) => n + g.count, 0)).toBe(6);
+  });
+
+  it("keeps a tight blob wider than one bubble in a single group", () => {
+    const map = createFakeMaplibreMap();
+    const service = makeService(map);
+
+    // 3x3 grid at 40px pitch: 113px diagonal, inside the 144px cap. The cap is
+    // there to stop viewport-wide chains, not to fragment a genuine pile-up.
+    const entities = [0, 40, 80].flatMap((x, i) =>
+      [0, 40, 80].map((y, j) => entityAt(`e${i}${j}`, x, y)),
+    );
+    service.update(entities, hassWith());
+
+    expect(bubbles(service).size).toBe(1);
+    expect([...bubbles(service).values()][0]!.count).toBe(9);
+  });
+
+  it("anchors a bubble at the mean of member SCREEN positions, not of their lng/lat", () => {
+    const map = createFakeMaplibreMap();
+    // A deliberately nonlinear projection — as both Web Mercator (log latitude)
+    // and the default globe really are. y = lat^2/40, so lat 0 -> y 0 and
+    // lat 40 -> y 40: 40px apart on screen, inside the merge threshold.
+    map.project.mockImplementation((lngLat: [number, number]) => ({
+      x: lngLat[0],
+      y: (lngLat[1] * lngLat[1]) / 40,
+    }));
+    map.unproject.mockImplementation((point: [number, number]) => ({
+      lng: point[0],
+      lat: Math.sqrt(point[1] * 40),
+    }));
+    const service = makeService(map);
+
+    service.update([entityAt("a", 0, 0), entityAt("b", 0, 40)], hassWith());
+
+    const bubble = [...bubbles(service).values()][0]!;
+    // Screen midpoint is y=20, which is lat sqrt(800) ~ 28.28 — NOT the lng/lat
+    // mean of 20, which would render 8px above where the eye expects it.
+    expect(bubble.centroid[1]).toBeCloseTo(Math.sqrt(800), 6);
+    expect(bubble.marker.getLngLat()[1]).toBeCloseTo(Math.sqrt(800), 6);
+    // The absorbed markers spring toward that same point.
+    expect(service.getAbsorbed().get("a")![1]).toBeCloseTo(Math.sqrt(800), 6);
   });
 
   it("does not cluster at or above cluster_max_zoom regardless of distance", () => {
