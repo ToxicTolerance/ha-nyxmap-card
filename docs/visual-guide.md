@@ -96,20 +96,27 @@ zoom: 2.4
 
 ### `display`
 
-`marker` (the default) uses the entity's picture, falling back to its icon, then
-to initials. `icon` skips the picture even when one exists. `state` renders the
+`marker` (the default) walks a fallback chain: the entity's **picture**
+(`entity_picture` or a `picture:` override), then its **icon**, then its
+**initials**. `icon` skips the picture even when one exists. `state` renders the
 entity's current state value, widening into a pill for longer values.
 
-![display: marker, icon and state side by side](images/07-marker-display.png)
+All four are below, left to right — Alice has an `entity_picture`, Bob is forced
+to an icon, Dave has neither so falls through to initials, and the river gauge
+renders its own state:
+
+![The picture, icon, initials and state marker treatments side by side](images/07-marker-display.png)
 
 ```yaml
 entities:
   - entity: person.alice
-    display: marker          # picture → icon → initials
+    display: marker          # has entity_picture → picture marker
   - entity: person.bob
-    display: icon            # skip the picture
+    display: icon            # skip the picture even though one exists
     icon: mdi:account
     color: '#e05252'
+  - entity: person.dave
+    display: marker          # no picture, no icon → initials ("DM")
   - entity: sensor.river_gauge
     display: state           # render the state value itself
     color: '#2f7fd6'
